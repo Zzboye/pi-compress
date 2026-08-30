@@ -1,0 +1,134 @@
+# pi-context-compress
+
+一个 pi 扩展，**接管 pi 的上下文管理**：本地小模型在每轮 LLM 回答后**异步**整理压缩对话（思考与工具调用→动作摘要），原始信息落盘保存；LLM 需要细节时通过 **recall 工具**按 ID 取回逐字原文。对用户无感——不打断回答流，仅在上下文逼近上限时才可能短暂等待。
+
+## 工作原理
+
+```
+用户提问 ──────────────────────→ LLM 回答展示（不阻塞）
+                  │ agent_settled 事件
+                  ▼
+        本地模型后台摘要（异步）  ── 失败 → 重试队列（指数退避）
+                  │ onLedger              │ 持续失败 → 保留原文（passthrough）
+                  ▼
+        动作日志落盘（CustomEntry，不进 LLM 上下文，↩entryId 标记可召回）
+                  │ 下次 context 事件
+                  ▼
+   ┌─────────────── 窗外旧 turn → 动作日志头（结论 + ↩ID，细节已压缩）
+   │                 窗内近 turn → 原文保留（默认 20k tokens）
+   │                  │ 上下文 ≥ 76%（forceRatio）
+   │                  ▼
+   │              强制点：等摘要队列清空（≤120s）→ 重组
+   │                       超时 → 降级，交 pi 原生 auto-compaction 兜底
+   │
+   └─→ LLM 需要某条细节 → recall 工具，传入 ↩ 后的 ID → 取回逐字原文（单条截断 4k tokens）
+```
+
+核心思想：**结论在头部保新鲜（primacy），近期窗口在尾部保时序（recency），细节按需 recall（zero model call）**。思考内容直接丢弃（过程噪声），工具调用的 target/路径逐字保留。
+
+## 安装
+
+```bash
+git clone <this-repo> /path/to/pi-compress
+cd /path/to/pi-compress
+npm install            # 安装类型与运行时依赖
+```
+
+把目录链接到 pi 的扩展目录（pi 会读取 `package.json` 的 `pi.extensions` 字段，直接加载 `./src/index.ts`，无需构建）：
+
+```bash
+# Unix（macOS/Linux）
+mkdir -p ~/.pi/agent/extensions
+ln -s /path/to/pi-compress ~/.pi/agent/extensions/context-compress
+
+# Windows（管理员 cmd）
+mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compress"
+```
+
+配置写入 pi 的 settings.json（见下节），重启 pi 即生效。**不配置 `summarizer` 时插件静默观察不接管**——`/compress-status` 显示「未配置」。
+
+## 配置
+
+在 `~/.pi/agent/settings.json`（全局）或项目根 `.pi/settings.json`（项目级，覆盖全局）的 `contextCompress` 字段配置：
+
+```jsonc
+{
+  "contextCompress": {
+    // 方式一：复用 pi 模型注册表（推荐——与主模型统一管理）
+    "summarizer": { "provider": "ollama", "model": "qwen3:8b" },
+
+    // 方式二：OpenAI 兼容直连（baseUrl 指向本地/远端兼容端点）
+    // "summarizer": { "baseUrl": "http://localhost:11434/v1", "model": "qwen3:8b" },
+
+    "verbatimCheck": true,
+    "keepRecentTokens": 20000,
+    "forceRatio": 0.76,
+    "retry": { "maxAttempts": 3, "backoffMs": 2000 },
+    "ledgerMergeThreshold": 40
+  }
+}
+```
+
+### 配置项
+
+| 字段 | 默认值 | 范围 | 说明 |
+|---|---|---|---|
+| `summarizer` | `undefined` | — | 摘要后端。`undefined` = 插件只观察不压缩。`{provider,model}` 用 pi 注册表；`{baseUrl,model[,apiKey]}` 用 OpenAI 兼容直连 |
+| `verbatimCheck` | `true` | bool | 逐字校验：摘要条目里的路径/命令必须在对话原文中出现，否则剔除（防小模型编造） |
+| `keepRecentTokens` | `20000` | 1000–1000000 | 近期窗口大小（tokens），窗口内 turn 原文保留 |
+| `forceRatio` | `0.76` | 0.1–0.99 | 上下文用量超过此比例触发强制点（等待队列清空后重组） |
+| `retry.maxAttempts` | `3` | 1–100 | 单 turn 摘要失败重试次数 |
+| `retry.backoffMs` | `2000` | 100–600000 | 指数退避基数（第 n 次等待 `backoffMs * 2^(n-1)`） |
+| `ledgerMergeThreshold` | `40` | 5–10000 | 相邻动作日志合并阈值（v1 占位，合并逻辑未实现） |
+
+### 方式一：pi 模型注册表
+
+`summarizer: { provider, model }` 让插件复用 pi 的 `modelRegistry`（与主对话模型统一管理 provider/凭据）。以 Ollama 为例，先在 pi 注册 Ollama provider（参见 pi 文档 `docs/custom-provider.md`），然后：
+
+```jsonc
+{ "contextCompress": { "summarizer": { "provider": "ollama", "model": "qwen3:8b" } } }
+```
+
+### 方式二：OpenAI 兼容直连
+
+`summarizer: { baseUrl, model, apiKey? }` 直接走 OpenAI 兼容 `/chat/completions`，不经 pi 注册表。适合本地 Ollama（`http://localhost:11434/v1`）或任何兼容端点：
+
+```jsonc
+{ "contextCompress": { "summarizer": { "baseUrl": "http://localhost:11434/v1", "model": "qwen3:8b" } } }
+```
+
+## 模型选型建议
+
+- **参数量 4B–8B**：摘要任务量小，本地推理要快；过小（<4B）指令遵循不稳，过大（>13B）本地延迟高、拖慢回答后整理。
+- **指令遵循稳定优先于推理力**：摘要只做"结构化复述 + 路径逐字复制"，不需要强推理，但必须严格遵守 JSON schema 与"target 来自清单"约束。
+- **Qwen 系推荐**：中文表达自然、JSON 输出稳定。`qwen3:8b` 是甜点档；显存紧用 `qwen3:4b`。
+- **中英混合注意**：代码路径/标识符多为英文，prompt 已要求"detail 中路径必须能在原文找到"，但小模型偶有改写——`verbatimCheck: true` 会自动剔除失真条目。
+
+## `/compress-status` 命令
+
+在 pi 里运行 `/compress-status` 查看插件运行状态：
+
+```
+已摘要 turn 数：12
+队列积压：0
+失败未摘：0
+降级状态：正常
+最近装配：窗口 3 turns / 替换 2 / 原文放行 0
+摘要后端：{"kind":"registry","provider":"ollama","model":"qwen3:8b"}
+```
+
+- **已摘要 turn 数** / **队列积压** / **失败未摘**：摘要进度与健康度。
+- **降级状态**：`正常` 或 `已降级（pi 原生压缩接管中）`——后者表示强制点等待超时，本轮上下文不重组，交 pi 原生 auto-compaction 兜底；队列恢复后自动回到正常。
+- **最近装配**：上一次 context 事件重组的统计（窗口/替换/原文放行 turn 数）。
+- **摘要后端**：当前生效的后端配置；`未配置（插件未接管）` 表示未设 `summarizer`。
+
+## 已知限制（v1）
+
+- **动作日志合并未实现**：`ledgerMergeThreshold` 是占位字段；当前每 turn 独立摘要，未做相邻日志合并压缩。
+- **RPC/print 模式未特殊处理**：插件在 `tui` 模式下完整工作；`rpc`/`json`/`print` 模式下事件仍触发，但 `ctx.ui.notify`/`setStatus` 可能无可见输出。
+- **单 turn 超大**：单个 turn 超过 `keepRecentTokens` 时，按设计仍整体保留在窗口内（不拆分），会导致窗口临时超过预算，直到下一轮 pi 原生压缩兜底。
+- **逐字校验依赖路径正则**：`verbatimCheck` 用 `/[\w./\\-]+\.\w{1,4}/g` 提取疑似路径，对无扩展名的命令/参数不做校验。
+
+## 许可
+
+MIT
