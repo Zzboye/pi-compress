@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-coding-agent";
+import type { ToolActionInfo } from "./prompts.js";
 
 export const LEDGER_CUSTOM_TYPE = "context-compress:ledger";
 
@@ -32,4 +33,39 @@ export function renderActionLedger(ledgers: LedgerData[]): AgentMessage {
     content: [{ type: "text", text: lines.join("\n") }],
     timestamp: Date.now(),
   } as AgentMessage;
+}
+
+export class LedgerParseError extends Error {}
+
+const PATH_RE = /[\w./\\-]+\.\w{1,4}/g; // 提取 detail 中疑似路径/文件名做逐字校验
+
+export function parseLedgerOutput(
+  raw: string, actions: ToolActionInfo[], turnText: string, verbatimCheck: boolean,
+): LedgerSummary {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim());
+  } catch {
+    throw new LedgerParseError("model output is not valid JSON");
+  }
+  if (typeof parsed?.userIntent !== "string" || typeof parsed?.outcome !== "string" || !Array.isArray(parsed?.groups)) {
+    throw new LedgerParseError("model output missing required fields");
+  }
+  const byTarget = new Map(actions.map((a) => [a.target, a]));
+  const groups: LedgerGroup[] = [];
+  for (const g of parsed.groups) {
+    const phase = (["investigate", "fix", "verify", "discuss", "other"] as const).includes(g?.phase) ? g.phase : "other";
+    const entries: LedgerAction[] = [];
+    for (const e of g?.entries ?? []) {
+      const mech = byTarget.get(e?.target);
+      if (!mech) continue; // 模型编造的 target → 剔除
+      if (verbatimCheck) {
+        const suspicious = String(e.detail ?? "").match(PATH_RE) ?? [];
+        if (suspicious.some((p) => !turnText.includes(p) && !mech.target.includes(p))) continue; // 失真 → 剔除
+      }
+      entries.push({ action: mech.action, target: mech.target, detail: String(e.detail ?? ""), recallIds: mech.entryIds });
+    }
+    groups.push({ phase, entries }); // 空组保留：逐字校验剔除条目后组仍存在（prompts.test.ts verbatim guard 用例要求 groups[0].entries.length===0）
+  }
+  return { userIntent: parsed.userIntent, outcome: parsed.outcome, groups };
 }
