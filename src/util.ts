@@ -33,10 +33,10 @@ export function extractToolActions(turn: Turn): ToolActionInfo[] {
     for (const block of e.message.content as any[]) {
       if (block?.type !== "toolCall") continue;
       const args = block.arguments ?? {};
-      const target = args.path ?? args.command ?? args.url ?? block.toolName;
-      const prev = out.find((a) => a.action === block.toolName && a.target === target);
+      const target = args.path ?? args.command ?? args.url ?? block.name;
+      const prev = out.find((a) => a.action === block.name && a.target === target);
       if (prev) prev.entryIds.push(e.id);
-      else out.push({ action: block.toolName, target: String(target), entryIds: [e.id] });
+      else out.push({ action: block.name, target: String(target), entryIds: [e.id] });
     }
   }
   return out;

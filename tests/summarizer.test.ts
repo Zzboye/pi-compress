@@ -8,7 +8,7 @@ function turnFixture(): { turn: Turn; validOutput: string } {
     { id: "u1", message: { role: "user", content: [{ type: "text", text: "修内存泄漏" }] } as AgentMessage },
     { id: "a1", message: { role: "assistant", content: [
       { type: "text", text: "我先看看文件" },
-      { type: "toolCall", toolCallId: "tc1", toolName: "read", arguments: { path: "src/hooks.ts" } } as any,
+      { type: "toolCall", toolCallId: "tc1", name: "read", arguments: { path: "src/hooks.ts" } } as any,
     ] } as AgentMessage },
     { id: "t1", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "文件内容…" }] } as AgentMessage },
     { id: "t2", message: { role: "assistant", content: [{ type: "text", text: "修好了" }] } as AgentMessage },
