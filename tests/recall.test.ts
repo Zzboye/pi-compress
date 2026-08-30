@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { executeRecall } from "../src/recall.js";
 import type { MessageEntry } from "../src/util.js";
-import type { AgentMessage } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "../src/types.js";
 
 const branch: MessageEntry[] = [
   { id: "e1", message: { role: "user", content: [{ type: "text", text: "问题原文" }] } as AgentMessage },

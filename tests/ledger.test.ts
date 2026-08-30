@@ -28,7 +28,7 @@ describe("renderActionLedger", () => {
   it("renders markdown with header, turns, actions and recall markers", () => {
     const msg = renderActionLedger([sample]);
     expect(msg.role).toBe("user");
-    const text = (msg.content as Array<{ type: string; text?: string }>).map((c) => c.text ?? "").join("");
+    const text = ((msg as any).content as Array<{ type: string; text?: string }>).map((c) => c.text ?? "").join("");
     expect(text).toContain("<action-ledger>");
     expect(text).toContain("T1 · 用户意图：修复内存泄漏");
     expect(text).toContain("调查：read src/hooks.ts → 发现 useEffect 清理函数缺失 ↩e003,↩e005");
@@ -38,14 +38,14 @@ describe("renderActionLedger", () => {
 
   it("numbers turns sequentially", () => {
     const msg = renderActionLedger([sample, sample]);
-    const text = (msg.content as Array<{ type: string; text?: string }>).map((c) => c.text ?? "").join("");
+    const text = ((msg as any).content as Array<{ type: string; text?: string }>).map((c) => c.text ?? "").join("");
     expect(text).toContain("T1 ·");
     expect(text).toContain("T2 ·");
   });
 
   it("returns empty ledger message when no ledgers", () => {
     const msg = renderActionLedger([]);
-    const text = (msg.content as Array<{ type: string; text?: string }>).map((c) => c.text ?? "").join("");
+    const text = ((msg as any).content as Array<{ type: string; text?: string }>).map((c) => c.text ?? "").join("");
     expect(text).not.toContain("T1");
   });
 });

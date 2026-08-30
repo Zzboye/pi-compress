@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "./types.js";
 import type { ToolActionInfo } from "./prompts.js";
 
 export const LEDGER_CUSTOM_TYPE = "context-compress:ledger";

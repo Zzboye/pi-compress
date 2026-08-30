@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { splitIntoTurns, type MessageEntry } from "../src/util.js";
 import { findWindowTurns, assembleContext } from "../src/assembler.js";
-import type { AgentMessage } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "../src/types.js";
 import type { LedgerData } from "../src/ledger.js";
 
 function msg(id: string, role: "user" | "assistant" | "toolResult", text: string): MessageEntry {
@@ -80,13 +80,13 @@ describe("assembleContext", () => {
     const { messages, stats } = assembleContext(entries, cache, 100); // 小预算 → turn1/2 在窗外
     // 头部是 ledger 消息
     expect(messages[0].role).toBe("user");
-    const head = (messages[0].content as any[]).map((c) => c.text ?? "").join("");
+    const head = ((messages[0] as any).content as any[]).map((c) => c.text ?? "").join("");
     expect(head).toContain("<action-ledger>");
     // 窗口内 turn 原文保留（ledger + e + f）
     expect(messages.length).toBeGreaterThanOrEqual(3);
     expect(stats.replacedTurns).toBeGreaterThanOrEqual(1);
     // 被替换 turn 的原文（big="z"…）不应出现；窗口 turn（recent="r"…）保留
-    const all = messages.map((m) => (m.content as any[]).map((c) => c.text ?? "").join("")).join("\n");
+    const all = messages.map((m) => ((m as any).content as any[]).map((c) => c.text ?? "").join("")).join("\n");
     expect(all).not.toContain("z".repeat(4000));
   });
 
@@ -109,7 +109,7 @@ describe("assembleContext", () => {
     const { messages, stats } = assembleContext(entries, cache, 100);
     expect(messages.length).toBe(3); // ledger + c + d
     expect(messages[0].role).toBe("user");
-    const head = (messages[0].content as any[]).map((c) => c.text ?? "").join("");
+    const head = ((messages[0] as any).content as any[]).map((c) => c.text ?? "").join("");
     expect(head).toContain("<action-ledger>");
     expect(stats.replacedTurns).toBe(1);
   });

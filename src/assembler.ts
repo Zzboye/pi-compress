@@ -1,4 +1,5 @@
-import { estimateTokens, type AgentMessage } from "@earendil-works/pi-coding-agent";
+import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "./types.js";
 import { renderActionLedger, type LedgerData } from "./ledger.js";
 import { splitIntoTurns, type MessageEntry, type Turn } from "./util.js";
 

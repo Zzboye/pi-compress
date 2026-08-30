@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { SummarizerEngine } from "../src/summarizer.js";
 import { extractToolActions, serializeTurn, type Turn, type MessageEntry } from "../src/util.js";
-import type { AgentMessage } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "../src/types.js";
 
 function turnFixture(): { turn: Turn; validOutput: string } {
   const entries: MessageEntry[] = [

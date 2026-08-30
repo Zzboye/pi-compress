@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "./types.js";
 import { serializeConversation, convertToLlm } from "@earendil-works/pi-coding-agent";
 import type { ToolActionInfo } from "./prompts.js";
 
