@@ -41,6 +41,7 @@ export default function (pi: ExtensionAPI): void {
   let engine: SummarizerEngine | null = null;
   let degraded = false;
   let lastStats: AssembleStats | null = null;
+  let recallStats = { calls: 0, hits: 0, missing: 0 };
 
   const makeEngine = (ctx: ExtensionContext): SummarizerEngine | null => {
     if (!config?.summarizer) return null;
@@ -67,6 +68,7 @@ export default function (pi: ExtensionAPI): void {
     store.rebuildFromEntries(ctx.sessionManager.getBranch() as unknown as SessionEntryLike[]);
     engine = makeEngine(ctx);
     degraded = false;
+    recallStats = { calls: 0, hits: 0, missing: 0 };
   });
 
   pi.on("context", async (_event, ctx) => {
@@ -137,6 +139,9 @@ export default function (pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const entries = toMessageEntries(ctx.sessionManager.getBranch());
       const r = executeRecall(params.ids, entries, 4000); // 单条 4k tokens 截断
+      recallStats.calls += 1;
+      recallStats.hits += params.ids.length - r.missing.length;
+      recallStats.missing += r.missing.length;
       return { content: [{ type: "text", text: r.text }], details: undefined };
     },
   });
@@ -150,6 +155,7 @@ export default function (pi: ExtensionAPI): void {
         `失败未摘：${engine?.failed().size ?? 0}`,
         `降级状态：${degraded ? "已降级（pi 原生压缩接管中）" : "正常"}`,
         `最近装配：${lastStats ? `窗口 ${lastStats.windowTurns} turns / 替换 ${lastStats.replacedTurns} / 原文放行 ${lastStats.passthroughTurns}` : "无"}`,
+        `召回：调用 ${recallStats.calls} 次 / 取回 ${recallStats.hits} 条 / 未中 ${recallStats.missing} 个 ID`,
         `摘要后端：${config?.summarizer ? JSON.stringify(config.summarizer) : "未配置（插件未接管）"}`,
       ];
       ctx.ui.notify(lines.join("\n"), "info");

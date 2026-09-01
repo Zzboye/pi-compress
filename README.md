@@ -114,12 +114,14 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 失败未摘：0
 降级状态：正常
 最近装配：窗口 3 turns / 替换 2 / 原文放行 0
+召回：调用 4 次 / 取回 6 条 / 未中 0 个 ID
 摘要后端：{"kind":"registry","provider":"ollama","model":"qwen3:8b"}
 ```
 
 - **已摘要 turn 数** / **队列积压** / **失败未摘**：摘要进度与健康度。
 - **降级状态**：`正常` 或 `已降级（pi 原生压缩接管中）`——后者表示强制点等待超时，本轮上下文不重组，交 pi 原生 auto-compaction 兜底；队列恢复后自动回到正常。
 - **最近装配**：上一次 context 事件重组的统计（窗口/替换/原文放行 turn 数）。
+- **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退）。全 0 表示 LLM 一直在窗口内就能拿到所需细节（健康信号）；持续增长的高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
 - **摘要后端**：当前生效的后端配置；`未配置（插件未接管）` 表示未设 `summarizer`。
 
 ## 已知限制（v1）
