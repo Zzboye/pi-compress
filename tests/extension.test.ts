@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import piExtension from "../src/index.js";
 
 describe("extension entry wiring", () => {
@@ -81,5 +84,48 @@ describe("extension entry wiring", () => {
     await commands["compress-status"].handler("", fakeCtx);
     const out = notifyCalls.join("\n");
     expect(out).toContain("调用 0");
+  });
+
+  it("backfills unsummarized turns on session_start", async () => {
+    // 项目级 settings 覆盖：指向不可达端口 → 摘要快速失败（maxAttempts:1）
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-backfill-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({
+        contextCompress: {
+          summarizer: { baseUrl: "http://127.0.0.1:9/v1", model: "x" },
+          retry: { maxAttempts: 1, backoffMs: 100 },
+          backfillLimit: 5,
+        },
+      }),
+    );
+    try {
+      const { handlers } = harness();
+      const notifyCalls: string[] = [];
+      const branch = [
+        { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+        { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+        { id: "u2", type: "message", message: { role: "user", content: [{ type: "text", text: "第二问" }] } },
+        { id: "a2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第二答" }] } },
+        { id: "u3", type: "message", message: { role: "user", content: [{ type: "text", text: "第三问" }] } },
+        { id: "a3", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第三答" }] } },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+        sessionManager: { getBranch: () => branch },
+      };
+      await handlers.session_start({}, fakeCtx);
+      expect(notifyCalls.join("\n")).toContain("补摘 3 个未摘要 turn");
+      // 引擎真的开始工作：3 个 turn 相继失败（端口不可达）→ 失败 warning
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline && !notifyCalls.some((m) => m.includes("摘要失败"))) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(notifyCalls.filter((m) => m.includes("摘要失败")).length).toBe(3);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

@@ -9,6 +9,7 @@ export interface ContextCompressConfig {
   forceRatio: number;
   retry: { maxAttempts: number; backoffMs: number };
   ledgerMergeThreshold: number;
+  backfillLimit: number;
 }
 
 export const DEFAULT_CONFIG: ContextCompressConfig = {
@@ -18,6 +19,7 @@ export const DEFAULT_CONFIG: ContextCompressConfig = {
   forceRatio: 0.76,
   retry: { maxAttempts: 3, backoffMs: 2000 },
   ledgerMergeThreshold: 40,
+  backfillLimit: 20,
 };
 
 interface RawSettings { contextCompress?: Record<string, unknown> }
@@ -55,5 +57,6 @@ export function loadConfig(globalRaw: unknown, projectRaw: unknown): ContextComp
       backoffMs: Math.max(100, Math.floor(num(merged.retry === undefined ? undefined : (merged.retry as any).backoffMs, 2000, 100, 600_000))),
     },
     ledgerMergeThreshold: Math.floor(num(merged.ledgerMergeThreshold, 40, 5, 10_000)),
+    backfillLimit: Math.floor(num(merged.backfillLimit, 20, 0, 100_000)),
   };
 }

@@ -9,6 +9,14 @@ describe("loadConfig", () => {
     expect(c.verbatimCheck).toBe(true);
     expect(c.retry).toEqual({ maxAttempts: 3, backoffMs: 2000 });
     expect(c.ledgerMergeThreshold).toBe(40);
+    expect(c.backfillLimit).toBe(20);
+  });
+
+  it("accepts and clamps backfillLimit", () => {
+    expect(loadConfig({ contextCompress: { backfillLimit: 5 } }, undefined).backfillLimit).toBe(5);
+    expect(loadConfig({ contextCompress: { backfillLimit: 0 } }, undefined).backfillLimit).toBe(0);
+    expect(loadConfig({ contextCompress: { backfillLimit: -3 } }, undefined).backfillLimit).toBe(20);
+    expect(loadConfig({ contextCompress: { backfillLimit: 1e9 } }, undefined).backfillLimit).toBe(20); // 超范围回退默认（num() 约定）
   });
 
   it("accepts registry-style summarizer (mode 1)", () => {

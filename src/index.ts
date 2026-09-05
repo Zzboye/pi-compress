@@ -21,6 +21,7 @@ import {
 import { executeRecall } from "./recall.js";
 import { enforceForcePoint } from "./forcepoint.js";
 import { splitIntoTurns, type MessageEntry } from "./util.js";
+import { computeBackfillTurns } from "./backfill.js";
 import { renderActionLedger, LEDGER_CUSTOM_TYPE, type LedgerData } from "./ledger.js";
 
 const WAIT_TIMEOUT_MS = 120_000;
@@ -69,6 +70,13 @@ export default function (pi: ExtensionAPI): void {
     engine = makeEngine(ctx);
     degraded = false;
     recallStats = { calls: 0, hits: 0, missing: 0 };
+    if (engine) {
+      // 补摘：历史会话恢复时，无 ledger 的旧 turn 重新入队（最旧优先，上限防雪崩）
+      const turns = splitIntoTurns(toMessageEntries(ctx.sessionManager.getBranch()));
+      const todo = computeBackfillTurns(turns, store, config.backfillLimit);
+      for (const t of todo) engine.enqueue(t);
+      if (todo.length > 0) ctx.ui.notify(`context-compress: 补摘 ${todo.length} 个未摘要 turn`, "info");
+    }
   });
 
   pi.on("context", async (_event, ctx) => {
