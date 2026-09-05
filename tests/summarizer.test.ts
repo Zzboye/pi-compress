@@ -38,6 +38,46 @@ describe("serializeTurn", () => {
   });
 });
 
+describe("serializeTurn head+tail sampling", () => {
+  const HEAD = "HEAD>>>";
+  const TAIL = "<<<TAIL";
+
+  function toolResultTurn(body: string): Turn {
+    const entries: MessageEntry[] = [
+      { id: "u1", message: { role: "user", content: [{ type: "text", text: "跑测试" }] } as AgentMessage },
+      { id: "t1", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: body }] } as AgentMessage },
+    ];
+    return { startEntryId: "u1", endEntryId: "t1", entries };
+  }
+
+  it("keeps both head and tail of a long toolResult", () => {
+    const body = HEAD + "a".repeat(5000 - HEAD.length - TAIL.length) + TAIL;
+    const out = serializeTurn(toolResultTurn(body));
+    expect(out).toContain(HEAD);
+    expect(out).toContain(TAIL);
+    expect(out).toContain("omitted");
+    // [Tool result] 段必须落在 pi 的 2000 字符预算内，否则尾巴会被 pi 二次截掉
+    const seg = out.split("[Tool result]: ")[1] ?? "";
+    expect(seg.length).toBeLessThanOrEqual(2000);
+  });
+
+  it("leaves short toolResults untouched", () => {
+    const body = HEAD + "b".repeat(400) + TAIL;
+    const out = serializeTurn(toolResultTurn(body));
+    expect(out).not.toContain("omitted");
+    expect(out).toContain(TAIL);
+  });
+
+  it("boundary: exactly 2000 chars untouched, 2001 sampled", () => {
+    const at2000 = HEAD + "c".repeat(2000 - HEAD.length - TAIL.length) + TAIL;
+    expect(serializeTurn(toolResultTurn(at2000))).not.toContain("omitted");
+    const at2001 = at2000 + "d";
+    const out = serializeTurn(toolResultTurn(at2001));
+    expect(out).toContain("omitted");
+    expect(out).toContain(TAIL);
+  });
+});
+
 describe("SummarizerEngine", () => {
   it("processes queued turn and emits ledger via onLedger", async () => {
     const { turn, validOutput } = turnFixture();

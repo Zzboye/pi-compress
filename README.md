@@ -132,6 +132,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **RPC/print 模式未特殊处理**：插件在 `tui` 模式下完整工作；`rpc`/`json`/`print` 模式下事件仍触发，但 `ctx.ui.notify`/`setStatus` 可能无可见输出。
 - **单 turn 超大**：单个 turn 超过 `keepRecentTokens` 时，按设计仍整体保留在窗口内（不拆分），会导致窗口临时超过预算，直到下一轮 pi 原生压缩兜底。
 - **逐字校验依赖路径正则**：`verbatimCheck` 用 `/[\w./\\-]+\.\w{1,4}/g` 提取疑似路径，对无扩展名的命令/参数不做校验。
+- **摘要只见 toolResult 的头+尾**：超过 2000 字符的 toolResult 在摘要 prompt 中按「前 1400 + 后 500 + 中段省略标记」采样；中段内容对摘要模型不可见（逐字内容仍可通过 recall 取回）。
 
 ## 许可
 
