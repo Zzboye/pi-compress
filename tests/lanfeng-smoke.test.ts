@@ -50,7 +50,7 @@ describe.skipIf(!SMOKE)("lanfeng real-model smoke", () => {
 
     const summary = parseLedgerOutput(raw, actions, serializeTurn(splitIntoTurns(turn)[0]), true);
     expect(typeof summary.userIntent).toBe("string");
-    expect(summary.userIntent.length).toBeGreaterThan(0);
+    expect(summary.userIntent!.length).toBeGreaterThan(0);
     expect(typeof summary.outcome).toBe("string");
     expect(summary.groups.length).toBeGreaterThan(0);
 

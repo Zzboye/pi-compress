@@ -1,6 +1,7 @@
 import type { AgentMessage } from "./types.js";
 import { serializeConversation, convertToLlm } from "@earendil-works/pi-coding-agent";
 import type { ToolActionInfo } from "./prompts.js";
+import type { LedgerQuote } from "./ledger.js";
 
 export interface MessageEntry { id: string; message: AgentMessage }
 
@@ -81,4 +82,41 @@ export function extractToolActions(turn: Turn): ToolActionInfo[] {
     }
   }
   return out;
+}
+
+const USER_MESSAGE_HEAD_CHARS = 200;
+const REPLY_HEAD_CHARS = 800;
+const REPLY_TAIL_CHARS = 1200;
+
+/** turn 首条 user 消息逐字保留；意图在开头，仅头截断 */
+export function extractUserMessage(turn: Turn): LedgerQuote | undefined {
+  const first = turn.entries[0];
+  if (!first || first.message.role !== "user") return undefined;
+  const text = joinedText((first.message as any).content);
+  if (text === "") return undefined;
+  if (text.length <= USER_MESSAGE_HEAD_CHARS) return { text, entryId: first.id, truncated: false };
+  const omitted = text.length - USER_MESSAGE_HEAD_CHARS;
+  return {
+    text: `${text.slice(0, USER_MESSAGE_HEAD_CHARS)}\n[... 已截断，后续 ${omitted} 字符省略 ...]`,
+    entryId: first.id,
+    truncated: true,
+  };
+}
+
+/** turn 内最后一条含 text 的 assistant 消息逐字保留（跳过纯 thinking）；超长时头尾采样 */
+export function extractFinalReply(turn: Turn): LedgerQuote | undefined {
+  for (let i = turn.entries.length - 1; i >= 0; i--) {
+    const e = turn.entries[i];
+    if (e.message.role !== "assistant") continue;
+    const text = joinedText((e.message as any).content); // 只取 text 块，thinking 天然排除
+    if (text === "") continue; // 纯思考消息：继续向前找
+    if (text.length <= REPLY_HEAD_CHARS + REPLY_TAIL_CHARS) return { text, entryId: e.id, truncated: false };
+    const omitted = text.length - REPLY_HEAD_CHARS - REPLY_TAIL_CHARS;
+    return {
+      text: `${text.slice(0, REPLY_HEAD_CHARS)}\n[... 中间省略 ${omitted} 字符 ...]\n${text.slice(-REPLY_TAIL_CHARS)}`,
+      entryId: e.id,
+      truncated: true,
+    };
+  }
+  return undefined;
 }

@@ -5,8 +5,18 @@ export const LEDGER_CUSTOM_TYPE = "context-compress:ledger";
 
 export interface LedgerAction { action: string; target: string; detail: string; recallIds: string[] }
 export interface LedgerGroup { phase: "investigate" | "fix" | "verify" | "discuss" | "other"; entries: LedgerAction[] }
-export interface LedgerSummary { userIntent: string; outcome: string; groups: LedgerGroup[] }
-export interface LedgerData { turnStartEntryId: string; turnEndEntryId: string; summary: LedgerSummary }
+/** 机械截断的逐字引用：text 已内嵌省略标记，entryId 供 recall 取回全文 */
+export interface LedgerQuote { text: string; entryId: string; truncated: boolean }
+
+export interface LedgerSummary { userIntent?: string; outcome?: string; groups: LedgerGroup[] }
+
+export interface LedgerData {
+  turnStartEntryId: string;
+  turnEndEntryId: string;
+  summary: LedgerSummary;
+  userMessage?: LedgerQuote;  // 机械：用户原话（头 200 截断）
+  finalReply?: LedgerQuote;   // 机械：最终回复（头 800/尾 1200 截断）
+}
 
 const PHASE_LABEL: Record<LedgerGroup["phase"], string> = {
   investigate: "调查", fix: "修复", verify: "验证", discuss: "讨论", other: "其他",
