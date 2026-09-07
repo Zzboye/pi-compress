@@ -58,7 +58,7 @@ export function parseLedgerOutput(
   } catch {
     throw new LedgerParseError("model output is not valid JSON");
   }
-  if (typeof parsed?.userIntent !== "string" || typeof parsed?.outcome !== "string" || !Array.isArray(parsed?.groups)) {
+  if (!Array.isArray(parsed?.groups)) {
     throw new LedgerParseError("model output missing required fields");
   }
   const byTarget = new Map(actions.map((a) => [a.target, a]));
@@ -77,5 +77,5 @@ export function parseLedgerOutput(
     }
     groups.push({ phase, entries }); // 空组保留：逐字校验剔除条目后组仍存在（prompts.test.ts verbatim guard 用例要求 groups[0].entries.length===0）
   }
-  return { userIntent: parsed.userIntent, outcome: parsed.outcome, groups };
+  return { groups }; // userIntent/outcome 由系统机械保存，模型输出一律忽略
 }

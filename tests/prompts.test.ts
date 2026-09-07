@@ -50,11 +50,24 @@ describe("parseLedgerOutput", () => {
       groups: [{ phase: "investigate", entries: [{ target: "src/hooks.ts", detail: "清理函数缺失" }, { target: "npm test", detail: "通过", phase: "verify" }] }],
     });
     const s = parseLedgerOutput(raw, actions, turnText, true);
-    expect(s.userIntent).toBe("修复内存泄漏");
+    expect(s.userIntent).toBeUndefined();          // 模型输出的 userIntent 被忽略
+    expect(s.outcome).toBeUndefined();             // 模型输出的 outcome 被忽略
     const read = s.groups[0].entries.find((e) => e.action === "read")!;
     expect(read.recallIds).toEqual(["e003"]);       // recallIds 来自机械清单
     expect(read.target).toBe("src/hooks.ts");        // target 来自机械清单
     expect(read.detail).toBe("清理函数缺失");        // detail 来自模型
+  });
+
+  it("accepts groups-only output（新 schema 无 userIntent/outcome）", () => {
+    const raw = JSON.stringify({
+      groups: [{ phase: "investigate", entries: [{ target: "src/hooks.ts", detail: "清理函数缺失" }] }],
+    });
+    const s = parseLedgerOutput(raw, actions, turnText, true);
+    expect(s.groups[0].entries[0].detail).toBe("清理函数缺失");
+  });
+
+  it("throws LedgerParseError when groups missing", () => {
+    expect(() => parseLedgerOutput(JSON.stringify({ userIntent: "u", outcome: "o" }), actions, turnText, true)).toThrow();
   });
 
   it("drops entries whose model detail contains a target-like path not in source (verbatim guard)", () => {
