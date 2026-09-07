@@ -49,9 +49,9 @@ describe.skipIf(!SMOKE)("lanfeng real-model smoke", () => {
     expect(raw.length).toBeGreaterThan(10);
 
     const summary = parseLedgerOutput(raw, actions, serializeTurn(splitIntoTurns(turn)[0]), true);
-    expect(typeof summary.userIntent).toBe("string");
-    expect(summary.userIntent!.length).toBeGreaterThan(0);
-    expect(typeof summary.outcome).toBe("string");
+    // groups-only 语义：模型输出的 userIntent/outcome 被忽略，逐字内容由系统机械保存
+    expect(summary.userIntent).toBeUndefined();
+    expect(summary.outcome).toBeUndefined();
     expect(summary.groups.length).toBeGreaterThan(0);
 
     // 找到 read 动作条目（verbatimCheck 通过 → 未被剔除）
