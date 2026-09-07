@@ -25,7 +25,6 @@ describe("integration: turn → summarize → assemble → recall", () => {
   it("full pipeline replaces old turns and recalls originals verbatim", async () => {
     const store = new LedgerStore();
     const validOutput = JSON.stringify({
-      userIntent: "看文件", outcome: "看完了",
       groups: [{ phase: "investigate", entries: [{ target: "src/app.ts", detail: "正常" }] }],
     });
     const engine = new SummarizerEngine(
@@ -47,6 +46,10 @@ describe("integration: turn → summarize → assemble → recall", () => {
     const head = ((messages[0] as any).content as any[]).map((c) => c.text ?? "").join("");
     expect(head).toContain("<action-ledger>");
     expect(head).toContain("↩t1"); // ledger 头含 ↩ 标记（recallIds=["t1-a"] → "↩t1-a" 含子串 "↩t1"）
+    expect(head).toContain("用户：「");                    // 用户原话进入 ledger 头
+    expect(head).toContain("已截断，后续");                 // 4000 字符用户消息被头截断
+    expect(head).toContain("最终回复（原文）：");
+    expect(head).toContain("看完了文件");                  // 最终回复逐字出现
 
     // recall: 从 ledger 头部的 ↩ 标记取回 assistant 工具调用原文
     const ids = [...head.matchAll(/↩([\w-]+)/g)].map((m) => m[1]);

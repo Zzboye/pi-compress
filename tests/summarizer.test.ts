@@ -16,7 +16,6 @@ function turnFixture(): { turn: Turn; validOutput: string } {
   return {
     turn: { startEntryId: "u1", endEntryId: "t2", entries },
     validOutput: JSON.stringify({
-      userIntent: "修复内存泄漏", outcome: "已修复",
       groups: [{ phase: "investigate", entries: [{ target: "src/hooks.ts", detail: "发现清理函数缺失" }] }],
     }),
   };
@@ -88,6 +87,10 @@ describe("SummarizerEngine", () => {
     await engine.waitIdle(2000);
     expect(onLedger).toHaveBeenCalledTimes(1);
     expect(onLedger.mock.calls[0][0]).toMatchObject({ turnStartEntryId: "u1" });
+    expect(onLedger.mock.calls[0][0]).toMatchObject({
+      userMessage: { text: "修内存泄漏", entryId: "u1", truncated: false },
+      finalReply: { text: "修好了", entryId: "t2", truncated: false },
+    });
     expect(engine.pending()).toBe(0);
   });
 

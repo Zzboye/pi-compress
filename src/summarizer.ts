@@ -1,6 +1,6 @@
 import { buildSummarizePrompt } from "./prompts.js";
 import { parseLedgerOutput, type LedgerData } from "./ledger.js";
-import { serializeTurn, extractToolActions, type Turn } from "./util.js";
+import { serializeTurn, extractToolActions, extractUserMessage, extractFinalReply, type Turn } from "./util.js";
 import type { ContextCompressConfig } from "./config.js";
 
 export interface SummarizerBackend { complete(prompt: string, signal?: AbortSignal): Promise<string> }
@@ -71,6 +71,8 @@ export class SummarizerEngine {
     const { maxAttempts, backoffMs } = this.config.retry;
     const summarize = async (backend: SummarizerBackend): Promise<void> => {
       const actions = extractToolActions(turn);
+      const userMessage = extractUserMessage(turn);   // 机械提取，不依赖后端，无需重试语义
+      const finalReply = extractFinalReply(turn);
       const turnText = serializeTurn(turn);
       const prompt = buildSummarizePrompt(turnText, actions);
       const raw = await backend.complete(prompt);
@@ -79,6 +81,8 @@ export class SummarizerEngine {
         turnStartEntryId: turn.startEntryId,
         turnEndEntryId: turn.endEntryId,
         summary,
+        userMessage,
+        finalReply,
       });
       this.enqueued.delete(turn.startEntryId); // 完成，允许后续新 turn 同名场景入队（防御）
     };
