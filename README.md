@@ -1,6 +1,18 @@
 # pi-context-compress
 
-一个 pi 扩展，**接管 pi 的上下文管理**：本地小模型在每轮 LLM 回答后**异步**整理压缩对话（思考与工具调用→动作摘要），原始信息落盘保存；LLM 需要细节时通过 **recall 工具**按 ID 取回逐字原文。对用户无感——不打断回答流，仅在上下文逼近上限时才可能短暂等待。
+一个 [pi](https://github.com/badlogic/pi-mono) 扩展，**接管 pi 的上下文管理**：用本地小模型在每轮回答之后**异步**压缩对话历史，把旧 turn 整理成动作日志；LLM 需要细节时用内置的 **recall 工具**按 ID 取回逐字原文。
+
+对用户无感——不打断回答流，仅在上下文逼近上限的强制点才可能短暂等待。
+
+## 为什么需要它
+
+长会话中对话历史会吃满上下文窗口，pi 原生 auto-compaction 只能做一次性的全文总结，历史细节就此丢失。本插件换一种思路：
+
+- **结论保新鲜**：最终回复由系统机械逐字保留在日志头部（primacy），不经摘要模型转述
+- **近期保时序**：默认最近 20k tokens 的 turn 原文保留在窗口尾部（recency）
+- **细节按需取回**：窗外的工具调用、用户原话、最终回复都落盘为动作日志，LLM 传 `↩entryId` 即可召回逐字原文——**零模型调用**
+
+摘要模型只负责整理「思考与工具调用 → 动作摘要」，且模型生成的自由文本字段为零：思考内容直接丢弃（过程噪声），工具调用的 target/路径逐字保留，用户原话与最终回复由系统机械提取。
 
 ## 工作原理
 
@@ -25,8 +37,6 @@
    └─→ LLM 需要某条细节 → recall 工具，传入 ↩ 后的 ID → 取回逐字原文（单条截断 4k tokens）
 ```
 
-核心思想：**结论在头部保新鲜（primacy），近期窗口在尾部保时序（recency），细节按需 recall（zero model call）**。思考内容直接丢弃（过程噪声），工具调用的 target/路径逐字保留。用户原话与最终回复由系统机械逐字保留（截断时附 ↩ 句柄），不经摘要模型转述——ledger 中模型生成的自由文本字段为零。
-
 ## 安装
 
 ```bash
@@ -35,7 +45,7 @@ cd /path/to/pi-compress
 npm install            # 安装类型与运行时依赖
 ```
 
-把目录链接到 pi 的扩展目录（pi 会读取 `package.json` 的 `pi.extensions` 字段，直接加载 `./src/index.ts`，无需构建）：
+把目录链接到 pi 的扩展目录（pi 读取 `package.json` 的 `pi.extensions` 字段，直接加载 `./src/index.ts`，无需构建）：
 
 ```bash
 # Unix（macOS/Linux）
@@ -46,7 +56,7 @@ ln -s /path/to/pi-compress ~/.pi/agent/extensions/context-compress
 mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compress"
 ```
 
-配置写入 pi 的 settings.json（见下节），重启 pi 即生效。**不配置 `summarizer` 时插件静默观察不接管**——`/compress-status` 显示「未配置」。
+配置写入 pi 的 settings.json（见下节），重启 pi 生效。**不配置 `summarizer` 时插件静默观察不接管**——`/compress-status` 显示「未配置」。
 
 ## 配置
 
@@ -61,7 +71,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
     // 方式二：OpenAI 兼容直连（baseUrl 指向本地/远端兼容端点）
     // "summarizer": { "baseUrl": "http://localhost:11434/v1", "model": "qwen3:8b" },
 
-    // 备用后端（可选）：主后端装不下（prompt 超出主模型上下文，如大 turn）或重试耗尽时接管。
+    // 备用后端（可选）：主后端装不下（prompt 超出主模型上下文）或重试耗尽时接管。
     // 典型配置：主用本地小模型，备用配大上下文模型（本地大模型或云端 API）。
     // "summarizerFallback": { "provider": "HSFZ", "model": "glm-5.3-flash" },
 
@@ -79,7 +89,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 | 字段 | 默认值 | 范围 | 说明 |
 |---|---|---|---|
 | `summarizer` | `undefined` | — | 摘要后端。`undefined` = 插件只观察不压缩。`{provider,model}` 用 pi 注册表；`{baseUrl,model[,apiKey]}` 用 OpenAI 兼容直连 |
-| `summarizerFallback` | `undefined` | — | 备用摘要后端，形态与 `summarizer` 相同。主后端报**上下文溢出类错误**（HTTP 400/413、exceeds context 等，即 turn 太大主模型装不下）时**立即切换**（不烧退避重试）；其他错误重试耗尽后也转备用。备用也失败才标记 unsummarized（原文照发）。`undefined` = 不启用。**选型注意：必须选大窗口且可关闭思考的模型**——强制思考型模型（如 ark 上的 glm-5.3-flash）的思考会吃满 `maxTokens` 输出预算导致 JSON 恒定截断；deepseek 系需在 `models.json` 给模型加 `"compat": {"thinkingFormat": "deepseek"}` 才会随请求发送 `thinking: {type:"disabled"}` |
+| `summarizerFallback` | `undefined` | — | 备用摘要后端，形态与 `summarizer` 相同。主后端报**上下文溢出类错误**（HTTP 400/413、exceeds context 等，即 turn 太大主模型装不下）时**立即切换**（不烧退避重试）；其他错误重试耗尽后也转备用。备用也失败才标记 unsummarized（原文照发）。**选型注意：必须选大窗口且可关闭思考的模型**——强制思考型模型（如 ark 上的 glm-5.3-flash）的思考会吃满 `maxTokens` 输出预算导致 JSON 恒定截断；deepseek 系需在 `models.json` 给模型加 `"compat": {"thinkingFormat": "deepseek"}` 才会随请求发送 `thinking: {type:"disabled"}` |
 | `verbatimCheck` | `true` | bool | 逐字校验：摘要条目里的路径/命令必须在对话原文中出现，否则剔除（防小模型编造） |
 | `keepRecentTokens` | `20000` | 1000–1000000 | 近期窗口大小（tokens），窗口内 turn 原文保留。**计量口径**：assistant 消息剥离 thinking 块后计（窗口发给 LLM 时同样剥离，纯 thinking 消息整条丢弃）——思考是过程噪声，不挤占有效输出预算 |
 | `forceRatio` | `0.76` | 0.1–0.99 | 上下文用量超过此比例触发强制点（等待队列清空后重组） |
@@ -107,9 +117,9 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 ## 模型选型建议
 
 - **参数量 4B–8B**：摘要任务量小，本地推理要快；过小（<4B）指令遵循不稳，过大（>13B）本地延迟高、拖慢回答后整理。
-- **指令遵循稳定优先于推理力**：摘要只做"结构化复述 + 路径逐字复制"，不需要强推理，但必须严格遵守 JSON schema 与"target 来自清单"约束。
+- **指令遵循稳定优先于推理力**：摘要只做「结构化复述 + 路径逐字复制」，不需要强推理，但必须严格遵守 JSON schema 与「target 来自清单」约束。
 - **Qwen 系推荐**：中文表达自然、JSON 输出稳定。`qwen3:8b` 是甜点档；显存紧用 `qwen3:4b`。
-- **中英混合注意**：代码路径/标识符多为英文，prompt 已要求"detail 中路径必须能在原文找到"，但小模型偶有改写——`verbatimCheck: true` 会自动剔除失真条目。
+- **中英混合注意**：代码路径/标识符多为英文，prompt 已要求「detail 中路径必须能在原文找到」，但小模型偶有改写——`verbatimCheck: true` 会自动剔除失真条目。
 
 ## `/compress-status` 命令
 
@@ -129,9 +139,33 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **已摘要 turn 数** / **队列积压** / **失败未摘**：摘要进度与健康度。
 - **降级状态**：`正常` 或 `已降级（pi 原生压缩接管中）`——后者表示强制点等待超时，本轮上下文不重组，交 pi 原生 auto-compaction 兜底；队列恢复后自动回到正常。
 - **最近装配**：上一次 context 事件重组的统计（窗口/替换/原文放行 turn 数）。
-- **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退）。全 0 表示 LLM 一直在窗口内就能拿到所需细节（健康信号）；持续增长的高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
-- **摘要后端**：当前生效的后端配置；`未配置（插件未接管）` 表示未设 `summarizer`。
-- **备用后端**：`summarizerFallback` 配置；未配置时显示 `未配置`。
+- **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退）。全 0 表示 LLM 在窗口内就能拿到所需细节（健康信号）；持续高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
+- **摘要后端** / **备用后端**：当前生效的后端配置；未配置时显示 `未配置`。
+
+## 项目结构
+
+```
+src/
+├── index.ts        扩展入口：事件接线、recall 工具注册、/compress-status 命令
+├── config.ts       配置解析（全局 + 项目级合并，字段校验与默认值）
+├── summarizer.ts   摘要后端调用（registry / OpenAI 兼容直连）、重试、备用切换、thinking 剥离
+├── prompts.ts      摘要 prompt 与 JSON schema（groups-only：意图/结果由系统机械保存）
+├── ledger.ts       动作日志渲染（用户原话/最终回复逐字引用 + 工具动作摘要）
+├── assembler.ts    上下文重组：近期窗口 + 动作日志头
+├── forcepoint.ts   强制点：等待摘要队列清空，超时降级
+├── backfill.ts     session_start 补摘历史缺口
+├── recall.ts       recall 工具实现：按 ID 取回逐字原文（含配对 toolResult）
+├── store.ts        状态持久化
+└── util.ts         消息提取、thinking 剥离、路径抽取等
+```
+
+## 开发
+
+```bash
+npm test        # vitest 单测（tests/）
+```
+
+`bench/` 内含压缩率基准、真实模型 e2e 与统计工具；`e2e/` 内含 RPC 驱动脚本，可驱动真实 pi 会话验证端到端行为。
 
 ## 已知限制（v1）
 
