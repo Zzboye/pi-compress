@@ -148,7 +148,7 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "recall",
     label: "Recall",
-    description: "取回动作日志条目的逐字原文。参数为动作日志中 ↩ 标记后的 entry ID 列表（可批量）。",
+    description: "取回动作日志条目的逐字原文（含截断的用户消息/最终回复全文）。参数为动作日志中 ↩ 标记后的 entry ID 列表（可批量）。",
     parameters: Type.Object({
       ids: Type.Array(Type.String(), { description: "entry ID 列表，来自动作日志 ↩ 标记" }),
     }),
