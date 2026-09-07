@@ -5,3 +5,4 @@ tests/_tmp-*
 .pi/
 e2e/rpc-sessions/
 e2e/reports/perf/
+llm-context-dump.txt
