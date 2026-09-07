@@ -15,8 +15,10 @@ describe("buildSummarizePrompt", () => {
     expect(p).toContain("[User]: 修内存泄漏");
     expect(p).toContain('src/hooks.ts');
     expect(p).toContain("e003");
-    expect(p).toContain("userIntent");
     expect(p).toContain("JSON");
+    expect(p).toContain("另行逐字保存");   // 新：说明用户消息/最终回复不经模型
+    expect(p).not.toContain("userIntent"); // 旧：不再要求生成意图字段
+    expect(p).not.toContain("outcome");    // 旧：不再要求生成结果字段
   });
 });
 
