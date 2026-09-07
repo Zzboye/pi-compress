@@ -27,6 +27,33 @@ describe("loadConfig", () => {
     expect(c.summarizer).toEqual({ kind: "registry", provider: "ollama", model: "qwen3:8b" });
   });
 
+  it("defaults summarizerFallback to undefined", () => {
+    expect(loadConfig(undefined, undefined).summarizerFallback).toBeUndefined();
+    expect(DEFAULT_CONFIG.summarizerFallback).toBeUndefined();
+  });
+
+  it("accepts registry-style summarizerFallback", () => {
+    const c = loadConfig(
+      { contextCompress: {
+        summarizer: { provider: "LM Studio", model: "qwen3.8-27b-uncensored@iq4_xs" },
+        summarizerFallback: { provider: "HSFZ", model: "glm-5.3-flash" },
+      } },
+      undefined,
+    );
+    expect(c.summarizerFallback).toEqual({ kind: "registry", provider: "HSFZ", model: "glm-5.3-flash" });
+  });
+
+  it("accepts openai-style summarizerFallback and lets project override global", () => {
+    const c = loadConfig(
+      { contextCompress: {
+        summarizer: { baseUrl: "http://a/v1", model: "small" },
+        summarizerFallback: { baseUrl: "http://global-fallback/v1", model: "big" },
+      } },
+      { contextCompress: { summarizerFallback: { baseUrl: "http://proj-fallback/v1", model: "bigger", apiKey: "k" } } },
+    );
+    expect(c.summarizerFallback).toEqual({ kind: "openai", baseUrl: "http://proj-fallback/v1", model: "bigger", apiKey: "k" });
+  });
+
   it("accepts baseUrl-style summarizer (mode 2)", () => {
     const c = loadConfig(
       undefined,

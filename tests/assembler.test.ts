@@ -50,6 +50,60 @@ describe("findWindowTurns", () => {
   });
 });
 
+describe("thinking 剥离（窗口预算与原文）", () => {
+  const think = "思".repeat(8000); // ~2000 tok（旧口径）
+  function thinkMsg(id: string, text: string): MessageEntry {
+    return { id, message: { role: "assistant", content: [{ type: "thinking", thinking: think }, { type: "text", text }] } as AgentMessage };
+  }
+
+  it("findWindowTurns 预算按剥离 thinking 后计量：思考不再挤占 20k 窗口", () => {
+    const turns = splitIntoTurns([
+      msg("a", "user", "q1"), thinkMsg("b", "a1"),
+      msg("c", "user", "q2"), thinkMsg("d", "a2"),
+    ]);
+    // 剥离后每 turn ≈ 2 tok；旧口径每 turn ≈ 2001 tok，第二个会被挤出去
+    const window = findWindowTurns(turns, 2000);
+    expect(window.length).toBe(2);
+  });
+
+  it("assembleContext 窗口原文剥离 thinking 块；纯 thinking 消息整条丢弃", () => {
+    const branch: MessageEntry[] = [
+      msg("a", "user", "q1"),
+      { id: "a1", message: { role: "assistant", content: [
+        { type: "thinking", thinking: "思考内容ABC" },
+        { type: "text", text: "回答" },
+      ] } as AgentMessage },
+      { id: "a2", message: { role: "assistant", content: [{ type: "thinking", thinking: "纯思考丢整条" }] } as AgentMessage },
+      msg("c", "user", "q2"),
+      { id: "d", message: { role: "assistant", content: [{ type: "text", text: "回答2" }] } as AgentMessage },
+    ];
+    const { messages } = assembleContext(branch, new Map(), 20000);
+    const all = JSON.stringify(messages);
+    expect(all).not.toContain("思考内容ABC");
+    expect(all).not.toContain("纯思考丢整条");
+    expect(all).toContain("回答");
+    expect(all).toContain("回答2");
+  });
+
+  it("passthrough（窗外无摘要原文照发）同样剥离 thinking", () => {
+    const branch: MessageEntry[] = [
+      msg("a", "user", "q1"),
+      { id: "a1", message: { role: "assistant", content: [
+        { type: "thinking", thinking: "思考XYZ" },
+        { type: "text", text: "回答1" },
+      ] } as AgentMessage },
+      msg("b", "user", "q2"),
+      msg("c", "assistant", "回答2"),
+    ];
+    const { messages, stats } = assembleContext(branch, new Map(), 1); // 窗口只装最后一个 turn
+    expect(stats.passthroughTurns).toBe(1);
+    const all = JSON.stringify(messages);
+    expect(all).not.toContain("思考XYZ");
+    expect(all).toContain("回答1");
+    expect(all).toContain("回答2");
+  });
+});
+
 function ledgerFor(turn: { startEntryId: string; endEntryId: string }): LedgerData {
   return {
     turnStartEntryId: turn.startEntryId,

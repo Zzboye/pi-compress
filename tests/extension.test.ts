@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import piExtension from "../src/index.js";
@@ -84,6 +85,67 @@ describe("extension entry wiring", () => {
     await commands["compress-status"].handler("", fakeCtx);
     const out = notifyCalls.join("\n");
     expect(out).toContain("调用 0");
+  });
+
+  it("wires fallback backend: overflow error hits primary once, registry fallback takes over", async () => {
+    // 主后端：本地 HTTP 服务器返回 400 溢出错误并计数 → 验证不烧重试、立即转备用
+    let primaryHits = 0;
+    const server = http.createServer((_req, res) => {
+      primaryHits += 1;
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "prompt too long, exceeds context window" } }));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+    const port = (server.address() as any).port;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-fallback-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({
+        contextCompress: {
+          summarizer: { baseUrl: `http://127.0.0.1:${port}/v1`, model: "small" },
+          summarizerFallback: { provider: "FakeBig", model: "big-model" },
+          retry: { maxAttempts: 3, backoffMs: 100 },
+        },
+      }),
+    );
+    try {
+      const { handlers, commands } = harness();
+      const notifyCalls: string[] = [];
+      const branch = [
+        { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "这一轮原文很长" }] } },
+        { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "回答" }] } },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+        sessionManager: { getBranch: () => branch, appendCustomEntry: () => {} },
+        modelRegistry: {
+          find: (provider: string, model: string) => ({ provider, model }),
+          complete: async () => ({ content: [{ type: "text", text: JSON.stringify({
+            userIntent: "验证备用接线", outcome: "备用后端成功产出 ledger",
+            groups: [],
+          }) }] }),
+        },
+      };
+      await handlers.session_start({}, fakeCtx);
+      await handlers.agent_settled({}, fakeCtx);
+      const deadline = Date.now() + 5000;
+      let out = "";
+      while (Date.now() < deadline) {
+        await commands["compress-status"].handler("", fakeCtx);
+        out = notifyCalls.join("\n");
+        if (out.includes("已摘要 turn 数：1")) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(out).toContain("已摘要 turn 数：1");   // 备用接管成功，ledger 落入 store
+      expect(primaryHits).toBe(1);                    // 溢出错误不烧重试（maxAttempts=3 但只调 1 次）
+      expect(out).not.toContain("摘要失败");          // 备用成功 → 不告警
+      expect(out).toContain("备用");                  // 状态面板显示备用后端
+    } finally {
+      server.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("backfills unsummarized turns on session_start", async () => {

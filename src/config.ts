@@ -4,6 +4,7 @@ export type SummarizerRef =
 
 export interface ContextCompressConfig {
   summarizer: SummarizerRef | undefined; // undefined = 插件只观察不摘要（降级态）
+  summarizerFallback: SummarizerRef | undefined; // 备用后端：主后端溢出/重试耗尽时接管（undefined = 不启用）
   verbatimCheck: boolean;
   keepRecentTokens: number;
   forceRatio: number;
@@ -14,6 +15,7 @@ export interface ContextCompressConfig {
 
 export const DEFAULT_CONFIG: ContextCompressConfig = {
   summarizer: undefined,
+  summarizerFallback: undefined,
   verbatimCheck: true,
   keepRecentTokens: 20000,
   forceRatio: 0.76,
@@ -49,6 +51,7 @@ export function loadConfig(globalRaw: unknown, projectRaw: unknown): ContextComp
   }
   return {
     summarizer: merged.summarizer === undefined ? undefined : parseSummarizer(merged.summarizer),
+    summarizerFallback: merged.summarizerFallback === undefined ? undefined : parseSummarizer(merged.summarizerFallback),
     verbatimCheck: merged.verbatimCheck === undefined ? DEFAULT_CONFIG.verbatimCheck : !!merged.verbatimCheck,
     keepRecentTokens: num(merged.keepRecentTokens, DEFAULT_CONFIG.keepRecentTokens, 1000, 1_000_000),
     forceRatio: num(merged.forceRatio, DEFAULT_CONFIG.forceRatio, 0.1, 0.99),

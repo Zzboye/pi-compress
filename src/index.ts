@@ -50,6 +50,13 @@ export default function (pi: ExtensionAPI): void {
       config.summarizer.kind === "registry"
         ? createRegistryBackend(ctx, config.summarizer)
         : createOpenAICompatBackend(config.summarizer);
+    // 备用后端：主后端溢出（prompt 超出主模型上下文）或重试耗尽时接管（典型：主用本地小模型，备用配大上下文模型）
+    const fallback: SummarizerBackend | undefined =
+      config.summarizerFallback
+        ? config.summarizerFallback.kind === "registry"
+          ? createRegistryBackend(ctx, config.summarizerFallback)
+          : createOpenAICompatBackend(config.summarizerFallback)
+        : undefined;
     return new SummarizerEngine(
       backend,
       config,
@@ -58,6 +65,7 @@ export default function (pi: ExtensionAPI): void {
         try { (ctx.sessionManager as unknown as SessionManager).appendCustomEntry(LEDGER_CUSTOM_TYPE, d); } catch { /* 持久化失败不影响内存缓存 */ }
       },
       (m) => ctx.ui.notify(m, "warning"),
+      fallback,
     );
   };
 
@@ -165,6 +173,7 @@ export default function (pi: ExtensionAPI): void {
         `最近装配：${lastStats ? `窗口 ${lastStats.windowTurns} turns / 替换 ${lastStats.replacedTurns} / 原文放行 ${lastStats.passthroughTurns}` : "无"}`,
         `召回：调用 ${recallStats.calls} 次 / 取回 ${recallStats.hits} 条 / 未中 ${recallStats.missing} 个 ID`,
         `摘要后端：${config?.summarizer ? JSON.stringify(config.summarizer) : "未配置（插件未接管）"}`,
+        `备用后端：${config?.summarizerFallback ? `${JSON.stringify(config.summarizerFallback)}（主后端溢出/重试耗尽时接管）` : "未配置"}`,
       ];
       ctx.ui.notify(lines.join("\n"), "info");
     },

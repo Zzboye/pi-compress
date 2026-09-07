@@ -47,7 +47,23 @@ function preTruncateToolResults(entries: MessageEntry[]): MessageEntry[] {
 }
 
 export function serializeTurn(turn: Turn): string {
-  return serializeConversation(convertToLlm(preTruncateToolResults(turn.entries).map((e) => e.message)) as any);
+  return serializeConversation(convertToLlm(stripThinking(preTruncateToolResults(turn.entries)).map((e) => e.message)) as any);
+}
+
+/** 剥离 assistant 消息中的 thinking 块（过程噪声）：LLM 不可见、不占窗口预算、不进摘要 prompt。
+ *  纯 thinking 的 assistant 消息整条丢弃（无 text/toolCall，零信息量）。toolCall 块永远保留，toolCall→toolResult 配对不受影响。 */
+export function stripThinking(entries: MessageEntry[]): MessageEntry[] {
+  const out: MessageEntry[] = [];
+  for (const e of entries) {
+    if (e.message.role !== "assistant") {
+      out.push(e);
+      continue;
+    }
+    const content = (e.message.content as any[]).filter((b) => b?.type !== "thinking");
+    if (content.length === 0) continue; // 纯思考消息：整条丢弃
+    out.push({ ...e, message: { ...(e.message as any), content } as MessageEntry["message"] });
+  }
+  return out;
 }
 
 /** 从 assistant 消息的 toolCall 块机械提取动作清单；target 逐字，不经模型 */

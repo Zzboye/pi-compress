@@ -120,4 +120,71 @@ describe("SummarizerEngine", () => {
     await engine.waitIdle(5000);
     expect(engine.pending()).toBeLessThanOrEqual(1);
   });
+
+  describe("fallback backend", () => {
+    it("uses fallback after primary exhausts retries, then succeeds", async () => {
+      const { turn, validOutput } = turnFixture();
+      const onLedger = vi.fn(); const onWarning = vi.fn();
+      const primary = { complete: vi.fn().mockRejectedValue(new Error("network glitch")) };
+      const fallback = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const engine = new SummarizerEngine(
+        primary, { retry: { maxAttempts: 2, backoffMs: 1 }, verbatimCheck: true } as any, onLedger, onWarning, fallback,
+      );
+      engine.enqueue(turn);
+      await engine.waitIdle(5000);
+      expect(primary.complete.mock.calls.length).toBe(2);   // 主后端重试耗尽
+      expect(fallback.complete.mock.calls.length).toBe(1);  // 备用接管
+      expect(onLedger).toHaveBeenCalledTimes(1);
+      expect(onLedger.mock.calls[0][0]).toMatchObject({ turnStartEntryId: "u1" });
+      expect(engine.failed().size).toBe(0);
+    });
+
+    it("switches to fallback immediately on context-overflow error (skips remaining primary retries)", async () => {
+      const { turn, validOutput } = turnFixture();
+      const onLedger = vi.fn(); const onWarning = vi.fn();
+      const primary = { complete: vi.fn().mockRejectedValue(new Error("summarizer HTTP 400: prompt too long, exceeds context window")) };
+      const fallback = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const engine = new SummarizerEngine(
+        primary, { retry: { maxAttempts: 3, backoffMs: 1 }, verbatimCheck: true } as any, onLedger, onWarning, fallback,
+      );
+      engine.enqueue(turn);
+      await engine.waitIdle(5000);
+      expect(primary.complete.mock.calls.length).toBe(1);   // 溢出类错误不烧完重试
+      expect(fallback.complete.mock.calls.length).toBe(1);
+      expect(onLedger).toHaveBeenCalledTimes(1);
+      expect(engine.failed().size).toBe(0);
+    });
+
+    it("does not touch fallback when primary succeeds", async () => {
+      const { turn, validOutput } = turnFixture();
+      const primary = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const fallback = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const engine = new SummarizerEngine(
+        primary, { retry: { maxAttempts: 3, backoffMs: 1 }, verbatimCheck: true } as any, vi.fn(), vi.fn(), fallback,
+      );
+      engine.enqueue(turn);
+      await engine.waitIdle(5000);
+      expect(primary.complete.mock.calls.length).toBe(1);
+      expect(fallback.complete).not.toHaveBeenCalled();
+    });
+
+    it("marks failed and warns when both backends fail", async () => {
+      const { turn } = turnFixture();
+      const onLedger = vi.fn(); const onWarning = vi.fn();
+      const primary = { complete: vi.fn().mockRejectedValue(new Error("network glitch")) };
+      const fallback = { complete: vi.fn().mockRejectedValue(new Error("fallback down")) };
+      const engine = new SummarizerEngine(
+        primary, { retry: { maxAttempts: 1, backoffMs: 1 }, verbatimCheck: true } as any, onLedger, onWarning, fallback,
+      );
+      engine.enqueue(turn);
+      await engine.waitIdle(5000);
+      expect(primary.complete.mock.calls.length).toBe(1);
+      expect(fallback.complete.mock.calls.length).toBe(1);
+      expect(onLedger).not.toHaveBeenCalled();
+      expect(engine.failed().has("u1")).toBe(true);
+      const warnText = onWarning.mock.calls.map((c: any[]) => c[0]).join("\n");
+      expect(warnText).toContain("摘要失败");
+      expect(warnText).toContain("备用");
+    });
+  });
 });

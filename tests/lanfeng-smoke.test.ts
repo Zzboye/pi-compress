@@ -16,10 +16,11 @@ import { serializeTurn, extractToolActions, splitIntoTurns, type MessageEntry } 
 import type { AgentMessage } from "../src/types.js";
 
 const SMOKE = process.env.LANFENG_SMOKE === "1";
+// API key 从环境变量读取，绝不硬编码进仓库
 const LANFENG = {
   baseUrl: "http://127.0.0.1:8796/v1",
   model: "deepseek-v4-flash",
-  apiKey: "lfai_I9nntC7bYmvZMajlEJC8FK6t_fYa9fCGhulr1ev-aPA",
+  apiKey: process.env.LANFENG_API_KEY ?? "",
 };
 
 // 真实形态的 turn：用户问 + assistant 调 read 工具 + toolResult 返回文件内容
