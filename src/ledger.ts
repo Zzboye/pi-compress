@@ -26,14 +26,25 @@ export function renderActionLedger(ledgers: LedgerData[]): AgentMessage {
   const lines: string[] = ["<action-ledger>", "## 会话历史（动作日志，细节已压缩）", ""];
   for (let i = 0; i < ledgers.length; i++) {
     const l = ledgers[i];
-    lines.push(`### T${i + 1} · 用户意图：${l.summary.userIntent}`);
+    if (l.userMessage) {
+      const recall = l.userMessage.truncated ? ` ↩${l.userMessage.entryId}` : "";
+      lines.push(`### T${i + 1} · 用户：「${l.userMessage.text.replace(/\n+/g, " ")}」${recall}`);
+    } else {
+      lines.push(`### T${i + 1} · 用户意图：${l.summary.userIntent ?? "（未知）"}`);
+    }
     for (const g of l.summary.groups) {
       for (const e of g.entries) {
         const recall = e.recallIds.length ? ` ↩${e.recallIds.join(",↩")}` : "";
         lines.push(`- ${PHASE_LABEL[g.phase]}：${e.action} ${e.target} → ${e.detail}${recall}`);
       }
     }
-    lines.push(`- 结果：${l.summary.outcome}`);
+    if (l.finalReply) {
+      lines.push("最终回复（原文）：");
+      lines.push(l.finalReply.text);
+      if (l.finalReply.truncated) lines.push(`（已截断，↩${l.finalReply.entryId} 取回全文）`);
+    } else if (l.summary.outcome !== undefined) {
+      lines.push(`- 结果：${l.summary.outcome}`);
+    }
     lines.push("");
   }
   lines.push("（需要任何条目的逐字原文时，调用 recall 工具并传入 ↩ 后的 ID）");
