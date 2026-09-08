@@ -142,11 +142,28 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退）。全 0 表示 LLM 在窗口内就能拿到所需细节（健康信号）；持续高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
 - **摘要后端** / **备用后端**：当前生效的后端配置；未配置时显示 `未配置`。
 
+## `/compress-dump` 命令
+
+在 pi 里运行 `/compress-dump [输出基路径]` 把「本轮实际发给 LLM 的上下文」完整落盘，用于审计装配口径与排查压缩问题：
+
+```
+context-compress 转储：14 条 messages / 窗口 3 turns / 替换 2 / 照发 0 / ~15340 tok
+D:\Pi\pi-compress\e2e\reports\1788865118781-context-dump.md
+D:\Pi\pi-compress\e2e\reports\1788865118781-context-dump.json
+```
+
+- **单一真相**：复用 context 事件同款 `assembleContext`，所见即本轮真实装配结果（含 ledger 头、thinking 剥离、窗外原文照发）。
+- **Markdown**：人读审阅稿——配置元信息、装配统计、turn 归属表（lead / replaced / passthrough）、messages 原文全文。
+- **JSON**：机器可复现的结构化数据（逐条体积、turn 归属、ledger 摘要），供后续对比脚本使用。
+- **输出路径**：缺省写 `<cwd>/e2e/reports/<时间戳>-context-dump.{md,json}`，参数可指定基路径（自动补 .md/.json 两个扩展名）。
+- **边界**：未配置 `contextCompress.summarizer` 时插件未接管装配，无从转储真实口径，命令会明确拒绝；转储的是装配后的 messages（thinking 已剥离），非会话文件原文。
+
 ## 项目结构
 
 ```
 src/
-├── index.ts        扩展入口：事件接线、recall 工具注册、/compress-status 命令
+├── index.ts        扩展入口：事件接线、recall 工具注册、/compress-status 与 /compress-dump 命令
+├── dump.ts         /compress-dump 转储：Markdown+JSON 渲染与写盘（复用 assembleContext）
 ├── config.ts       配置解析（全局 + 项目级合并，字段校验与默认值）
 ├── summarizer.ts   摘要后端调用（registry / OpenAI 兼容直连）、重试、备用切换、thinking 剥离
 ├── prompts.ts      摘要 prompt 与 JSON schema（groups-only：意图/结果由系统机械保存）

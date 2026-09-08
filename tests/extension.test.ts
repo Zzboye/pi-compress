@@ -19,11 +19,59 @@ describe("extension entry wiring", () => {
     return { tools, commands, fakePi, handlers };
   }
 
-  it("registers recall tool and compress-status command", () => {
+  it("registers recall tool and compress-status/compress-dump commands", () => {
     const { tools, commands } = harness();
     expect(tools.recall).toBeTruthy();
     expect(tools.recall.parameters).toBeTruthy();
     expect(commands["compress-status"]).toBeTruthy();
+    expect(commands["compress-dump"]).toBeTruthy();
+  });
+
+  it("compress-dump writes Markdown+JSON pair and echoes one-line summary", async () => {
+    const { commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-dumpcmd-"));
+    const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-dumpcfg-"));
+    try {
+      const notifyCalls: string[] = [];
+      const branch = [
+        { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+        { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+        sessionManager: { getBranch: () => branch },
+      };
+      // 未配置 → 明确拒绝（不用默认配置冒充真实装配）
+      await commands["compress-dump"].handler("", fakeCtx);
+      expect(notifyCalls.at(-1)).toContain("未配置");
+      expect(fs.readdirSync(dir)).toEqual([]);
+
+      // session_start 载入真实配置（registry summarizer；modelRegistry 缺失只会令补摘异步失败，不影响 dump）
+      fs.mkdirSync(path.join(cfgDir, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(cfgDir, ".pi", "settings.json"),
+        JSON.stringify({ contextCompress: { summarizer: { provider: "FakeProv", model: "fake-model" } } }),
+      );
+      await handlers.session_start({}, { ...fakeCtx, cwd: cfgDir });
+      fakeCtx.cwd = cfgDir;
+      await commands["compress-dump"].handler("", fakeCtx);
+      // dump 通知与补摘失败通知存在竞态：轮询等“转储”出现
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline && !notifyCalls.some((m) => m.includes("转储："))) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      const reports = fs.readdirSync(path.join(cfgDir, "e2e", "reports"));
+      expect(reports.length).toBe(2); // .md + .json
+      expect(reports.some((f) => f.endsWith(".md"))).toBe(true);
+      expect(reports.some((f) => f.endsWith(".json"))).toBe(true);
+      const dumpNotify = notifyCalls.find((m) => m.includes("转储："));
+      expect(dumpNotify).toContain("窗口");
+      expect(dumpNotify).toContain("e2e");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(cfgDir, { recursive: true, force: true });
+    }
   });
 
   it("compress-status handler reports unconfigured state", async () => {

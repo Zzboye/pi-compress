@@ -19,6 +19,7 @@ import {
   type SummarizerBackend,
 } from "./summarizer.js";
 import { executeRecall } from "./recall.js";
+import { dumpContext, writeContextDump, defaultDumpBase } from "./dump.js";
 import { enforceForcePoint } from "./forcepoint.js";
 import { splitIntoTurns, type MessageEntry } from "./util.js";
 import { computeBackfillTurns } from "./backfill.js";
@@ -159,6 +160,31 @@ export default function (pi: ExtensionAPI): void {
       recallStats.hits += params.ids.length - r.missing.length;
       recallStats.missing += r.missing.length;
       return { content: [{ type: "text", text: r.text }], details: undefined };
+    },
+  });
+
+  pi.registerCommand("compress-dump", {
+    description: "转储当前会话实际发给 LLM 的上下文原文（Markdown+JSON 双份）",
+    handler: async (args, ctx) => {
+      if (!config) {
+        ctx.ui.notify("context-compress: 未配置（无 contextCompress.summarizer），无从转储装配口径", "warning");
+        return;
+      }
+      const branch = toMessageEntries(ctx.sessionManager.getBranch());
+      if (branch.length === 0) {
+        ctx.ui.notify("context-compress: 会话为空，无上下文可转储", "warning");
+        return;
+      }
+      const cache = new Map<string, LedgerData>();
+      for (const k of store.keys()) { const v = store.get(k); if (v) cache.set(k, v); }
+      const dump = dumpContext(branch, cache, config);
+      const base = args.trim() ? args.trim() : defaultDumpBase(ctx.cwd);
+      const [mdPath, jsonPath] = writeContextDump(dump, base);
+      const d = dump.stats;
+      ctx.ui.notify(
+        `context-compress 转储：${dump.assembled.total} 条 messages / 窗口 ${d.windowTurns} turns / 替换 ${d.replacedTurns} / 照发 ${d.passthroughTurns} / ~${dump.assembled.tokens} tok\n${mdPath}\n${jsonPath}`,
+        "info",
+      );
     },
   });
 

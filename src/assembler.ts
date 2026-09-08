@@ -5,7 +5,7 @@ import { splitIntoTurns, stripThinking, type MessageEntry, type Turn } from "./u
 
 /** 单个 turn 的窗口预算计量：assistant 消息跳过 thinking 块（窗口原文会剥离 thinking，
  *  预算必须与实际发给 LLM 的内容一致），其余角色沿用 pi 的 estimateTokens。 */
-function turnTokens(turn: Turn): number {
+export function turnTokens(turn: Turn): number {
   return turn.entries.reduce((s, e) => {
     const m = e.message as any;
     if (m.role !== "assistant") return s + estimateTokens(e.message);
