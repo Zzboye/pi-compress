@@ -47,7 +47,7 @@ describe("integration: turn → summarize → assemble → recall", () => {
     expect(head).toContain("<action-ledger>");
     expect(head).toContain("↩t1"); // ledger 头含 ↩ 标记（recallIds=["t1-a"] → "↩t1-a" 含子串 "↩t1"）
     expect(head).toContain("用户：「");                    // 用户原话进入 ledger 头
-    expect(head).toContain("已截断，后续");                 // 4000 字符用户消息被头截断
+    expect(head).toContain("a".repeat(100));               // 4000 字符用户消息全量进入 L1 原文（不再截断）
     expect(head).toContain("最终回复（原文）：");
     expect(head).toContain("看完了文件");                  // 最终回复逐字出现
 

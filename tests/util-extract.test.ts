@@ -18,14 +18,19 @@ describe("extractUserMessage", () => {
     expect(q).toEqual({ text: "修内存泄漏", entryId: "u1", truncated: false });
   });
 
-  it("长消息：头 200 字符 + 省略标记", () => {
+  it("长消息：全文保留，不截断（L1 全量原文）", () => {
     const full = "开".repeat(100) + "中".repeat(300) + "尾".repeat(100);
     const q = extractUserMessage(turnOf(userEntry("u2", full)))!;
-    expect(q.truncated).toBe(true);
-    expect(q.text.startsWith("开".repeat(100))).toBe(true);
-    expect(q.text).toContain("[... 已截断，后续 300 字符省略 ...]");
-    expect(q.text).not.toContain("尾");
+    expect(q.truncated).toBe(false);
+    expect(q.text).toBe(full);
     expect(q.entryId).toBe("u2");
+  });
+
+  it("extractUserMessage keeps full text (no truncation) for L1", () => {
+    const long = "x".repeat(500);
+    const q = extractUserMessage(turnOf(userEntry("u5", long)))!;
+    expect(q?.text).toBe(long);
+    expect(q?.truncated).toBe(false);
   });
 
   it("首条非 user 消息 → undefined", () => {
@@ -74,19 +79,24 @@ describe("extractFinalReply", () => {
     expect(extractFinalReply(turnOf(userEntry("u1", "问题")))).toBeUndefined();
   });
 
-  it("超长回复：头 800 + 标记 + 尾 1200", () => {
+  it("超长回复：全文保留，不截断（L1 全量原文）", () => {
     const body = "H>>>" + "x".repeat(3000) + "<<<T";
     const t = turnOf(userEntry("u1", "问题"), assistantEntry("a9", [{ type: "text", text: body }]));
     const q = extractFinalReply(t)!;
-    expect(q.truncated).toBe(true);
-    expect(q.text.startsWith("H>>>")).toBe(true);
-    expect(q.text).toContain("[... 中间省略 1008 字符 ...]"); // 3008 - 2000
-    expect(q.text.endsWith("<<<T")).toBe(true);
+    expect(q.truncated).toBe(false);
+    expect(q.text).toBe(body);
   });
 
-  it("边界：恰好 2000 不截断，2001 截断", () => {
+  it("边界：长回复不再按长度截断", () => {
     const mk = (n: number) => turnOf(userEntry("u1", "问题"), assistantEntry("a1", [{ type: "text", text: "y".repeat(n) }]));
     expect(extractFinalReply(mk(2000))!.truncated).toBe(false);
-    expect(extractFinalReply(mk(2001))!.truncated).toBe(true);
+    expect(extractFinalReply(mk(2001))!.truncated).toBe(false);
+  });
+
+  it("extractFinalReply keeps full text (no truncation)", () => {
+    const long = "y".repeat(3000);
+    const q = extractFinalReply(turnOf(userEntry("u1", "问题"), assistantEntry("a2", [{ type: "text", text: long }])))!;
+    expect(q?.text).toBe(long);
+    expect(q?.truncated).toBe(false);
   });
 });
