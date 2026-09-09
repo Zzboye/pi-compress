@@ -224,5 +224,5 @@ afterAll(() => {
 });
 
 function mockConfig() {
-  return { summarizer: undefined, verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76, retry: { maxAttempts: 3, backoffMs: 2000 }, ledgerMergeThreshold: 40, backfillLimit: 20 };
+  return { summarizer: undefined, verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76, retry: { maxAttempts: 3, backoffMs: 2000 }, ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 10000, backfillLimit: 20 };
 }

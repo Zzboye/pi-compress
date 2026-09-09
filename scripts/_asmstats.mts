@@ -1,0 +1,21 @@
+import { readFileSync } from "node:fs";
+import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import { assembleContext } from "../src/assembler.js";
+import { LedgerStore } from "../src/store.js";
+import { splitIntoTurns, type MessageEntry } from "../src/util.js";
+const raw = readFileSync(process.argv[2], "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+const branch: MessageEntry[] = raw.filter((e: any) => e.type === "message").map((e: any) => ({ id: e.id, message: e.message }));
+const store = new LedgerStore(); store.rebuildFromEntries(raw);
+const cache = new Map(); for (const k of store.keys()) cache.set(k, store.get(k));
+const { messages, stats } = assembleContext(branch, cache, 20000);
+const tok = (m: any) => m.content.reduce((s: number, b: any) => {
+  if (b?.type === "text") return s + Math.ceil(b.text.length / 4);
+  if (b?.type === "toolCall") return s + Math.ceil((b.name.length + JSON.stringify(b.arguments ?? {}).length) / 4);
+  if (b?.type === "thinking") return s;
+  return s + Math.ceil(JSON.stringify(b).length / 4);
+}, 0);
+const ledgerTok = messages.filter((m: any) => JSON.stringify(m.content).includes("<action-ledger>")).reduce((s: number, m: any) => s + tok(m), 0);
+const total = messages.reduce((s: number, m: any) => s + tok(m), 0);
+const native = branch.reduce((s: number, e) => s + estimateTokens(e.message as any), 0);
+console.log(`原生(含thinking) ~${native} tok | 装配后 ~${total} tok | 其中ledger头 ~${ledgerTok} tok | 节省 ${Math.round((1 - total / native) * 100)}%`);
+console.log(`stats: ${JSON.stringify(stats)}`);

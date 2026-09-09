@@ -191,7 +191,7 @@ describe("real-model: LM Studio 本地摘要基准", () => {
       const engine = new SummarizerEngine(timedBackend, {
         summarizer: { kind: "openai", baseUrl: LMSTUDIO.baseUrl, model, apiKey: LMSTUDIO.apiKey },
         verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76,
-        retry: { maxAttempts: 2, backoffMs: 1000 }, ledgerMergeThreshold: 40, backfillLimit: 20,
+        retry: { maxAttempts: 2, backoffMs: 1000 }, ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 10000, backfillLimit: 20,
       }, onLedger, onWarning);
 
       // 摘要后逐 turn 复核逐字校验剔除情况

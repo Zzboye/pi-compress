@@ -8,7 +8,6 @@ describe("loadConfig", () => {
     expect(c.forceRatio).toBe(0.76);
     expect(c.verbatimCheck).toBe(true);
     expect(c.retry).toEqual({ maxAttempts: 3, backoffMs: 2000 });
-    expect(c.ledgerMergeThreshold).toBe(40);
     expect(c.backfillLimit).toBe(20);
   });
 
@@ -82,5 +81,25 @@ describe("loadConfig", () => {
     const c = loadConfig({ contextCompress: { keepRecentTokens: -5, forceRatio: 2 } }, undefined);
     expect(c.keepRecentTokens).toBe(20000);
     expect(c.forceRatio).toBe(0.76);
+  });
+});
+
+describe("ledger degrade config", () => {
+  it("defaults ledgerDegradeThresholdTokens=40000, ledgerReserveTokens=10000", () => {
+    const c = loadConfig({}, {});
+    expect(c.ledgerDegradeThresholdTokens).toBe(40000);
+    expect(c.ledgerReserveTokens).toBe(10000);
+  });
+  it("reads overrides and clamps out-of-range", () => {
+    const c = loadConfig({ contextCompress: { ledgerDegradeThresholdTokens: 60000, ledgerReserveTokens: 5000 } }, {});
+    expect(c.ledgerDegradeThresholdTokens).toBe(60000);
+    expect(c.ledgerReserveTokens).toBe(5000);
+    const bad = loadConfig({ contextCompress: { ledgerDegradeThresholdTokens: 1, ledgerReserveTokens: 0 } }, {});
+    expect(bad.ledgerDegradeThresholdTokens).toBe(40000);
+    expect(bad.ledgerReserveTokens).toBe(10000);
+  });
+  it("ignores legacy ledgerMergeThreshold (no longer in output)", () => {
+    const c = loadConfig({ contextCompress: { ledgerMergeThreshold: 40 } }, {});
+    expect((c as any).ledgerMergeThreshold).toBeUndefined();
   });
 });

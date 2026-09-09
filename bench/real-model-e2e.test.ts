@@ -139,7 +139,7 @@ describe("real-model-e2e: 真机端到端压缩（native > 窗口）", () => {
     const engine = new SummarizerEngine(timedBackend, {
       summarizer: { kind: "openai", baseUrl: LMSTUDIO.baseUrl, model: MODEL, apiKey: LMSTUDIO.apiKey },
       verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76,
-      retry: { maxAttempts: 2, backoffMs: 1000 }, ledgerMergeThreshold: 40, backfillLimit: 20,
+      retry: { maxAttempts: 2, backoffMs: 1000 }, ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 10000, backfillLimit: 20,
     }, (d) => ledgers.set(d.turnStartEntryId, d), (m) => console.log(`  WARN: ${m}`));
 
     const t0 = performance.now();

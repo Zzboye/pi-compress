@@ -79,7 +79,8 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
     "keepRecentTokens": 20000,
     "forceRatio": 0.76,
     "retry": { "maxAttempts": 3, "backoffMs": 2000 },
-    "ledgerMergeThreshold": 40
+    "ledgerDegradeThresholdTokens": 40000,
+    "ledgerReserveTokens": 10000
   }
 }
 ```
@@ -95,7 +96,8 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 | `forceRatio` | `0.76` | 0.1–0.99 | 上下文用量超过此比例触发强制点（等待队列清空后重组） |
 | `retry.maxAttempts` | `3` | 1–100 | 单 turn 摘要失败重试次数 |
 | `retry.backoffMs` | `2000` | 100–600000 | 指数退避基数（第 n 次等待 `backoffMs * 2^(n-1)`） |
-| `ledgerMergeThreshold` | `40` | 5–10000 | 相邻动作日志合并阈值（v1 占位，合并逻辑未实现） |
+| `ledgerDegradeThresholdTokens` | `40000` | 5000–2000000 | 动作日志 L1 区渲染体积阈值（tokens）：超过时最旧 turns 降级为 L2（保留尾部约 `ledgerReserveTokens`），逐级瀑布 L1→L2→L3→L4 |
+| `ledgerReserveTokens` | `10000` | 1000–500000 | 每层降级时尾部的保留区大小（tokens），按 turn 边界取整 |
 | `backfillLimit` | `20` | 0–100000 | `session_start` 时补摘未摘要 turn 的上限（最旧优先），0 = 关闭。会话恢复/崩溃重启后自动补齐历史缺口 |
 
 ### 方式一：pi 模型注册表
@@ -186,7 +188,7 @@ npm test        # vitest 单测（tests/）
 
 ## 已知限制（v1）
 
-- **动作日志合并未实现**：`ledgerMergeThreshold` 是占位字段；当前每 turn 独立摘要，未做相邻日志合并压缩。
+- **动作日志降级（四级分层）实现中**：`ledgerDegradeThresholdTokens` / `ledgerReserveTokens` 配置已就位，降级引擎在后续任务接入；当前每 turn 独立摘要，未做分层降级压缩。
 - **补摘仅在 session_start 触发**：历史缺口在会话恢复时补齐；会话中途关闭摘要器再开启需重启会话才会补摘。补摘受 `backfillLimit` 上限约束，超出部分（更旧的 turn）保持原文放行。
 - **RPC/print 模式未特殊处理**：插件在 `tui` 模式下完整工作；`rpc`/`json`/`print` 模式下事件仍触发，但 `ctx.ui.notify`/`setStatus` 可能无可见输出。
 - **单 turn 超大**：单个 turn 超过 `keepRecentTokens` 时，按设计仍整体保留在窗口内（不拆分），会导致窗口临时超过预算，直到下一轮 pi 原生压缩兜底。
