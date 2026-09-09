@@ -1,6 +1,9 @@
 import { estimateTokens } from "@earendil-works/pi-coding-agent";
 import { renderTurnText, type LedgerData } from "./ledger.js";
 import type { AgentMessage } from "./types.js";
+import type { SummarizerBackend } from "./summarizer.js";
+import type { ContextCompressConfig } from "./config.js";
+import { compressEnds, mergeDescribe } from "./degrade-llm.js";
 
 export interface DegradeStep { turnStartEntryId: string; toLevel: 2 | 3 | 4 }
 
@@ -85,4 +88,56 @@ export function planDegrade(
   }
   if (cur.length) mergeGroups.push(cur);
   return { steps, mergeGroups };
+}
+
+/**
+ * 降级编排引擎：planDegrade 得计划 → 规则降级（L1→L2）与 LLM 降级（L2→L3、L3→L4）→ onLedger 持久化。
+ * 串行执行（不并发，避免本地模型过载）；每条降级 turn 先写 level 再做 LLM 压缩；
+ * LLM 失败的 turn/组回滚 level（保持原层级），onWarning 告警但整体不中断。
+ */
+export class DegradeEngine {
+  constructor(
+    private backend: SummarizerBackend,
+    private config: ContextCompressConfig,
+    private onLedger: (d: LedgerData) => void,
+    private onWarning: (m: string) => void,
+  ) {}
+
+  async run(ledgers: LedgerData[]): Promise<void> {
+    const plan = planDegrade(ledgers, this.config.ledgerDegradeThresholdTokens, this.config.ledgerReserveTokens);
+    const byId = new Map(ledgers.map((l) => [l.turnStartEntryId, l]));
+
+    for (const step of plan.steps.filter((s) => s.toLevel === 2)) {
+      const l = byId.get(step.turnStartEntryId)!;
+      l.level = 2;
+      this.onLedger(l);
+    }
+    for (const step of plan.steps.filter((s) => s.toLevel === 3)) {
+      const l = byId.get(step.turnStartEntryId)!;
+      l.level = 3; // 先写 level：持久化与 LLM 压缩同一时序
+      try {
+        const ends = await compressEnds(this.backend, l);
+        l.summary = { ...l.summary, userIntent: ends.userIntent, outcome: ends.outcome };
+        this.onLedger(l);
+      } catch (err) {
+        l.level = 2; // 回滚：保持原层级
+        this.onWarning(`context-compress: turn ${l.turnStartEntryId} L3 压缩失败（${String(err)}），保持 L2`);
+      }
+    }
+    for (const group of plan.mergeGroups) {
+      const members = group.map((id) => byId.get(id)!);
+      for (const m of members) m.level = 4;
+      try {
+        const { description } = await mergeDescribe(this.backend, members);
+        // 描述写到组内每个成员：ledger 单条目自包含，渲染/重建无需跨条目状态
+        for (const m of members) {
+          m.merged = { description };
+          this.onLedger(m);
+        }
+      } catch (err) {
+        for (const m of members) m.level = 3; // 回滚：保持原层级
+        this.onWarning(`context-compress: L4 合并失败（${String(err)}），保持 L3`);
+      }
+    }
+  }
 }
