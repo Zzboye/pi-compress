@@ -6,6 +6,8 @@ import { executeRecall } from "../src/recall.js";
 import { enforceForcePoint } from "../src/forcepoint.js";
 import { splitIntoTurns, type MessageEntry } from "../src/util.js";
 import { loadConfig } from "../src/config.js";
+import { DegradeEngine } from "../src/degrade.js";
+import { LEDGER_CUSTOM_TYPE, type LedgerData } from "../src/ledger.js";
 import type { AgentMessage } from "../src/types.js";
 
 function bigTurn(startId: string, text: string): MessageEntry[] {
@@ -95,5 +97,86 @@ describe("integration: turn → summarize → assemble → recall", () => {
     expect(await enforceForcePoint({ tokens: 9000 }, 10000, 0.76, q, 50, status)).toBe("degraded");
     const q2 = { pending: () => 0, waitIdle: async () => true };
     expect(await enforceForcePoint({ tokens: 9000 }, 10000, 0.76, q2, 50, status)).toBe("pass");
+  });
+
+  // 模拟 index.ts 的 runDegrade：按 turnStartEntryId 升序取全量 ledgers，交给 DegradeEngine
+  it("degrades ledgers through levels after summarize completes (L1->L2 rule path)", async () => {
+    const store = new LedgerStore();
+    // 阈值调小触发降级：5 turn 各 ~770 tok（用户 3000 字符原文进 L1 渲染）
+    // L1 总量 ~3900 > 3400 → 最旧 4 条降 L2（累计 ~3100 ≥ 总量−1200）；降级后 L2 ~3100 ≤ 3400 → 瀑布停止
+    const cfg = { ...config, ledgerDegradeThresholdTokens: 3400, ledgerReserveTokens: 1200 };
+    const validOutput = JSON.stringify({
+      groups: [{ phase: "investigate", entries: [{ target: "src/app.ts", detail: "正常" }] }],
+    });
+    const backend = { complete: async () => validOutput };
+    const onLedger = (d: LedgerData) => store.set(d); // 与 index.ts 同一持久化通道
+    const engine = new SummarizerEngine(backend, cfg, onLedger, vi.fn());
+    const degradeEngine = new DegradeEngine(backend, cfg, onLedger, vi.fn());
+
+    const branch = [
+      ...bigTurn("t1", "a".repeat(3000)), ...bigTurn("t2", "b".repeat(3000)), ...bigTurn("t3", "c".repeat(3000)),
+      ...bigTurn("t4", "d".repeat(3000)), ...bigTurn("t5", "e".repeat(3000)),
+    ];
+    for (const t of splitIntoTurns(branch)) engine.enqueue(t);
+    await engine.waitIdle(5000);
+    expect(store.get("t1")?.level).toBeUndefined(); // 摘要完成时尚未降级
+
+    const ledgers = store.keys()
+      .map((k) => store.get(k)!)
+      .filter(Boolean)
+      .sort((x, y) => x.turnStartEntryId.localeCompare(y.turnStartEntryId));
+    await degradeEngine.run(ledgers);
+
+    expect(store.get("t1")?.level).toBe(2);          // 最旧 → L2
+    expect(store.get("t4")?.level).toBe(2);
+    expect(store.get("t5")?.level).toBeUndefined();  // 最新保留区 → 仍是 L1（缺省）
+    // L2 渲染丢命令：detail 仍在，target/命令消失
+    const head = ((assembleContext(branch, new Map([...store.keys().map((k) => [k, store.get(k)!] as const)]), 100)
+      .messages[0] as any).content as any[]).map((c) => c.text ?? "").join("");
+    expect(head).toContain("正常");
+    expect(head).not.toContain("src/app.ts");
+  });
+
+  it("L3 ledger renders intent/outcome lines in assembled action ledger", async () => {
+    const bigUser = "帮我了解 ledger 的结构（完整原文内容）" + "背景".repeat(1000);
+    const bigReply = "这是完整回复原文，不该出现在 L3" + "细节".repeat(1000);
+    const ledger: LedgerData = {
+      turnStartEntryId: "t1", turnEndEntryId: "t1-r", level: 3,
+      summary: {
+        userIntent: "了解ledger结构", outcome: "确认四级占位",
+        groups: [{ phase: "investigate", entries: [{ action: "read", target: "src/ledger.ts", detail: "阅读核心数据结构", recallIds: ["t1-a"] }] }],
+      },
+      userMessage: { text: bigUser, entryId: "t1", truncated: false },
+      finalReply: { text: bigReply, entryId: "t1-r", truncated: false },
+    };
+    const branch: MessageEntry[] = [
+      { id: "t1", message: { role: "user", content: [{ type: "text", text: bigUser }] } as AgentMessage },
+      { id: "t1-r", message: { role: "assistant", content: [{ type: "text", text: bigReply }] } as AgentMessage },
+      { id: "t2", message: { role: "user", content: [{ type: "text", text: "q2" }] } as AgentMessage },
+      { id: "t2-r", message: { role: "assistant", content: [{ type: "text", text: "a2" }] } as AgentMessage },
+    ];
+    const { messages } = assembleContext(branch, new Map([["t1", ledger]]), 100); // 小预算 → t1（大）窗外，t2 窗内
+    const head = ((messages[0] as any).content as any[]).map((c) => c.text ?? "").join("");
+    expect(head).toContain("意图：了解ledger结构");        // 用户输入 → 意图单行
+    expect(head).toContain("调查：阅读核心数据结构");       // 动作摘要仍在
+    expect(head).toContain("最终回复（摘要）：确认四级占位"); // 最终回复 → 摘要单行
+    expect(head).not.toContain("帮我了解");               // 用户原文不再出现
+    expect(head).not.toContain("完整回复原文");            // 回复原文不再出现
+  });
+
+  it("store rejects ledger entries with invalid level on rebuild", () => {
+    const base = {
+      turnStartEntryId: "a", turnEndEntryId: "a-r",
+      summary: { groups: [{ phase: "other" as const, entries: [{ action: "read", target: "x", detail: "d", recallIds: ["a"] }] }] },
+    };
+    const store = new LedgerStore();
+    store.rebuildFromEntries([
+      { id: "x1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: { ...base, level: 7 } }, // 脏 level → 拒绝
+      { id: "x2", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: { ...base, turnStartEntryId: "b", level: 3 } },
+      { id: "x3", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: { ...base, turnStartEntryId: "c" } }, // 缺省 level → 合法（视为 L1）
+    ]);
+    expect(store.get("a")).toBeUndefined();
+    expect(store.get("b")?.level).toBe(3);
+    expect(store.get("c")).toBeTruthy();
   });
 });

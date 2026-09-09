@@ -23,6 +23,7 @@ import { dumpContext, writeContextDump, defaultDumpBase } from "./dump.js";
 import { enforceForcePoint } from "./forcepoint.js";
 import { splitIntoTurns, type MessageEntry } from "./util.js";
 import { computeBackfillTurns } from "./backfill.js";
+import { DegradeEngine } from "./degrade.js";
 import { renderActionLedger, LEDGER_CUSTOM_TYPE, type LedgerData } from "./ledger.js";
 
 const WAIT_TIMEOUT_MS = 120_000;
@@ -41,33 +42,55 @@ export default function (pi: ExtensionAPI): void {
   let config: ContextCompressConfig | null = null;
   let store = new LedgerStore();
   let engine: SummarizerEngine | null = null;
+  let degradeEngine: DegradeEngine | null = null;
   let degraded = false;
   let lastStats: AssembleStats | null = null;
   let recallStats = { calls: 0, hits: 0, missing: 0 };
 
+  // 摘要与降级共用同一后端与持久化通道（onLedger：store.set + appendCustomEntry）
+  const makeBackend = (ctx: ExtensionContext, ref: NonNullable<ContextCompressConfig["summarizer"]>): SummarizerBackend =>
+    ref.kind === "registry" ? createRegistryBackend(ctx, ref) : createOpenAICompatBackend(ref);
+
   const makeEngine = (ctx: ExtensionContext): SummarizerEngine | null => {
     if (!config?.summarizer) return null;
-    const backend: SummarizerBackend =
-      config.summarizer.kind === "registry"
-        ? createRegistryBackend(ctx, config.summarizer)
-        : createOpenAICompatBackend(config.summarizer);
+    const backend = makeBackend(ctx, config.summarizer);
     // 备用后端：主后端溢出（prompt 超出主模型上下文）或重试耗尽时接管（典型：主用本地小模型，备用配大上下文模型）
     const fallback: SummarizerBackend | undefined =
-      config.summarizerFallback
-        ? config.summarizerFallback.kind === "registry"
-          ? createRegistryBackend(ctx, config.summarizerFallback)
-          : createOpenAICompatBackend(config.summarizerFallback)
-        : undefined;
+      config.summarizerFallback ? makeBackend(ctx, config.summarizerFallback) : undefined;
+    const onLedger = (d: LedgerData) => {
+      store.set(d);
+      try { (ctx.sessionManager as unknown as SessionManager).appendCustomEntry(LEDGER_CUSTOM_TYPE, d); } catch { /* 持久化失败不影响内存缓存 */ }
+    };
+    // 降级引擎：仅在摘要后端可用时构造（未配置 summarizer = 插件降级态，不降级也不摘要）
+    degradeEngine = new DegradeEngine(backend, config, onLedger, (m) => ctx.ui.notify(m, "warning"));
     return new SummarizerEngine(
       backend,
       config,
-      (d) => {
-        store.set(d);
-        try { (ctx.sessionManager as unknown as SessionManager).appendCustomEntry(LEDGER_CUSTOM_TYPE, d); } catch { /* 持久化失败不影响内存缓存 */ }
-      },
+      onLedger,
       (m) => ctx.ui.notify(m, "warning"),
       fallback,
     );
+  };
+
+  /** 降级流水：按 turnStartEntryId 升序取全量 ledgers，交 DegradeEngine（内部逐层瀑布，持久化走 onLedger） */
+  const runDegrade = async (): Promise<void> => {
+    if (!degradeEngine) return;
+    const ledgers = store.keys()
+      .map((k) => store.get(k)!)
+      .filter(Boolean)
+      .sort((a, b) => a.turnStartEntryId.localeCompare(b.turnStartEntryId));
+    if (ledgers.length === 0) return;
+    await degradeEngine.run(ledgers);
+  };
+
+  /** 摘要队列 drain 完成后触发一次降级（不阻塞事件返回，fire-and-forget） */
+  const degradeAfterSettle = async (): Promise<void> => {
+    if (!engine) return;
+    const ok = await engine.waitIdle(WAIT_TIMEOUT_MS);
+    if (ok) await runDegrade();
+  };
+  const degradeAfterSettleSafe = (ctx: { ui: { notify(m: string, lvl?: string): void } }): void => {
+    degradeAfterSettle().catch((e) => ctx.ui.notify(`context-compress: 降级失败 ${e instanceof Error ? e.message : String(e)}`, "warning"));
   };
 
   pi.on("session_start", async (_event, ctx) => {
@@ -84,7 +107,10 @@ export default function (pi: ExtensionAPI): void {
       const turns = splitIntoTurns(toMessageEntries(ctx.sessionManager.getBranch()));
       const todo = computeBackfillTurns(turns, store, config.backfillLimit);
       for (const t of todo) engine.enqueue(t);
-      if (todo.length > 0) ctx.ui.notify(`context-compress: 补摘 ${todo.length} 个未摘要 turn`, "info");
+      if (todo.length > 0) {
+        ctx.ui.notify(`context-compress: 补摘 ${todo.length} 个未摘要 turn`, "info");
+        degradeAfterSettleSafe(ctx); // 补摘完成后同样触发降级（不阻塞 session_start）
+      }
     }
   });
 
@@ -125,6 +151,8 @@ export default function (pi: ExtensionAPI): void {
     const last = turns[turns.length - 1];
     if (store.get(last.startEntryId) || engine.failed().has(last.startEntryId)) return;
     engine.enqueue(last);
+    // 摘要完成后后台降级：L1>阈值 → 最旧降 L2，逐层瀑布，不阻塞事件返回
+    degradeAfterSettleSafe(ctx);
   });
 
   pi.on("session_before_compact", async (event, _ctx) => {
