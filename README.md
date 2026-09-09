@@ -100,6 +100,19 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 | `ledgerReserveTokens` | `10000` | 1000–500000 | 每层降级时尾部的保留区大小（tokens），按 turn 边界取整 |
 | `backfillLimit` | `20` | 0–100000 | `session_start` 时补摘未摘要 turn 的上限（最旧优先），0 = 关闭。会话恢复/崩溃重启后自动补齐历史缺口 |
 
+### 动作日志四级分层（L1–L4）
+
+窗外已摘要 turn 的动作日志头按四级渐进压缩，每层超过 `ledgerDegradeThresholdTokens`（默认 40K tokens）时，最旧 turns 降级到下一层（保留尾部约 `ledgerReserveTokens`，按 turn 边界取整），后台异步瀑布执行（每轮回复落盘后 L1→L2→L3→L4 逐级检测，任一层不超标即停止），降级结果持久化到 ledger，装配时直接读取：
+
+- **L1** 用户原文 + 动作（命令+摘要+↩ID）+ 最终回复原文
+- **L2** 丢动作中的命令，两端原文保留
+- **L3** 意图（↩ID）+ 动作摘要 + 最终回复摘要（↩ID）——本地模型生成
+- **L4** 多 turn 合并一行 `T3-T7 · 描述（N 条已合并）↩id1,id2,...`——本地模型生成
+
+```jsonc
+{ "contextCompress": { "ledgerDegradeThresholdTokens": 40000, "ledgerReserveTokens": 10000 } }
+```
+
 ### 方式一：pi 模型注册表
 
 `summarizer: { provider, model }` 让插件复用 pi 的 `modelRegistry`（与主对话模型统一管理 provider/凭据）。以 Ollama 为例，先在 pi 注册 Ollama provider（参见 pi 文档 `docs/custom-provider.md`），然后：
@@ -188,7 +201,7 @@ npm test        # vitest 单测（tests/）
 
 ## 已知限制（v1）
 
-- **动作日志降级（四级分层）实现中**：`ledgerDegradeThresholdTokens` / `ledgerReserveTokens` 配置已就位，降级引擎在后续任务接入；当前每 turn 独立摘要，未做分层降级压缩。
+- **动作日志降级（四级分层）依赖本地模型**：L2→L3 的意图/摘要与 L3→L4 的合并描述由 `summarizer` 现场生成，降级触发瞬间可能增加一次后台模型调用；L1→L2 为纯规则（去命令），无模型成本。
 - **补摘仅在 session_start 触发**：历史缺口在会话恢复时补齐；会话中途关闭摘要器再开启需重启会话才会补摘。补摘受 `backfillLimit` 上限约束，超出部分（更旧的 turn）保持原文放行。
 - **RPC/print 模式未特殊处理**：插件在 `tui` 模式下完整工作；`rpc`/`json`/`print` 模式下事件仍触发，但 `ctx.ui.notify`/`setStatus` 可能无可见输出。
 - **单 turn 超大**：单个 turn 超过 `keepRecentTokens` 时，按设计仍整体保留在窗口内（不拆分），会导致窗口临时超过预算，直到下一轮 pi 原生压缩兜底。

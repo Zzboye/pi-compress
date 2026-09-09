@@ -190,7 +190,8 @@ var DEFAULT_CONFIG = {
   keepRecentTokens: 2e4,
   forceRatio: 0.76,
   retry: { maxAttempts: 3, backoffMs: 2e3 },
-  ledgerMergeThreshold: 40,
+  ledgerDegradeThresholdTokens: 4e4,
+  ledgerReserveTokens: 1e4,
   backfillLimit: 20
 };
 function parseSummarizer(raw2) {
@@ -224,7 +225,8 @@ function loadConfig(globalRaw, projectRaw) {
       maxAttempts: Math.max(1, Math.floor(num(merged.retry === void 0 ? void 0 : merged.retry.maxAttempts, 3, 1, 100))),
       backoffMs: Math.max(100, Math.floor(num(merged.retry === void 0 ? void 0 : merged.retry.backoffMs, 2e3, 100, 6e5)))
     },
-    ledgerMergeThreshold: Math.floor(num(merged.ledgerMergeThreshold, 40, 5, 1e4)),
+    ledgerDegradeThresholdTokens: Math.floor(num(merged.ledgerDegradeThresholdTokens, 4e4, 5e3, 2e6)),
+    ledgerReserveTokens: Math.floor(num(merged.ledgerReserveTokens, 1e4, 1e3, 5e5)),
     backfillLimit: Math.floor(num(merged.backfillLimit, 20, 0, 1e5))
   };
 }
@@ -254,7 +256,7 @@ lines.push("");
 lines.push(`- \u4F1A\u8BDD\u6587\u4EF6: ${sessionPath}`);
 lines.push(`- \u4F1A\u8BDD turns \u603B\u6570: ${turns.length}\uFF08message entries: ${branch.length}\uFF09`);
 lines.push(`- \u5DF2\u6709 ledger \u6458\u8981: ${store.size()} \u6761`);
-lines.push(`- \u914D\u7F6E: keepRecentTokens=${config.keepRecentTokens}, ledgerMergeThreshold=${config.ledgerMergeThreshold}\uFF08\u672A\u5B9E\u73B0\uFF09`);
+lines.push(`- \u914D\u7F6E: keepRecentTokens=${config.keepRecentTokens}, ledgerDegradeThresholdTokens=${config.ledgerDegradeThresholdTokens}, ledgerReserveTokens=${config.ledgerReserveTokens}`);
 lines.push(`- \u88C5\u914D\u7EDF\u8BA1: \u7A97\u53E3\u5185 ${stats.windowTurns} turns / ledger \u66FF\u6362 ${stats.replacedTurns} / \u539F\u6587\u900F\u4F20 ${stats.passthroughTurns}`);
 lines.push(`- \u88C5\u914D\u540E\u603B\u5B57\u7B26: ${totalChars}\uFF08\u7EA6 ${Math.ceil(totalChars / 4)} tokens \u4F30\u7B97\uFF09`);
 lines.push(`- \u539F\u751F\u4E0A\u4E0B\u6587\u5B57\u7B26\uFF08\u5265 thinking \u540E\uFF09: ${nativeChars}\uFF08\u7EA6 ${Math.ceil(nativeChars / 4)} tokens\uFF09`);

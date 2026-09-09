@@ -45,7 +45,7 @@ lines.push("");
 lines.push(`- 会话文件: ${sessionPath}`);
 lines.push(`- 会话 turns 总数: ${turns.length}（message entries: ${branch.length}）`);
 lines.push(`- 已有 ledger 摘要: ${store.size()} 条`);
-lines.push(`- 配置: keepRecentTokens=${config.keepRecentTokens}, ledgerMergeThreshold=${config.ledgerMergeThreshold}（未实现）`);
+lines.push(`- 配置: keepRecentTokens=${config.keepRecentTokens}, ledgerDegradeThresholdTokens=${config.ledgerDegradeThresholdTokens}, ledgerReserveTokens=${config.ledgerReserveTokens}`);
 lines.push(`- 装配统计: 窗口内 ${stats.windowTurns} turns / ledger 替换 ${stats.replacedTurns} / 原文透传 ${stats.passthroughTurns}`);
 lines.push(`- 装配后总字符: ${totalChars}（约 ${Math.ceil(totalChars / 4)} tokens 估算）`);
 lines.push(`- 原生上下文字符（剥 thinking 后）: ${nativeChars}（约 ${Math.ceil(nativeChars / 4)} tokens）`);
