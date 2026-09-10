@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { executeRecall } from "../src/recall.js";
+import { executeRecall, searchLedger } from "../src/recall.js";
 import type { MessageEntry } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
+import type { LedgerData } from "../src/ledger.js";
 
 const branch: MessageEntry[] = [
   { id: "e1", message: { role: "user", content: [{ type: "text", text: "问题原文" }] } as unknown as AgentMessage },
@@ -92,7 +93,7 @@ describe("executeRecall", () => {
   });
 
   it("截断阈值按剥离 thinking 后的有效内容计量（思考不再导致误截断）", () => {
-    // 有效正文很小，但旧口径下 thinking 使 estimateTokens 远超阈值 → 会被误截断
+    // 有效正文很小，但 thinking 不剥离时 countTokens 远超阈值 → 会被误截断（旧口径回归参照）
     const b: MessageEntry[] = [
       { id: "t1", message: { role: "assistant", content: [
         { type: "thinking", thinking: "长".repeat(8000) },
@@ -110,5 +111,100 @@ describe("executeRecall", () => {
     ];
     const r = executeRecall(["t1"], b, 100); // 阈值 400 chars
     expect(r.text).toContain("截断");
+  });
+});
+
+function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
+  return {
+    turnEndEntryId: partial.turnStartEntryId + "-end",
+    summary: { groups: [] },
+    ...partial,
+  } as LedgerData;
+}
+
+describe("searchLedger", () => {
+  const ledgers: LedgerData[] = [
+    mkLedger({
+      turnStartEntryId: "t1", level: 1,
+      userMessage: { text: "forceRatio 是什么？为什么默认 0.76", entryId: "t1-u" },
+      finalReply: { text: "forceRatio 是触发强制点的比例", entryId: "t1-f" },
+      summary: { groups: [{ phase: "investigate", entries: [
+        { action: "read", target: "src/config.ts", detail: "校验 forceRatio 范围", recallIds: ["t1-a"] },
+      ] }] },
+    }),
+    mkLedger({
+      turnStartEntryId: "t2", level: 3,
+      summary: { userIntent: "了解 keepRecentTokens", groups: [] },
+      userMessage: { text: "keepRecentTokens 怎么配？", entryId: "t2-u" },
+    }),
+    mkLedger({
+      turnStartEntryId: "t3", level: 4,
+      merged: { description: "调整 forceRatio 并验证窗口行为" },
+      summary: { groups: [{ phase: "fix", entries: [
+        { action: "edit", target: "a.ts", detail: "改 forceRatio 默认值", recallIds: ["t3-a1", "t3-a2"] },
+      ] }] },
+    }),
+  ];
+
+  it("命中用户消息 → field=用户消息，entryIds 含 userMessage.entryId", () => {
+    const r = searchLedger("forceRatio", ledgers, 15);
+    const h = r.hits.find((x) => x.field === "用户消息")!;
+    expect(h.turnLabel).toBe("T1");
+    expect(h.level).toBe(1);
+    expect(h.entryIds).toContain("t1-u");
+    expect(h.snippet).toContain("forceRatio");
+  });
+
+  it("命中动作 detail → entryIds 用 recallIds（不是 turnStartEntryId）", () => {
+    const r = searchLedger("forceRatio", ledgers, 15);
+    const h = r.hits.find((x) => x.field === "动作")!;
+    expect(h.entryIds).toEqual(["t1-a"]);
+    expect(h.snippet).toContain("forceRatio");
+  });
+
+  it("命中 L4 merged.description → turnLabel 显示组内 turn 范围", () => {
+    const r = searchLedger("forceRatio", ledgers, 15);
+    const h = r.hits.find((x) => x.field === "合并描述")!;
+    expect(h.turnLabel).toBe("T3");
+    expect(h.level).toBe(4);
+  });
+
+  it("大小写不敏感", () => {
+    const r = searchLedger("FORCERATIO", ledgers, 15);
+    expect(r.hits.length).toBeGreaterThan(0);
+    expect(r.hits.find((x) => x.field === "用户消息")).toBeDefined();
+  });
+
+  it("maxHits 截断 + truncated 标记", () => {
+    const r = searchLedger("forceRatio", ledgers, 2);
+    expect(r.hits.length).toBe(2);
+    expect(r.truncated).toBe(true);
+  });
+
+  it("L4 连续组 turnLabel 显示范围（多 ledger L4 相邻时合并为 T3-T4）", () => {
+    const t4 = mkLedger({
+      turnStartEntryId: "t4", level: 4,
+      merged: { description: "继续验证 forceRatio" },
+      summary: { groups: [] },
+    });
+    const r = searchLedger("forceRatio", [...ledgers, t4], 15);
+    const h = r.hits.find((x) => x.field === "合并描述")!;
+    expect(h.turnLabel).toBe("T3-T4");
+    // 组内每条 merged.description 均可命中，且都标同一组范围
+    const mergedHits = r.hits.filter((x) => x.field === "合并描述");
+    expect(mergedHits.length).toBe(2);
+    expect(mergedHits.every((x) => x.turnLabel === "T3-T4")).toBe(true);
+  });
+
+  it("无命中返回空 hits 且不 truncated", () => {
+    const r = searchLedger("zzz不存在", ledgers, 15);
+    expect(r.hits).toEqual([]);
+    expect(r.truncated).toBe(false);
+  });
+
+  it("空 query 或纯空白 query 返回空结果（防全量倾泻）", () => {
+    expect(searchLedger("", ledgers, 15).hits).toEqual([]);
+    expect(searchLedger("   ", ledgers, 15).hits).toEqual([]);
+    expect(searchLedger("   ", ledgers, 15).truncated).toBe(false);
   });
 });

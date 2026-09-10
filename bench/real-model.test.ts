@@ -9,7 +9,7 @@
 import { describe, it, afterAll } from "vitest";
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import { countTokens } from "../src/util.js";
 import { SummarizerEngine, type SummarizerBackend } from "../src/summarizer.js";
 import { renderActionLedger, type LedgerData } from "../src/ledger.js";
 import { extractToolActions, splitIntoTurns, type MessageEntry } from "../src/util.js";
@@ -115,7 +115,7 @@ function buildRealSession(): MessageEntry[] {
 
 function tokensOf(messages: any[]): number {
   let t = 0;
-  for (const m of messages) t += estimateTokens(m);
+  for (const m of messages) t += countTokens(m);
   return t;
 }
 
@@ -179,8 +179,8 @@ describe("real-model: LM Studio 本地摘要基准", () => {
       const onLedger = (d: LedgerData) => {
         const turn = turns.find((t) => t.startEntryId === d.turnStartEntryId);
         if (!turn) return;
-        const turnTok = turn.entries.reduce((s, e) => s + estimateTokens(e.message), 0);
-        const ledgerTok = estimateTokens(renderActionLedger([d]));
+        const turnTok = turn.entries.reduce((s, e) => s + countTokens(e.message), 0);
+        const ledgerTok = countTokens(renderActionLedger([d]));
         ledgers.set(d.turnStartEntryId, d);
         rows[rows.length - 1].turnTokens = turnTok;
         rows[rows.length - 1].ledgerTokens = ledgerTok;
@@ -191,7 +191,7 @@ describe("real-model: LM Studio 本地摘要基准", () => {
       const engine = new SummarizerEngine(timedBackend, {
         summarizer: { kind: "openai", baseUrl: LMSTUDIO.baseUrl, model, apiKey: LMSTUDIO.apiKey },
         verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76,
-        retry: { maxAttempts: 2, backoffMs: 1000 }, ledgerMergeThreshold: 40, backfillLimit: 20,
+        retry: { maxAttempts: 2, backoffMs: 1000 }, ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 10000, backfillLimit: 20,
       }, onLedger, onWarning);
 
       // 摘要后逐 turn 复核逐字校验剔除情况

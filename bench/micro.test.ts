@@ -16,7 +16,7 @@ import { buildSummarizePrompt } from "../src/prompts.js";
 import { parseLedgerOutput, renderActionLedger } from "../src/ledger.js";
 import { computeBackfillTurns } from "../src/backfill.js";
 import { enforceForcePoint } from "../src/forcepoint.js";
-import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import { countTokens } from "../src/util.js";
 import { genSession, genLedgers } from "./fixture.js";
 import { bench, fmt, heapMB } from "./stats.js";
 
@@ -206,7 +206,7 @@ describe("micro: recall / store / backfill / forcepoint", () => {
     const ledgers = genLedgers(turns);
     const afterLedgers = heapMB();
     let nativeTokens = 0;
-    for (const e of session) nativeTokens += estimateTokens(e.message);
+    for (const e of session) nativeTokens += countTokens(e.message);
     results.memory = {
       sessionMessages: session.length,
       sessionHeapMB: +(afterSession - before).toFixed(1),
@@ -224,5 +224,5 @@ afterAll(() => {
 });
 
 function mockConfig() {
-  return { summarizer: undefined, verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76, retry: { maxAttempts: 3, backoffMs: 2000 }, ledgerMergeThreshold: 40, backfillLimit: 20 };
+  return { summarizer: undefined, verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76, retry: { maxAttempts: 3, backoffMs: 2000 }, ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 10000, backfillLimit: 20 };
 }

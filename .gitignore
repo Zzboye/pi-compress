@@ -6,3 +6,4 @@ tests/_tmp-*
 e2e/rpc-sessions/
 e2e/reports/perf/
 llm-context-dump.txt
+.codegraph/

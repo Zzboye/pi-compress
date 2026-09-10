@@ -24,7 +24,7 @@ const CODE_LINES = [
   "  const window: Turn[] = [];",
   "  let total = 0;",
   "  for (let i = turns.length - 1; i >= 0; i--) {",
-  "    const cost = estimateTokens(turns[i].message);",
+  "    const cost = countTokens(turns[i].message);",
   "    if (window.length > 0 && total + cost > budget) break;",
   "    window.unshift(turns[i]);",
   "    total += cost;",

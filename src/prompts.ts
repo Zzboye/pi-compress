@@ -22,3 +22,36 @@ ${turnText}
 只输出 JSON，不要输出其他内容。schema：
 {"groups": [{"phase": "investigate|fix|verify|discuss|other", "entries": [{"target": string（必须来自清单）, "detail": string, "phase": string（可选，用于覆盖分组）}]}]}`;
 }
+
+export function buildIntentOutcomePrompt(userText: string, replyText: string): string {
+  return `压缩这一轮对话的两端为一行式摘要。
+
+规则：
+1. userIntent：用户这轮想要什么，≤20 字，动宾短语
+2. outcome：模型最终达成了什么结论/结果，≤30 字，写结论不写过程
+3. 不复述原文，只提炼
+
+用户消息原文：
+<user>
+${userText}
+</user>
+
+模型最终回复原文：
+<reply>
+${replyText}
+</reply>
+
+只输出 JSON：{"userIntent": string, "outcome": string}`;
+}
+
+export function buildMergeDescriptionPrompt(turnTexts: string[]): string {
+  return `把以下 ${turnTexts.length} 轮已压缩的动作日志合并为一行主题描述。
+
+规则：
+1. 概括这 ${turnTexts.length} 轮共同做了什么，≤25 字
+2. 不输出条数（系统会追加"（N 条已合并）"）
+3. 只输出 JSON：{"description": string}
+
+各轮日志：
+${turnTexts.map((t, i) => `--- 第 ${i + 1} 轮 ---\n${t}`).join("\n")}`;
+}

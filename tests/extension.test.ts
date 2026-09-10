@@ -4,6 +4,15 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import piExtension from "../src/index.js";
+import { LEDGER_CUSTOM_TYPE, type LedgerData } from "../src/ledger.js";
+
+function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
+  return {
+    turnEndEntryId: partial.turnStartEntryId + "-end",
+    summary: { groups: [] },
+    ...partial,
+  } as LedgerData;
+}
 
 describe("extension entry wiring", () => {
   function harness() {
@@ -19,11 +28,59 @@ describe("extension entry wiring", () => {
     return { tools, commands, fakePi, handlers };
   }
 
-  it("registers recall tool and compress-status command", () => {
+  it("registers recall tool and compress-status/compress-dump commands", () => {
     const { tools, commands } = harness();
     expect(tools.recall).toBeTruthy();
     expect(tools.recall.parameters).toBeTruthy();
     expect(commands["compress-status"]).toBeTruthy();
+    expect(commands["compress-dump"]).toBeTruthy();
+  });
+
+  it("compress-dump writes Markdown+JSON pair and echoes one-line summary", async () => {
+    const { commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-dumpcmd-"));
+    const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-dumpcfg-"));
+    try {
+      const notifyCalls: string[] = [];
+      const branch = [
+        { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+        { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+        sessionManager: { getBranch: () => branch },
+      };
+      // 未配置 → 明确拒绝（不用默认配置冒充真实装配）
+      await commands["compress-dump"].handler("", fakeCtx);
+      expect(notifyCalls.at(-1)).toContain("未配置");
+      expect(fs.readdirSync(dir)).toEqual([]);
+
+      // session_start 载入真实配置（registry summarizer；modelRegistry 缺失只会令补摘异步失败，不影响 dump）
+      fs.mkdirSync(path.join(cfgDir, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(cfgDir, ".pi", "settings.json"),
+        JSON.stringify({ contextCompress: { summarizer: { provider: "FakeProv", model: "fake-model" } } }),
+      );
+      await handlers.session_start({}, { ...fakeCtx, cwd: cfgDir });
+      fakeCtx.cwd = cfgDir;
+      await commands["compress-dump"].handler("", fakeCtx);
+      // dump 通知与补摘失败通知存在竞态：轮询等“转储”出现
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline && !notifyCalls.some((m) => m.includes("转储："))) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      const reports = fs.readdirSync(path.join(cfgDir, "e2e", "reports"));
+      expect(reports.length).toBe(2); // .md + .json
+      expect(reports.some((f) => f.endsWith(".md"))).toBe(true);
+      expect(reports.some((f) => f.endsWith(".json"))).toBe(true);
+      const dumpNotify = notifyCalls.find((m) => m.includes("转储："));
+      expect(dumpNotify).toContain("窗口");
+      expect(dumpNotify).toContain("e2e");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(cfgDir, { recursive: true, force: true });
+    }
   });
 
   it("compress-status handler reports unconfigured state", async () => {
@@ -69,6 +126,28 @@ describe("extension entry wiring", () => {
     expect(out).toContain("未中 1 个");  // gone 未命中
   });
 
+  it("context 事件记录估算与真实 usage，compress-status 并排显示（校准观察）", async () => {
+    const { handlers, commands } = harness();
+    const notifyCalls: string[] = [];
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一".repeat(50) }] } },
+      { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "回答".repeat(50) }] } },
+      { id: "u2", type: "message", message: { role: "user", content: [{ type: "text", text: "第二".repeat(50) }] } },
+      { id: "a2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "回答".repeat(50) }] } },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+      getContextUsage: () => ({ tokens: 12345, contextWindow: 200_000 }),
+    };
+    await handlers.session_start({}, fakeCtx);
+    await handlers.context({}, fakeCtx);
+    await commands["compress-status"].handler("", fakeCtx);
+    const out = notifyCalls.join("\n");
+    expect(out).toMatch(/估算 ~\d+ tok · 真实 12345 tok/); // 并排显示
+  });
+
   it("resets recall stats on session_start", async () => {
     const { tools, commands, handlers } = harness();
     const notifyCalls: string[] = [];
@@ -85,6 +164,83 @@ describe("extension entry wiring", () => {
     await commands["compress-status"].handler("", fakeCtx);
     const out = notifyCalls.join("\n");
     expect(out).toContain("调用 0");
+  });
+
+  it("recall 支持 query：返回命中索引（含 turn 标签/片段/↩ID）且计入 searches 统计", async () => {
+    const { tools, commands, handlers } = harness();
+    const notifyCalls: string[] = [];
+    const ledger = mkLedger({
+      turnStartEntryId: "t1", level: 1,
+      userMessage: { text: "forceRatio 是什么？为什么默认 0.76", entryId: "t1-u" },
+      finalReply: { text: "forceRatio 是触发强制点的比例", entryId: "t1-f" },
+      summary: { userIntent: "了解强制点", groups: [
+        { phase: "investigate", entries: [
+          { action: "read", target: "src/config.ts", detail: "校验 forceRatio 范围", recallIds: ["t1-a"] },
+        ] },
+      ] },
+    });
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+      { id: "c1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: ledger },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    await handlers.session_start({}, fakeCtx); // store 重建：ledger 落入缓存
+    const out = await tools.recall.execute("tc1", { query: "forceRatio" }, undefined, undefined, fakeCtx);
+    const text = out.content[0].text;
+    expect(text).toContain("T1");          // turn 标签
+    expect(text).toContain("↩t1-u");       // 可 recall 的 ID
+    expect(text).toContain("forceRatio");  // 命中片段
+    await commands["compress-status"].handler("", fakeCtx);
+    const status = notifyCalls.join("\n");
+    expect(status).toContain("搜索 1");
+    // query 模式不计入 calls（calls 只计逐字取回）
+    expect(status).toContain("调用 0");
+  });
+
+  it("recall 只传 query、只传 ids 均合法；都不传返回用法提示", async () => {
+    const { tools, handlers } = harness();
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+      { id: "c1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({
+        turnStartEntryId: "t1", level: 1,
+        userMessage: { text: "forceRatio 是什么", entryId: "t1-u" },
+      }) },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    await handlers.session_start({}, fakeCtx);
+    const q = await tools.recall.execute("tc1", { query: "forceRatio" }, undefined, undefined, fakeCtx);
+    expect(q.content[0].text).toContain("命中");
+    const ids = await tools.recall.execute("tc2", { ids: ["u1"] }, undefined, undefined, fakeCtx);
+    expect(ids.content[0].text).toContain("第一问");
+    const neither = await tools.recall.execute("tc3", {}, undefined, undefined, fakeCtx);
+    expect(neither.content[0].text).toContain("用法");
+  });
+
+  it("无命中时返回可操作的提示（建议换关键词）", async () => {
+    const { tools, handlers } = harness();
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+      { id: "c1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({
+        turnStartEntryId: "t1", level: 1,
+        userMessage: { text: "forceRatio 是什么", entryId: "t1-u" },
+      }) },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    await handlers.session_start({}, fakeCtx);
+    const out = await tools.recall.execute("tc1", { query: "绝不存在的词zzz" }, undefined, undefined, fakeCtx);
+    expect(out.content[0].text).toContain("无命中");
   });
 
   it("wires fallback backend: overflow error hits primary once, registry fallback takes over", async () => {

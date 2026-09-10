@@ -159,7 +159,8 @@
     "keepRecentTokens": 20000,
     "forceRatio": 0.76,
     "retry": { "maxAttempts": 3, "backoffMs": 2000 },
-    "ledgerMergeThreshold": 40
+    "ledgerDegradeThresholdTokens": 40000,
+    "ledgerReserveTokens": 10000
   }
 }
 ```

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSummarizePrompt, type ToolActionInfo } from "../src/prompts.js";
+import { buildSummarizePrompt, buildIntentOutcomePrompt, buildMergeDescriptionPrompt, type ToolActionInfo } from "../src/prompts.js";
 import { parseLedgerOutput } from "../src/ledger.js";
 import { splitIntoTurns, serializeTurn, type MessageEntry } from "../src/util.js";
 
@@ -84,5 +84,21 @@ describe("parseLedgerOutput", () => {
 
   it("throws LedgerParseError on invalid JSON", () => {
     expect(() => parseLedgerOutput("not json", actions, turnText, true)).toThrow();
+  });
+});
+
+describe("degrade prompts", () => {
+  it("buildIntentOutcomePrompt embeds both texts and JSON schema", () => {
+    const p = buildIntentOutcomePrompt("用户原文", "回复原文");
+    expect(p).toContain("用户原文");
+    expect(p).toContain("回复原文");
+    expect(p).toContain('"userIntent"');
+    expect(p).toContain('"outcome"');
+  });
+  it("buildMergeDescriptionPrompt embeds each turn text", () => {
+    const p = buildMergeDescriptionPrompt(["T1 块", "T2 块"]);
+    expect(p).toContain("T1 块");
+    expect(p).toContain("T2 块");
+    expect(p).toContain("2 轮"); // schema 中的条数说明字段
   });
 });

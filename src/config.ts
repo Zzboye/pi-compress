@@ -9,7 +9,8 @@ export interface ContextCompressConfig {
   keepRecentTokens: number;
   forceRatio: number;
   retry: { maxAttempts: number; backoffMs: number };
-  ledgerMergeThreshold: number;
+  ledgerDegradeThresholdTokens: number;
+  ledgerReserveTokens: number;
   backfillLimit: number;
 }
 
@@ -20,7 +21,8 @@ export const DEFAULT_CONFIG: ContextCompressConfig = {
   keepRecentTokens: 20000,
   forceRatio: 0.76,
   retry: { maxAttempts: 3, backoffMs: 2000 },
-  ledgerMergeThreshold: 40,
+  ledgerDegradeThresholdTokens: 40000,
+  ledgerReserveTokens: 10000,
   backfillLimit: 20,
 };
 
@@ -59,7 +61,8 @@ export function loadConfig(globalRaw: unknown, projectRaw: unknown): ContextComp
       maxAttempts: Math.max(1, Math.floor(num(merged.retry === undefined ? undefined : (merged.retry as any).maxAttempts, 3, 1, 100))),
       backoffMs: Math.max(100, Math.floor(num(merged.retry === undefined ? undefined : (merged.retry as any).backoffMs, 2000, 100, 600_000))),
     },
-    ledgerMergeThreshold: Math.floor(num(merged.ledgerMergeThreshold, 40, 5, 10_000)),
+    ledgerDegradeThresholdTokens: Math.floor(num(merged.ledgerDegradeThresholdTokens, DEFAULT_CONFIG.ledgerDegradeThresholdTokens, 5000, 2_000_000)),
+    ledgerReserveTokens: Math.floor(num(merged.ledgerReserveTokens, DEFAULT_CONFIG.ledgerReserveTokens, 1000, 500_000)),
     backfillLimit: Math.floor(num(merged.backfillLimit, 20, 0, 100_000)),
   };
 }

@@ -77,7 +77,7 @@ describe("fallback real-model smoke", () => {
       const fallback = createOpenAICompatBackend({ baseUrl: `http://127.0.0.1:${port}/v1`, model: "mock-big-model" });
       const engine = new SummarizerEngine(
         primary,
-        { summarizer: undefined, summarizerFallback: undefined, verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76, retry: { maxAttempts: 3, backoffMs: 2000 }, ledgerMergeThreshold: 40, backfillLimit: 20 },
+        { summarizer: undefined, summarizerFallback: undefined, verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76, retry: { maxAttempts: 3, backoffMs: 2000 }, ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 10000, backfillLimit: 20 },
         onLedger, (m) => warnings.push(m), fallback,
       );
 
@@ -105,7 +105,7 @@ describe("fallback real-model smoke", () => {
     const warnings: string[] = [];
     const engine = new SummarizerEngine(
       createOpenAICompatBackend(LMSTUDIO),
-      { summarizer: undefined, summarizerFallback: undefined, verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76, retry: { maxAttempts: 2, backoffMs: 500 }, ledgerMergeThreshold: 40, backfillLimit: 20 },
+      { summarizer: undefined, summarizerFallback: undefined, verbatimCheck: true, keepRecentTokens: 20000, forceRatio: 0.76, retry: { maxAttempts: 2, backoffMs: 500 }, ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 10000, backfillLimit: 20 },
       () => onLedgerCalls.push(1), (m) => warnings.push(m),
       createOpenAICompatBackend(LMSTUDIO), // 备用 = 同一 64k 模型 → 也溢出
     );

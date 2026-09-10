@@ -7,6 +7,76 @@ export interface MessageEntry { id: string; message: AgentMessage }
 
 export interface Turn { startEntryId: string; endEntryId: string; entries: MessageEntry[] }
 
+// ============================================================================
+// Token 计量（CJK 感知启发式）
+// ============================================================================
+// pi 的 estimateTokens 用 chars/4 模拟 tokenizer，对 CJK 文本低估约 2 倍
+// （实测 o200k_base：纯中文 ~0.65 tok/char，英文 ~0.25 tok/char）。本插件以中文
+// 会话为主，窗口预算/ledger 降级阈值全部依赖此计量，故自建：
+//   tokens ≈ CJK 字符数 × 1.0 + 其余字符数 / 4
+// 系数取 1.0（保守偏高，实际 ~0.65）：窗口偏小的代价是多一次 recall，
+// 偏大的代价是挤爆上下文触发原生压缩。图片沿用 pi 的 ESTIMATED_IMAGE_CHARS=4800（→1200 tok）。
+
+export const CJK_RATIO = 1.0;
+const ASCII_CHARS_PER_TOKEN = 4;
+const IMAGE_TOKENS = 1200;
+
+const CJK_RE = /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}/gu;
+
+/** 单段文本的 CJK 感知 token 估算：CJK 字符 × 1.0，其余字符 ÷ 4 */
+export function countTokensText(text: string): number {
+  if (text.length === 0) return 0;
+  const cjk = (text.match(CJK_RE) ?? []).length;
+  return Math.ceil(cjk * CJK_RATIO + (text.length - cjk) / ASCII_CHARS_PER_TOKEN);
+}
+
+function contentTokens(content: unknown): number {
+  if (typeof content === "string") return countTokensText(content);
+  if (!Array.isArray(content)) return 0;
+  let tokens = 0;
+  for (const b of content) {
+    if (b?.type === "text") tokens += countTokensText(b.text ?? "");
+    else if (b?.type === "image") tokens += IMAGE_TOKENS;
+  }
+  return tokens;
+}
+
+/**
+ * CJK 感知的消息 token 估算（与 pi estimateTokens 同角色分支，替换其 chars/4 口径）。
+ * skipThinking: 跳过 assistant 的 thinking 块——窗口发给 LLM 时 thinking 被剥离，
+ * 预算必须与实际发送内容一致（与旧 turnTokens 口径一致）。
+ */
+export function countTokens(message: AgentMessage, opts?: { skipThinking?: boolean }): number {
+  const skipThinking = opts?.skipThinking ?? false;
+  switch (message.role) {
+    case "user":
+      return contentTokens(message.content);
+    case "assistant": {
+      let tokens = 0;
+      for (const b of message.content) {
+        if (b?.type === "thinking") {
+          if (!skipThinking) tokens += countTokensText((b as any).thinking ?? "");
+        } else if (b?.type === "text") {
+          tokens += countTokensText(b.text ?? "");
+        } else if (b?.type === "toolCall") {
+          tokens += countTokensText(b.name + JSON.stringify(b.arguments ?? {}));
+        }
+      }
+      return tokens;
+    }
+    case "custom":
+    case "toolResult":
+      return contentTokens(message.content);
+    case "bashExecution":
+      return countTokensText(message.command + message.output);
+    case "branchSummary":
+    case "compactionSummary":
+      return countTokensText(message.summary);
+    default:
+      return 0;
+  }
+}
+
 export function splitIntoTurns(entries: MessageEntry[]): Turn[] {
   const turns: Turn[] = [];
   let current: Turn | null = null;
@@ -84,39 +154,23 @@ export function extractToolActions(turn: Turn): ToolActionInfo[] {
   return out;
 }
 
-const USER_MESSAGE_HEAD_CHARS = 200;
-const REPLY_HEAD_CHARS = 800;
-const REPLY_TAIL_CHARS = 1200;
-
-/** turn 首条 user 消息逐字保留；意图在开头，仅头截断 */
+/** turn 首条 user 消息逐字保留（全量原文，L1 层基础） */
 export function extractUserMessage(turn: Turn): LedgerQuote | undefined {
   const first = turn.entries[0];
   if (!first || first.message.role !== "user") return undefined;
   const text = joinedText((first.message as any).content);
   if (text === "") return undefined;
-  if (text.length <= USER_MESSAGE_HEAD_CHARS) return { text, entryId: first.id, truncated: false };
-  const omitted = text.length - USER_MESSAGE_HEAD_CHARS;
-  return {
-    text: `${text.slice(0, USER_MESSAGE_HEAD_CHARS)}\n[... 已截断，后续 ${omitted} 字符省略 ...]`,
-    entryId: first.id,
-    truncated: true,
-  };
+  return { text, entryId: first.id };
 }
 
-/** turn 内最后一条含 text 的 assistant 消息逐字保留（跳过纯 thinking）；超长时头尾采样 */
+/** turn 内最后一条含 text 的 assistant 消息全量保留（跳过纯 thinking）；不截断 */
 export function extractFinalReply(turn: Turn): LedgerQuote | undefined {
   for (let i = turn.entries.length - 1; i >= 0; i--) {
     const e = turn.entries[i];
     if (e.message.role !== "assistant") continue;
     const text = joinedText((e.message as any).content); // 只取 text 块，thinking 天然排除
     if (text === "") continue; // 纯思考消息：继续向前找
-    if (text.length <= REPLY_HEAD_CHARS + REPLY_TAIL_CHARS) return { text, entryId: e.id, truncated: false };
-    const omitted = text.length - REPLY_HEAD_CHARS - REPLY_TAIL_CHARS;
-    return {
-      text: `${text.slice(0, REPLY_HEAD_CHARS)}\n[... 中间省略 ${omitted} 字符 ...]\n${text.slice(-REPLY_TAIL_CHARS)}`,
-      entryId: e.id,
-      truncated: true,
-    };
+    return { text, entryId: e.id };
   }
   return undefined;
 }

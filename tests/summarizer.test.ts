@@ -88,8 +88,8 @@ describe("SummarizerEngine", () => {
     expect(onLedger).toHaveBeenCalledTimes(1);
     expect(onLedger.mock.calls[0][0]).toMatchObject({ turnStartEntryId: "u1" });
     expect(onLedger.mock.calls[0][0]).toMatchObject({
-      userMessage: { text: "修内存泄漏", entryId: "u1", truncated: false },
-      finalReply: { text: "修好了", entryId: "t2", truncated: false },
+      userMessage: { text: "修内存泄漏", entryId: "u1" },
+      finalReply: { text: "修好了", entryId: "t2" },
     });
     expect(engine.pending()).toBe(0);
   });
