@@ -1,4 +1,4 @@
-import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import { countTokens } from "./util.js";
 import { renderTurnText, type LedgerData } from "./ledger.js";
 import type { AgentMessage } from "./types.js";
 import type { SummarizerBackend } from "./summarizer.js";
@@ -17,7 +17,7 @@ export interface DegradePlan {
 /** 单个 turn 在其 level 下渲染后的估算 tokens（与装配渲染同一文本来源） */
 export function turnRenderTokens(ledger: LedgerData, index: number): number {
   const text = renderTurnText(ledger, index + 1);
-  return estimateTokens({ role: "user", content: [{ type: "text", text }] } as AgentMessage);
+  return countTokens({ role: "user", content: [{ type: "text", text }] } as unknown as AgentMessage);
 }
 
 /**

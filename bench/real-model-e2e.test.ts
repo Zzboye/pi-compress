@@ -8,7 +8,7 @@
 import { describe, it, afterAll } from "vitest";
 import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import { countTokens } from "../src/util.js";
 import { SummarizerEngine, type SummarizerBackend } from "../src/summarizer.js";
 import { renderActionLedger, type LedgerData } from "../src/ledger.js";
 import { splitIntoTurns, type MessageEntry } from "../src/util.js";
@@ -100,7 +100,7 @@ function buildBigSession(): MessageEntry[] {
 
 function tokensOf(messages: any[]): number {
   let t = 0;
-  for (const m of messages) t += estimateTokens(m);
+  for (const m of messages) t += countTokens(m);
   return t;
 }
 

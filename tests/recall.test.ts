@@ -93,7 +93,7 @@ describe("executeRecall", () => {
   });
 
   it("截断阈值按剥离 thinking 后的有效内容计量（思考不再导致误截断）", () => {
-    // 有效正文很小，但旧口径下 thinking 使 estimateTokens 远超阈值 → 会被误截断
+    // 有效正文很小，但 thinking 不剥离时 countTokens 远超阈值 → 会被误截断（旧口径回归参照）
     const b: MessageEntry[] = [
       { id: "t1", message: { role: "assistant", content: [
         { type: "thinking", thinking: "长".repeat(8000) },

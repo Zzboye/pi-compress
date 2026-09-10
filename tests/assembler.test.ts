@@ -8,7 +8,7 @@ function msg(id: string, role: "user" | "assistant" | "toolResult", text: string
   return { id, message: { role, content: [{ type: "text", text }] } as AgentMessage };
 }
 
-// 约 1 token/4字符：用长度控制 token 量级（estimateTokens 是估算，测试里取实际返回值比较）
+// CJK 感知口径（util.countTokens）：中文 1 tok/char、ASCII 1 tok/4 chars。用长度控制 token 量级
 describe("splitIntoTurns", () => {
   it("splits at user messages", () => {
     const entries = [msg("a", "user", "q1"), msg("b", "assistant", "a1"), msg("c", "toolResult", "r1"), msg("d", "user", "q2"), msg("e", "assistant", "a2")];

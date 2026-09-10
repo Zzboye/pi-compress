@@ -1,21 +1,11 @@
-import { estimateTokens } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "./types.js";
 import { renderActionLedger, type LedgerData } from "./ledger.js";
-import { splitIntoTurns, stripThinking, type MessageEntry, type Turn } from "./util.js";
+import { countTokens, splitIntoTurns, stripThinking, type MessageEntry, type Turn } from "./util.js";
 
 /** 单个 turn 的窗口预算计量：assistant 消息跳过 thinking 块（窗口原文会剥离 thinking，
- *  预算必须与实际发给 LLM 的内容一致），其余角色沿用 pi 的 estimateTokens。 */
+ *  预算必须与实际发给 LLM 的内容一致），其余角色沿用同一 CJK 感知口径（见 util.countTokens）。 */
 export function turnTokens(turn: Turn): number {
-  return turn.entries.reduce((s, e) => {
-    const m = e.message as any;
-    if (m.role !== "assistant") return s + estimateTokens(e.message);
-    let chars = 0;
-    for (const b of m.content as any[]) {
-      if (b?.type === "text") chars += b.text.length;
-      else if (b?.type === "toolCall") chars += b.name.length + JSON.stringify(b.arguments ?? {}).length;
-    }
-    return s + Math.ceil(chars / 4);
-  }, 0);
+  return turn.entries.reduce((s, e) => s + countTokens(e.message, { skipThinking: true }), 0);
 }
 
 /** 从尾部往前收集 turn，直到累计 token 超过预算；单 turn 超预算时整体保留 */

@@ -21,7 +21,7 @@ import {
 import { executeRecall } from "./recall.js";
 import { dumpContext, writeContextDump, defaultDumpBase } from "./dump.js";
 import { enforceForcePoint } from "./forcepoint.js";
-import { splitIntoTurns, type MessageEntry } from "./util.js";
+import { countTokens, splitIntoTurns, type MessageEntry } from "./util.js";
 import { computeBackfillTurns } from "./backfill.js";
 import { DegradeEngine } from "./degrade.js";
 import { renderActionLedger, LEDGER_CUSTOM_TYPE, type LedgerData } from "./ledger.js";
@@ -46,6 +46,9 @@ export default function (pi: ExtensionAPI): void {
   let degraded = false;
   let lastStats: AssembleStats | null = null;
   let recallStats = { calls: 0, hits: 0, missing: 0 };
+  // 校准观察：最近一次装配的「估算（CJK 感知）vs 真实 usage」并排记录。
+  // 差值 = system prompt + 工具定义 + 模板开销 + 估算误差；长期稳定偏差即可推出校准系数。
+  let lastCalibration: { estimated: number; actual: number } | null = null;
 
   // 摘要与降级共用同一后端与持久化通道（onLedger：store.set + appendCustomEntry）
   const makeBackend = (ctx: ExtensionContext, ref: NonNullable<ContextCompressConfig["summarizer"]>): SummarizerBackend =>
@@ -139,6 +142,8 @@ export default function (pi: ExtensionAPI): void {
     for (const k of store.keys()) { const v = store.get(k); if (v) cache.set(k, v); }
     const { messages, stats } = assembleContext(entries, cache, config.keepRecentTokens);
     lastStats = stats;
+    const estimated = messages.reduce((s, m) => s + countTokens(m as any, { skipThinking: true }), 0);
+    lastCalibration = { estimated, actual: usage?.tokens ?? 0 };
     if (engine && engine.pending() === 0) degraded = false; // 恢复
     return { messages };
   });
@@ -226,6 +231,7 @@ export default function (pi: ExtensionAPI): void {
         `降级状态：${degraded ? "已降级（pi 原生压缩接管中）" : "正常"}`,
         `最近装配：${lastStats ? `窗口 ${lastStats.windowTurns} turns / 替换 ${lastStats.replacedTurns} / 原文放行 ${lastStats.passthroughTurns}` : "无"}`,
         `召回：调用 ${recallStats.calls} 次 / 取回 ${recallStats.hits} 条 / 未中 ${recallStats.missing} 个 ID`,
+        `计量校准：${lastCalibration ? `估算 ~${lastCalibration.estimated} tok · 真实 ${lastCalibration.actual} tok（差值含 system prompt/工具定义/模板开销）` : "无记录"}`,
         `摘要后端：${config?.summarizer ? JSON.stringify(config.summarizer) : "未配置（插件未接管）"}`,
         `备用后端：${config?.summarizerFallback ? `${JSON.stringify(config.summarizerFallback)}（主后端溢出/重试耗尽时接管）` : "未配置"}`,
       ];

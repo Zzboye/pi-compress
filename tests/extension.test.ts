@@ -117,6 +117,28 @@ describe("extension entry wiring", () => {
     expect(out).toContain("未中 1 个");  // gone 未命中
   });
 
+  it("context 事件记录估算与真实 usage，compress-status 并排显示（校准观察）", async () => {
+    const { handlers, commands } = harness();
+    const notifyCalls: string[] = [];
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一".repeat(50) }] } },
+      { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "回答".repeat(50) }] } },
+      { id: "u2", type: "message", message: { role: "user", content: [{ type: "text", text: "第二".repeat(50) }] } },
+      { id: "a2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "回答".repeat(50) }] } },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+      getContextUsage: () => ({ tokens: 12345, contextWindow: 200_000 }),
+    };
+    await handlers.session_start({}, fakeCtx);
+    await handlers.context({}, fakeCtx);
+    await commands["compress-status"].handler("", fakeCtx);
+    const out = notifyCalls.join("\n");
+    expect(out).toMatch(/估算 ~\d+ tok · 真实 12345 tok/); // 并排显示
+  });
+
   it("resets recall stats on session_start", async () => {
     const { tools, commands, handlers } = harness();
     const notifyCalls: string[] = [];

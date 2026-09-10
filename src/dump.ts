@@ -5,10 +5,9 @@
  */
 import fs from "node:fs";
 import { join } from "node:path";
-import { estimateTokens } from "@earendil-works/pi-coding-agent";
+import { countTokens, splitIntoTurns, type MessageEntry, type Turn } from "./util.js";
 import type { ContextCompressConfig } from "./config.js";
 import { assembleContext, findWindowTurns, turnTokens, type AssembleStats } from "./assembler.js";
-import { splitIntoTurns, type MessageEntry, type Turn } from "./util.js";
 import type { LedgerData } from "./ledger.js";
 import type { AgentMessage } from "./types.js";
 
@@ -54,15 +53,9 @@ function blockTypes(message: AgentMessage): string[] {
   return content.map((b: any) => (CONTEXT_BLOCK_TYPES.includes(b?.type) ? b.type : `other:${b?.type ?? "unknown"}`));
 }
 
-/** 与 turnTokens 相同口径的逐条 message 体积估算 */
+/** 与 turnTokens 相同口径的逐条 message 体积估算（CJK 感知，见 util.countTokens） */
 function messageTokens(m: AgentMessage): number {
-  if ((m as any).role !== "assistant") return estimateTokens(m);
-  let chars = 0;
-  for (const b of (m as any).content as any[]) {
-    if (b?.type === "text") chars += b.text.length;
-    else if (b?.type === "toolCall") chars += b.name.length + JSON.stringify(b.arguments ?? {}).length;
-  }
-  return Math.ceil(chars / 4);
+  return countTokens(m, { skipThinking: true });
 }
 
 function messageText(m: AgentMessage): string {
