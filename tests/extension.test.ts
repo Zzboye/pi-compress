@@ -4,6 +4,15 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import piExtension from "../src/index.js";
+import { LEDGER_CUSTOM_TYPE, type LedgerData } from "../src/ledger.js";
+
+function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
+  return {
+    turnEndEntryId: partial.turnStartEntryId + "-end",
+    summary: { groups: [] },
+    ...partial,
+  } as LedgerData;
+}
 
 describe("extension entry wiring", () => {
   function harness() {
@@ -155,6 +164,83 @@ describe("extension entry wiring", () => {
     await commands["compress-status"].handler("", fakeCtx);
     const out = notifyCalls.join("\n");
     expect(out).toContain("调用 0");
+  });
+
+  it("recall 支持 query：返回命中索引（含 turn 标签/片段/↩ID）且计入 searches 统计", async () => {
+    const { tools, commands, handlers } = harness();
+    const notifyCalls: string[] = [];
+    const ledger = mkLedger({
+      turnStartEntryId: "t1", level: 1,
+      userMessage: { text: "forceRatio 是什么？为什么默认 0.76", entryId: "t1-u" },
+      finalReply: { text: "forceRatio 是触发强制点的比例", entryId: "t1-f" },
+      summary: { userIntent: "了解强制点", groups: [
+        { phase: "investigate", entries: [
+          { action: "read", target: "src/config.ts", detail: "校验 forceRatio 范围", recallIds: ["t1-a"] },
+        ] },
+      ] },
+    });
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+      { id: "c1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: ledger },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    await handlers.session_start({}, fakeCtx); // store 重建：ledger 落入缓存
+    const out = await tools.recall.execute("tc1", { query: "forceRatio" }, undefined, undefined, fakeCtx);
+    const text = out.content[0].text;
+    expect(text).toContain("T1");          // turn 标签
+    expect(text).toContain("↩t1-u");       // 可 recall 的 ID
+    expect(text).toContain("forceRatio");  // 命中片段
+    await commands["compress-status"].handler("", fakeCtx);
+    const status = notifyCalls.join("\n");
+    expect(status).toContain("搜索 1");
+    // query 模式不计入 calls（calls 只计逐字取回）
+    expect(status).toContain("调用 0");
+  });
+
+  it("recall 只传 query、只传 ids 均合法；都不传返回用法提示", async () => {
+    const { tools, handlers } = harness();
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+      { id: "c1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({
+        turnStartEntryId: "t1", level: 1,
+        userMessage: { text: "forceRatio 是什么", entryId: "t1-u" },
+      }) },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    await handlers.session_start({}, fakeCtx);
+    const q = await tools.recall.execute("tc1", { query: "forceRatio" }, undefined, undefined, fakeCtx);
+    expect(q.content[0].text).toContain("命中");
+    const ids = await tools.recall.execute("tc2", { ids: ["u1"] }, undefined, undefined, fakeCtx);
+    expect(ids.content[0].text).toContain("第一问");
+    const neither = await tools.recall.execute("tc3", {}, undefined, undefined, fakeCtx);
+    expect(neither.content[0].text).toContain("用法");
+  });
+
+  it("无命中时返回可操作的提示（建议换关键词）", async () => {
+    const { tools, handlers } = harness();
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+      { id: "c1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({
+        turnStartEntryId: "t1", level: 1,
+        userMessage: { text: "forceRatio 是什么", entryId: "t1-u" },
+      }) },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    await handlers.session_start({}, fakeCtx);
+    const out = await tools.recall.execute("tc1", { query: "绝不存在的词zzz" }, undefined, undefined, fakeCtx);
+    expect(out.content[0].text).toContain("无命中");
   });
 
   it("wires fallback backend: overflow error hits primary once, registry fallback takes over", async () => {

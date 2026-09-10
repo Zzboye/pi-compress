@@ -113,3 +113,20 @@ export function searchLedger(query: string, ledgers: LedgerData[], maxHits: numb
   }
   return { hits: hits.slice(0, Math.max(0, maxHits)), truncated: hits.length > maxHits };
 }
+
+/**
+ * LLM 可见的命中索引文本：命中行 = turn 标签 + [层级缩写] 字段：片段 ↩ids。
+ * 只给定位与 ID，不给原文；无命中时给可操作的换词建议。
+ */
+export function formatSearchResult(r: SearchResult): string {
+  if (r.hits.length === 0) {
+    return "无命中。建议：换更短或更具体的关键词（如文件名、函数名、命令词）；动作日志只覆盖窗外已摘要的 turn，近期内容可能仍在上下文窗口内。";
+  }
+  const lvlAbbr: Record<number, string> = { 1: "L1", 2: "L2", 3: "L3", 4: "L4" };
+  const lines = r.hits.map((h) => {
+    const ids = h.entryIds.length ? ` ↩${h.entryIds.join(",↩")}` : "";
+    return `${h.turnLabel} [${lvlAbbr[h.level]}] ${h.field}：${h.snippet}${ids}`;
+  });
+  const tail = r.truncated ? `\n（命中过多，仅显示前 ${r.hits.length} 条；请换更具体的关键词缩小范围）` : "";
+  return `命中 ${r.hits.length} 处：\n${lines.join("\n")}${tail}\n\n需要逐字原文时，调用 recall 并传入对应 ↩ 后的 ID。`;
+}

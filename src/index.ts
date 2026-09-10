@@ -18,7 +18,7 @@ import {
   createOpenAICompatBackend,
   type SummarizerBackend,
 } from "./summarizer.js";
-import { executeRecall } from "./recall.js";
+import { executeRecall, searchLedger, formatSearchResult } from "./recall.js";
 import { dumpContext, writeContextDump, defaultDumpBase } from "./dump.js";
 import { enforceForcePoint } from "./forcepoint.js";
 import { countTokens, splitIntoTurns, type MessageEntry } from "./util.js";
@@ -45,7 +45,7 @@ export default function (pi: ExtensionAPI): void {
   let degradeEngine: DegradeEngine | null = null;
   let degraded = false;
   let lastStats: AssembleStats | null = null;
-  let recallStats = { calls: 0, hits: 0, missing: 0 };
+  let recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0 };
   // 校准观察：最近一次装配的「估算（CJK 感知）vs 真实 usage」并排记录。
   // 差值 = system prompt + 工具定义 + 模板开销 + 估算误差；长期稳定偏差即可推出校准系数。
   let lastCalibration: { estimated: number; actual: number } | null = null;
@@ -104,7 +104,7 @@ export default function (pi: ExtensionAPI): void {
     store.rebuildFromEntries(ctx.sessionManager.getBranch() as unknown as SessionEntryLike[]);
     engine = makeEngine(ctx);
     degraded = false;
-    recallStats = { calls: 0, hits: 0, missing: 0 };
+    recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0 };
     if (engine) {
       // 补摘：历史会话恢复时，无 ledger 的旧 turn 重新入队（最旧优先，上限防雪崩）
       const turns = splitIntoTurns(toMessageEntries(ctx.sessionManager.getBranch()));
@@ -182,17 +182,37 @@ export default function (pi: ExtensionAPI): void {
   pi.registerTool({
     name: "recall",
     label: "Recall",
-    description: "取回动作日志条目的逐字原文（含截断的用户消息/最终回复全文）。参数为动作日志中 ↩ 标记后的 entry ID 列表（可批量）。",
+    description: "取回动作日志条目的逐字原文（含截断的用户消息/最终回复全文）。两种用法：① 传 ids：参数为动作日志中 ↩ 标记后的 entry ID 列表（可批量）；② 传 query：关键词检索已压缩的历史，返回命中位置 + 可召回的 ID（不返回原文，需再按 ID 取回）。",
     parameters: Type.Object({
-      ids: Type.Array(Type.String(), { description: "entry ID 列表，来自动作日志 ↩ 标记" }),
+      ids: Type.Optional(Type.Array(Type.String(), { description: "entry ID 列表，来自动作日志 ↩ 标记" })),
+      query: Type.Optional(Type.String({ description: "关键词（大小写不敏感子串匹配），如文件名/函数名/命令词" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const entries = toMessageEntries(ctx.sessionManager.getBranch());
-      const r = executeRecall(params.ids, entries, 4000); // 单条 4k tokens 截断
-      recallStats.calls += 1;
-      recallStats.hits += params.ids.length - r.missing.length;
-      recallStats.missing += r.missing.length;
-      return { content: [{ type: "text", text: r.text }], details: undefined };
+      const q = params.query?.trim() ?? "";
+      const parts: string[] = [];
+      if (q) {
+        // query 模式：关键词检索已压缩历史，返回命中索引（不消耗 calls，calls 只计逐字取回）
+        const ledgers = store.keys()
+          .map((k) => store.get(k)!)
+          .filter(Boolean)
+          .sort((a, b) => a.turnStartEntryId.localeCompare(b.turnStartEntryId));
+        const r = searchLedger(q, ledgers, 15);
+        recallStats.searches += 1;
+        recallStats.searchHits += r.hits.length;
+        parts.push(formatSearchResult(r));
+      }
+      if (params.ids && params.ids.length > 0) {
+        const r = executeRecall(params.ids, entries, 4_000); // 单条 4k tokens 截断
+        recallStats.calls += 1;
+        recallStats.hits += params.ids.length - r.missing.length;
+        recallStats.missing += r.missing.length;
+        parts.push(r.text);
+      }
+      if (parts.length === 0) {
+        return { content: [{ type: "text", text: "用法：传 ids（↩ 标记后的 entry ID 列表）取回逐字原文，或传 query 关键词检索历史定位 ID。" }] };
+      }
+      return { content: [{ type: "text", text: parts.join("\n\n---\n\n") }], details: undefined };
     },
   });
 
@@ -230,7 +250,7 @@ export default function (pi: ExtensionAPI): void {
         `失败未摘：${engine?.failed().size ?? 0}`,
         `降级状态：${degraded ? "已降级（pi 原生压缩接管中）" : "正常"}`,
         `最近装配：${lastStats ? `窗口 ${lastStats.windowTurns} turns / 替换 ${lastStats.replacedTurns} / 原文放行 ${lastStats.passthroughTurns}` : "无"}`,
-        `召回：调用 ${recallStats.calls} 次 / 取回 ${recallStats.hits} 条 / 未中 ${recallStats.missing} 个 ID`,
+        `召回：调用 ${recallStats.calls} 次 / 取回 ${recallStats.hits} 条 / 未中 ${recallStats.missing} 个 ID / 搜索 ${recallStats.searches} 次`,
         `计量校准：${lastCalibration ? `估算 ~${lastCalibration.estimated} tok · 真实 ${lastCalibration.actual} tok（差值含 system prompt/工具定义/模板开销）` : "无记录"}`,
         `摘要后端：${config?.summarizer ? JSON.stringify(config.summarizer) : "未配置（插件未接管）"}`,
         `备用后端：${config?.summarizerFallback ? `${JSON.stringify(config.summarizerFallback)}（主后端溢出/重试耗尽时接管）` : "未配置"}`,
