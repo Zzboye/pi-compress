@@ -10,7 +10,7 @@
 
 - **结论保新鲜**：最终回复由系统机械逐字保留在日志头部（primacy），不经摘要模型转述
 - **近期保时序**：默认最近 20k tokens 的 turn 原文保留在窗口尾部（recency）
-- **细节按需取回**：窗外的工具调用、用户原话、最终回复都落盘为动作日志，LLM 传 `↩entryId` 即可召回逐字原文——**零模型调用**
+- **细节按需取回**：窗外的工具调用、用户原话、最终回复都落盘为动作日志，LLM 传 `↩entryId` 即可召回逐字原文——**零模型调用**；不知道该召回哪个 ID 时，recall 还支持 `query` 关键词检索（对 LedgerData 全量字段做大小写不敏感子串匹配，**不受降级层级影响**——L3/L4 条目渲染已压缩，但检索命中的是底层逐字数据），返回命中索引后再按 ID 取回
 
 摘要模型只负责整理「思考与工具调用 → 动作摘要」，且模型生成的自由文本字段为零：思考内容直接丢弃（过程噪声），工具调用的 target/路径逐字保留，用户原话与最终回复由系统机械提取。
 
@@ -34,7 +34,8 @@
    │              强制点：等摘要队列清空（≤120s）→ 重组
    │                       超时 → 降级，交 pi 原生 auto-compaction 兜底
    │
-   └─→ LLM 需要某条细节 → recall 工具，传入 ↩ 后的 ID → 取回逐字原文（单条截断 4k tokens）
+   └─→ LLM 需要某条细节 → ① 已知 ID：recall 工具传 ↩ 后的 ID → 取回逐字原文（单条截断 4k tokens）
+                        ② 不知道 ID：recall 工具传 query 关键词 → 返回命中索引（turn 标签 + 片段 + ↩ID）→ 再按 ID 取回
 ```
 
 ## 安装
@@ -152,7 +153,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 失败未摘：0
 降级状态：正常
 最近装配：窗口 3 turns / 替换 2 / 原文放行 0
-召回：调用 4 次 / 取回 6 条 / 未中 0 个 ID
+召回：调用 4 次 / 取回 6 条 / 未中 0 个 ID / 搜索 1 次
 计量校准：估算 ~15340 tok · 真实 18920 tok（差值含 system prompt/工具定义/模板开销）
 摘要后端：{"kind":"registry","provider":"ollama","model":"qwen3:8b"}
 备用后端：{"kind":"registry","provider":"HSFZ","model":"glm-5.3-flash"}（主后端溢出/重试耗尽时接管）
@@ -161,7 +162,23 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **已摘要 turn 数** / **队列积压** / **失败未摘**：摘要进度与健康度。
 - **降级状态**：`正常` 或 `已降级（pi 原生压缩接管中）`——后者表示强制点等待超时，本轮上下文不重组，交 pi 原生 auto-compaction 兜底；队列恢复后自动回到正常。
 - **最近装配**：上一次 context 事件重组的统计（窗口/替换/原文放行 turn 数）。
-- **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退）。全 0 表示 LLM 在窗口内就能拿到所需细节（健康信号）；持续高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
+- **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为逐字取回的工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退），`搜索` 为 query 关键词检索次数。全 0 表示 LLM 在窗口内就能拿到所需细节（健康信号）；持续高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
+
+### recall 工具的两种用法
+
+```
+recall({ ids: ["↩ 后的 entry ID 列表"] })   → 逐字原文（含配对 toolResult，单条截断 4k tokens）
+recall({ query: "forceRatio" })             → 命中索引（不返回原文）：
+
+  命中 3 处：
+  T12 [L1] 用户消息：…为什么默认 0.76 ↩t12-u
+  T15 [L2] 动作：src/config.ts → 校验 forceRatio 范围 ↩t15-a
+  T31 [L4] 合并描述：调整 forceRatio 并验证窗口行为 ↩t31-u,…
+
+  需要逐字原文时，调用 recall 并传入对应 ↩ 后的 ID。
+```
+
+`query` 与 `ids` 可同传（先搜索再取回，两段结果拼接）。搜索在 LedgerData 全量字段（用户原话/最终回复逐字全文、动作 target+detail、L4 合并描述）上做大小写不敏感子串匹配，零模型调用。
 - **计量校准**：最近一次装配的「估算（CJK 感知）vs 真实 usage」并排对比。差值 = system prompt + 工具定义 + 模板开销 + 估算误差；长期稳定偏差即可推出校准系数，供后续自动校准参考。
 - **摘要后端** / **备用后端**：当前生效的后端配置；未配置时显示 `未配置`。
 
@@ -194,7 +211,7 @@ src/
 ├── assembler.ts    上下文重组：近期窗口 + 动作日志头
 ├── forcepoint.ts   强制点：等待摘要队列清空，超时降级
 ├── backfill.ts     session_start 补摘历史缺口
-├── recall.ts       recall 工具实现：按 ID 取回逐字原文（含配对 toolResult）
+├── recall.ts       recall 工具实现：按 ID 取回逐字原文（含配对 toolResult）+ searchLedger 关键词检索
 ├── store.ts        状态持久化
 └── util.ts         消息提取、thinking 剥离、路径抽取等
 ```
