@@ -146,8 +146,8 @@ describe("integration: turn → summarize → assemble → recall", () => {
         userIntent: "了解ledger结构", outcome: "确认四级占位",
         groups: [{ phase: "investigate", entries: [{ action: "read", target: "src/ledger.ts", detail: "阅读核心数据结构", recallIds: ["t1-a"] }] }],
       },
-      userMessage: { text: bigUser, entryId: "t1", truncated: false },
-      finalReply: { text: bigReply, entryId: "t1-r", truncated: false },
+      userMessage: { text: bigUser, entryId: "t1" },
+      finalReply: { text: bigReply, entryId: "t1-r" },
     };
     const branch: MessageEntry[] = [
       { id: "t1", message: { role: "user", content: [{ type: "text", text: bigUser }] } as AgentMessage },

@@ -8,7 +8,7 @@ function ledger(id: string, level: 1 | 2 | 3, tokens: number): LedgerData {
   return {
     turnStartEntryId: id, turnEndEntryId: id, level,
     summary: { groups: [], ...(level === 3 ? { outcome: pad } : {}) },
-    finalReply: level === 3 ? undefined : { text: pad, entryId: id, truncated: false },
+    finalReply: level === 3 ? undefined : { text: pad, entryId: id },
   };
 }
 
@@ -113,8 +113,8 @@ describe("DegradeEngine", () => {
     return {
       turnStartEntryId: id, turnEndEntryId: id, level,
       summary: { groups: [], ...(level === 3 ? { outcome: pad } : {}) },
-      userMessage: { text: "u".repeat(40), entryId: id + "u", truncated: false },
-      finalReply: level === 3 ? undefined : { text: pad, entryId: id + "r", truncated: false },
+      userMessage: { text: "u".repeat(40), entryId: id + "u" },
+      finalReply: level === 3 ? undefined : { text: pad, entryId: id + "r" },
     };
   }
 

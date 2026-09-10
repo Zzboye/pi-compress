@@ -90,7 +90,7 @@ export function extractUserMessage(turn: Turn): LedgerQuote | undefined {
   if (!first || first.message.role !== "user") return undefined;
   const text = joinedText((first.message as any).content);
   if (text === "") return undefined;
-  return { text, entryId: first.id, truncated: false };
+  return { text, entryId: first.id };
 }
 
 /** turn 内最后一条含 text 的 assistant 消息全量保留（跳过纯 thinking）；不截断 */
@@ -100,7 +100,7 @@ export function extractFinalReply(turn: Turn): LedgerQuote | undefined {
     if (e.message.role !== "assistant") continue;
     const text = joinedText((e.message as any).content); // 只取 text 块，thinking 天然排除
     if (text === "") continue; // 纯思考消息：继续向前找
-    return { text, entryId: e.id, truncated: false };
+    return { text, entryId: e.id };
   }
   return undefined;
 }

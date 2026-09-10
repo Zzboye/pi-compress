@@ -6,7 +6,7 @@ export const LEDGER_CUSTOM_TYPE = "context-compress:ledger";
 export interface LedgerAction { action: string; target: string; detail: string; recallIds: string[] }
 export interface LedgerGroup { phase: "investigate" | "fix" | "verify" | "discuss" | "other"; entries: LedgerAction[] }
 /** 逐字引用（L1 起为全量原文）；entryId 供 recall 取回原文 */
-export interface LedgerQuote { text: string; entryId: string; truncated: boolean }
+export interface LedgerQuote { text: string; entryId: string }
 
 export interface LedgerSummary { userIntent?: string; outcome?: string; groups: LedgerGroup[] }
 
@@ -33,8 +33,8 @@ function allRecallIds(l: LedgerData, includeAllQuotes = false): string[] {
   const ids: string[] = [];
   for (const g of l.summary.groups) for (const e of g.entries) ids.push(...e.recallIds);
   const um = l.userMessage, fr = l.finalReply;
-  if (um && (includeAllQuotes || um.truncated)) ids.push(um.entryId);
-  if (fr && (includeAllQuotes || fr.truncated)) ids.push(fr.entryId);
+  if (um && includeAllQuotes) ids.push(um.entryId);
+  if (fr && includeAllQuotes) ids.push(fr.entryId);
   return [...new Set(ids)];
 }
 
@@ -54,8 +54,7 @@ export function renderTurnText(l: LedgerData, n: number): string {
   } else {
     const uq = l.userMessage;
     if (uq) {
-      const recall = uq.truncated ? ` ↩${uq.entryId}` : "";
-      lines.push(`### T${n} · 用户：「${uq.text.replace(/\n+/g, " ")}」${recall}`);
+      lines.push(`### T${n} · 用户：「${uq.text.replace(/\n+/g, " ")}」`);
     } else {
       lines.push(`### T${n} · 用户意图：${l.summary.userIntent ?? "（未知）"}`);
     }
@@ -76,7 +75,6 @@ export function renderTurnText(l: LedgerData, n: number): string {
   } else if (l.finalReply) {
     lines.push("最终回复（原文）：");
     lines.push(l.finalReply.text);
-    if (l.finalReply.truncated) lines.push(`（已截断，↩${l.finalReply.entryId} 取回全文）`);
   } else if (l.summary.outcome !== undefined) {
     lines.push(`- 结果：${l.summary.outcome}`);
   }

@@ -7,11 +7,11 @@ function textOf(msg: any): string {
 
 const full: LedgerData = {
   turnStartEntryId: "e001", turnEndEntryId: "e018", level: 1,
-  userMessage: { text: "帮我了解 ledger 的结构", entryId: "e001", truncated: false },
+  userMessage: { text: "帮我了解 ledger 的结构", entryId: "e001" },
   summary: { groups: [{ phase: "investigate", entries: [
     { action: "bash", target: "cat src/ledger.ts", detail: "阅读核心数据结构", recallIds: ["e003"] },
   ] }] },
-  finalReply: { text: "我已经看完当前代码……", entryId: "e018", truncated: false },
+  finalReply: { text: "我已经看完当前代码……", entryId: "e018" },
 };
 
 const sample: LedgerData = {
@@ -68,8 +68,8 @@ describe("renderActionLedger 双格式", () => {
     turnStartEntryId: "e001",
     turnEndEntryId: "e018",
     summary: { groups: [] },
-    userMessage: { text: "这次对话怎么没有启动摘要？", entryId: "e001", truncated: false },
-    finalReply: { text: "插件正常，成功路径完全静默。", entryId: "e018", truncated: false },
+    userMessage: { text: "这次对话怎么没有启动摘要？", entryId: "e001" },
+    finalReply: { text: "插件正常，成功路径完全静默。", entryId: "e018" },
   };
 
   function renderText(l: LedgerData[]): string {
@@ -86,15 +86,14 @@ describe("renderActionLedger 双格式", () => {
     expect(text).not.toContain("结果：");
   });
 
-  it("截断时附 recall 句柄", () => {
+  it("多行用户消息：换行折叠为空格，全文保留", () => {
     const l: LedgerData = {
       ...modern,
-      userMessage: { text: "前两百字符…\n[... 已截断，后续 3000 字符省略 ...]", entryId: "e001", truncated: true },
-      finalReply: { text: "开头…\n[... 中间省略 5000 字符 ...]\n…结尾", entryId: "e018", truncated: true },
+      userMessage: { text: "第一行\n第二行\n第三行", entryId: "e001" },
     };
     const text = renderText([l]);
-    expect(text).toContain("T1 · 用户：「前两百字符… [... 已截断，后续 3000 字符省略 ...]」 ↩e001"); // \n 折叠为空格
-    expect(text).toContain("（已截断，↩e018 取回全文）");
+    expect(text).toContain("T1 · 用户：「第一行 第二行 第三行」"); // \n 折叠为空格
+    expect(text).not.toContain("↩e001"); // 不再附 recall 句柄
   });
 
   it("混合：有用户原话无最终回复 → 无结果行", () => {

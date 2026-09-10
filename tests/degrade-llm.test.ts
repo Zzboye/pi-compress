@@ -7,9 +7,9 @@ const failBackend = { async complete() { throw new Error("boom"); } };
 
 const l3ready: LedgerData = {
   turnStartEntryId: "e1", turnEndEntryId: "e2", level: 2,
-  userMessage: { text: "帮我了解 ledger 的结构", entryId: "e1", truncated: false },
+  userMessage: { text: "帮我了解 ledger 的结构", entryId: "e1" },
   summary: { groups: [] },
-  finalReply: { text: "确认 ledgerMergeThreshold 为占位字段……", entryId: "e2", truncated: false },
+  finalReply: { text: "确认 ledgerMergeThreshold 为占位字段……", entryId: "e2" },
 };
 
 describe("compressEnds", () => {

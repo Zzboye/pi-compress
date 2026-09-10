@@ -15,13 +15,12 @@ function turnOf(...entries: MessageEntry[]): Turn {
 describe("extractUserMessage", () => {
   it("短消息：逐字保留，不截断", () => {
     const q = extractUserMessage(turnOf(userEntry("u1", "修内存泄漏")))!;
-    expect(q).toEqual({ text: "修内存泄漏", entryId: "u1", truncated: false });
+    expect(q).toEqual({ text: "修内存泄漏", entryId: "u1" });
   });
 
   it("长消息：全文保留，不截断（L1 全量原文）", () => {
     const full = "开".repeat(100) + "中".repeat(300) + "尾".repeat(100);
     const q = extractUserMessage(turnOf(userEntry("u2", full)))!;
-    expect(q.truncated).toBe(false);
     expect(q.text).toBe(full);
     expect(q.entryId).toBe("u2");
   });
@@ -30,7 +29,6 @@ describe("extractUserMessage", () => {
     const long = "x".repeat(500);
     const q = extractUserMessage(turnOf(userEntry("u5", long)))!;
     expect(q?.text).toBe(long);
-    expect(q?.truncated).toBe(false);
   });
 
   it("首条非 user 消息 → undefined", () => {
@@ -55,7 +53,7 @@ describe("extractFinalReply", () => {
       userEntry("u1", "问题"),
       assistantEntry("a1", [{ type: "thinking", thinking: "推理过程" }, { type: "text", text: "最终答复" }]),
     );
-    expect(extractFinalReply(t)).toEqual({ text: "最终答复", entryId: "a1", truncated: false });
+    expect(extractFinalReply(t)).toEqual({ text: "最终答复", entryId: "a1" });
   });
 
   it("末条纯 thinking → 反向跳过取更早的 text", () => {
@@ -64,7 +62,7 @@ describe("extractFinalReply", () => {
       assistantEntry("a1", [{ type: "text", text: "早先回复" }]),
       assistantEntry("a2", [{ type: "thinking", thinking: "纯思考" }]),
     );
-    expect(extractFinalReply(t)).toEqual({ text: "早先回复", entryId: "a1", truncated: false });
+    expect(extractFinalReply(t)).toEqual({ text: "早先回复", entryId: "a1" });
   });
 
   it("text+toolCall 混合消息 → 取 text", () => {
@@ -83,20 +81,18 @@ describe("extractFinalReply", () => {
     const body = "H>>>" + "x".repeat(3000) + "<<<T";
     const t = turnOf(userEntry("u1", "问题"), assistantEntry("a9", [{ type: "text", text: body }]));
     const q = extractFinalReply(t)!;
-    expect(q.truncated).toBe(false);
     expect(q.text).toBe(body);
   });
 
   it("边界：长回复不再按长度截断", () => {
     const mk = (n: number) => turnOf(userEntry("u1", "问题"), assistantEntry("a1", [{ type: "text", text: "y".repeat(n) }]));
-    expect(extractFinalReply(mk(2000))!.truncated).toBe(false);
-    expect(extractFinalReply(mk(2001))!.truncated).toBe(false);
+    expect(extractFinalReply(mk(2000))!.text).toHaveLength(2000);
+    expect(extractFinalReply(mk(2001))!.text).toHaveLength(2001);
   });
 
   it("extractFinalReply keeps full text (no truncation)", () => {
     const long = "y".repeat(3000);
     const q = extractFinalReply(turnOf(userEntry("u1", "问题"), assistantEntry("a2", [{ type: "text", text: long }])))!;
     expect(q?.text).toBe(long);
-    expect(q?.truncated).toBe(false);
   });
 });
