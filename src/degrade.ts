@@ -21,9 +21,9 @@ export function turnRenderTokens(ledger: LedgerData, index: number): number {
 }
 
 /**
- * 层内从最旧开始选中条目，直到累计 tokens ≥ total − reserve（保留尾部约 reserve）。
- * 按条整体选中，不拦腰截断；若单条就超过也选中它（最旧优先，保证有进展）。
- * total ≤ threshold 时返回空。
+ * 层内从最旧开始选中条目：保持尾部 ≥ reserve 的硬下界（选中下一条前先检查剩余是否仍达标）。
+ * 按条整体选中，不拦腰截断；若保留区不可满足（选任何一条都击穿 reserve），
+ * 仍强制选最旧一条保证降级有进展。total ≤ threshold 时返回空。
  */
 export function chooseOldestForLevel(
   ledgers: LedgerData[], level: 1 | 2 | 3, threshold: number, reserve: number,
@@ -38,13 +38,13 @@ export function chooseOldestForLevel(
     total += tokens;
   }
   if (total <= threshold) return [];
-  const target = total - reserve;
   const chosen: LedgerData[] = [];
   let acc = 0;
-  for (const { l, tokens } of inLevel) {
+  for (let i = 0; i < inLevel.length; i++) {
+    const { l, tokens } = inLevel[i];
+    if (chosen.length > 0 && total - acc - tokens < reserve) break; // 选中会击穿保留区 → 硬下界生效
     chosen.push(l);
     acc += tokens;
-    if (acc >= target) break;
   }
   return chosen;
 }

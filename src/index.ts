@@ -7,10 +7,9 @@ import type {
   ExtensionContext,
   SessionEntry,
   SessionMessageEntry,
-  SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { loadConfig, type ContextCompressConfig } from "./config.js";
-import { assembleContext, type AssembleStats } from "./assembler.js";
+import { assembleContext, findWindowTurns, type AssembleStats } from "./assembler.js";
 import { NoteStore, renderNotes } from "./notes.js";
 import type { AgentMessage } from "./types.js";
 import { LedgerStore, type SessionEntryLike } from "./store.js";
@@ -68,6 +67,27 @@ export default function (pi: ExtensionAPI): void {
   let notesStore: NoteStore | null = null;
   // notes 写路径专用队列：Task 5 的 notes 工具/命令经此串行写，避免并发写坏 notes.json
   let notesQueue: Promise<void> = Promise.resolve();
+
+  /**
+   * 按 branch 真实顺序（时间序）取全量 ledgers。
+   * entry ID 非时间递增，localeCompare 字典序 ≠ 会话顺序（会导致降级保留区落在随机位置、
+   * recall 搜索的 T 标签与 ledger 头错位）。excludeWindow 时排除 keepRecent 窗口内的 turn
+   * （窗口内 turn 走原文渲染，不参与降级，也不挤占 reserve 计量口径）。
+   */
+  const ledgersInBranchOrder = (entries: MessageEntry[], excludeWindow: boolean): LedgerData[] => {
+    const turns = splitIntoTurns(entries);
+    let relevant = turns;
+    if (excludeWindow && config) {
+      const windowIds = new Set(findWindowTurns(turns, config.keepRecentTokens).map((t) => t.startEntryId));
+      relevant = turns.filter((t) => !windowIds.has(t.startEntryId));
+    }
+    const out: LedgerData[] = [];
+    for (const t of relevant) {
+      const l = store.get(t.startEntryId);
+      if (l) out.push(l);
+    }
+    return out;
+  };
   /** 串行执行 fn 并返回其结果；异常转为「写失败：…」文本不抛出，队列继续 */
   const enqueueNotesWrite = (fn: () => Promise<string>): Promise<string> => {
     const result = notesQueue.then(fn);
@@ -95,7 +115,7 @@ export default function (pi: ExtensionAPI): void {
       config.summarizerFallback ? makeBackend(ctx, config.summarizerFallback) : undefined;
     const onLedger = (d: LedgerData) => {
       store.set(d);
-      try { (ctx.sessionManager as unknown as SessionManager).appendCustomEntry(LEDGER_CUSTOM_TYPE, d); } catch { /* 持久化失败不影响内存缓存 */ }
+      try { (ctx.sessionManager as unknown as { appendCustomEntry(t: string, d: unknown): void }).appendCustomEntry(LEDGER_CUSTOM_TYPE, d); } catch { /* 持久化失败不影响内存缓存 */ }
     };
     // 降级引擎：仅在摘要后端可用时构造（未配置 summarizer = 插件降级态，不降级也不摘要）
     degradeEngine = new DegradeEngine(backend, config, onLedger, (m) => ctx.ui.notify(m, "warning"));
@@ -108,25 +128,22 @@ export default function (pi: ExtensionAPI): void {
     );
   };
 
-  /** 降级流水：按 turnStartEntryId 升序取全量 ledgers，交 DegradeEngine（内部逐层瀑布，持久化走 onLedger） */
-  const runDegrade = async (): Promise<void> => {
+  /** 降级流水：按 branch 真实顺序取窗外全量 ledgers，交 DegradeEngine（内部逐层瀑布，持久化走 onLedger） */
+  const runDegrade = async (entries: MessageEntry[]): Promise<void> => {
     if (!degradeEngine) return;
-    const ledgers = store.keys()
-      .map((k) => store.get(k)!)
-      .filter(Boolean)
-      .sort((a, b) => a.turnStartEntryId.localeCompare(b.turnStartEntryId));
+    const ledgers = ledgersInBranchOrder(entries, true);
     if (ledgers.length === 0) return;
     await degradeEngine.run(ledgers);
   };
 
   /** 摘要队列 drain 完成后触发一次降级（不阻塞事件返回，fire-and-forget） */
-  const degradeAfterSettle = async (): Promise<void> => {
+  const degradeAfterSettle = async (ctx: { sessionManager: { getBranch(): SessionEntry[] } }): Promise<void> => {
     if (!engine) return;
     const ok = await engine.waitIdle(WAIT_TIMEOUT_MS);
-    if (ok) await runDegrade();
+    if (ok) await runDegrade(toMessageEntries(ctx.sessionManager.getBranch()));
   };
-  const degradeAfterSettleSafe = (ctx: { ui: { notify(m: string, lvl?: string): void } }): void => {
-    degradeAfterSettle().catch((e) => ctx.ui.notify(`context-compress: 降级失败 ${e instanceof Error ? e.message : String(e)}`, "warning"));
+  const degradeAfterSettleSafe = (ctx: { ui: { notify(m: string, lvl?: string): void }; sessionManager: { getBranch(): SessionEntry[] } }): void => {
+    degradeAfterSettle(ctx).catch((e) => ctx.ui.notify(`context-compress: 降级失败 ${e instanceof Error ? e.message : String(e)}`, "warning"));
   };
 
   pi.on("session_start", async (_event, ctx) => {
@@ -198,13 +215,10 @@ export default function (pi: ExtensionAPI): void {
     degradeAfterSettleSafe(ctx);
   });
 
-  pi.on("session_before_compact", async (event, _ctx) => {
+  pi.on("session_before_compact", async (event, ctx) => {
     if (!config || !engine) return undefined; // 未接管 → pi 原生压缩
     if (engine.pending() > 0) return undefined; // 不健康 → 让位
-    const ledgers = store.keys()
-      .map((k) => store.get(k)!)
-      .filter(Boolean)
-      .sort((a, b) => a.turnStartEntryId.localeCompare(b.turnStartEntryId));
+    const ledgers = ledgersInBranchOrder(toMessageEntries(ctx.sessionManager.getBranch()), false);
     if (ledgers.length === 0) return undefined;
     const ledgerMsg = renderActionLedger(ledgers);
     const text = ((ledgerMsg as any).content as any[]).map((c: any) => c.text ?? "").join("");
@@ -231,10 +245,8 @@ export default function (pi: ExtensionAPI): void {
       const parts: string[] = [];
       if (q) {
         // query 模式：关键词检索已压缩历史，返回命中索引（不消耗 calls，calls 只计逐字取回）
-        const ledgers = store.keys()
-          .map((k) => store.get(k)!)
-          .filter(Boolean)
-          .sort((a, b) => a.turnStartEntryId.localeCompare(b.turnStartEntryId));
+        // T 标签按 branch 顺序编号，与 renderActionLedger 同口径
+        const ledgers = ledgersInBranchOrder(entries, false);
         const r = searchLedger(q, ledgers, 15);
         recallStats.searches += 1;
         recallStats.searchHits += r.hits.length;

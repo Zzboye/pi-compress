@@ -98,6 +98,77 @@ describe("extension entry wiring", () => {
     expect(out).toContain("降级状态");
   });
 
+  it("runDegrade: 按 branch 时间序降级，硬下界保留区覆盖最新 turn，窗口内不参与降级", async () => {
+    // 回归背景：entry ID 非时间递增，旧实现按 localeCompare 字典序取 ledgers，
+    // 导致保留区落在随机位置、最新 turn 反被降级。此处 entry ID 字典序与时间序完全相反，
+    // 旧排序会把保留区留在最旧的 z1/y2 上（bug 行为），新实现必须按时间序保留 v5/u6。
+    const { handlers } = harness();
+    const notifyCalls: string[] = [];
+    const writes: any[] = [];   // 捕获 onLedger → appendCustomEntry 的持久化写入
+    // 6 个窗外 turn，各 ~1.2K tok 渲染（user 600 CJK + reply 600 CJK），总 ~6K > 阈值 5K（config 下限 5000）
+    // 时间序: z1(最旧) → y2 → x3 → w4 → v5 → u6(最新窗外)
+    const timeOrder = ["z1", "y2", "x3", "w4", "v5", "u6"];
+    const mkL1 = (start: string) => ({
+      turnStartEntryId: start, turnEndEntryId: start + "-a", level: 1,
+      summary: { groups: [] },
+      userMessage: { text: "字".repeat(600), entryId: start },
+      finalReply: { text: "复".repeat(600), entryId: start + "-a" },
+    });
+    const branch: any[] = [];
+    for (const id of timeOrder) {
+      branch.push({ id, type: "message", message: { role: "user", content: [{ type: "text", text: "字".repeat(600) }] } });
+      branch.push({ id: id + "-a", type: "message", message: { role: "assistant", content: [{ type: "text", text: "复".repeat(600) }] } });
+      branch.push({ id: id + "-l", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkL1(id) });
+    }
+    // 窗口内：最新 turn（字典序又是最小，旧 bug 会拿它当「最旧」降级）
+    branch.push({ id: "n9", type: "message", message: { role: "user", content: [{ type: "text", text: "窗口内最新" }] } });
+    branch.push({ id: "n9-a", type: "message", message: { role: "assistant", content: [{ type: "text", text: "好" }] } });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-degrade-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".pi", "settings.json"), JSON.stringify({
+      contextCompress: {
+        summarizer: { kind: "registry", provider: "FakeBig", model: "big" },
+        keepRecentTokens: 1000,             // 仅最新 turn（n9，~10 tok）在窗口内
+        ledgerDegradeThresholdTokens: 5000, // L1 总量 ~6K > 5K → 触发降级（config 下限 5000）
+        ledgerReserveTokens: 1500,          // 硬下界：剩余 ≥ 1.5K 才继续降
+        backfillLimit: 10,
+      },
+    }));
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: {
+        getBranch: () => branch,
+        appendCustomEntry: (_t: string, d: any) => writes.push(d),
+      },
+      modelRegistry: {
+        find: () => ({ provider: "FakeBig", model: "big" }),
+        complete: async () => ({ content: [{ type: "text", text: JSON.stringify({
+          userIntent: "降级排序测试", outcome: "ok", groups: [],
+        }) }] }),
+      },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);   // backfill n9 → 完成后触发 runDegrade
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline && !writes.some((d) => d.level === 2)) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const lvl = (id: string) => branch.find((e) => e.id === id + "-l").data.level;
+      // 窗口外 ledger 是 session_start 重建的独立对象，检查 store 内最新 level —— 通过再触发一次 dump 校验太重，
+      // 直接断言持久化写入：降级目标按时间序应是最旧的 z1..w4，保留 v5/u6
+      const degraded = writes.filter((d) => d.level === 2).map((d) => d.turnStartEntryId);
+      // keepRecent=1000 → 窗口={n9}；窗外 6 条共 ~7.3K > 阈值 5K；
+      // 硬下界 1500：z1..v5 降级后剩 ~1.2K < 1.5K 停 → 降最旧 4 条（z1..w4），v5/u6 保留
+      expect(degraded.sort()).toEqual(["v5", "w4", "x3", "y2", "z1"].filter((x) => x !== "v5")); // 时间序最旧 4 条降级（非字典序尾部）
+      expect(lvl("v5")).toBe(1);  // 硬下界保留区（时间序靠新）
+      expect(lvl("u6")).toBe(1);
+      expect(notifyCalls.join("")).not.toContain("摘要失败");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("registers 4 event handlers (session_start/context/agent_settled/session_before_compact)", () => {
     const { fakePi } = harness();
     const events = fakePi.on.mock.calls.map((c: any[]) => c[0]);
@@ -240,7 +311,7 @@ describe("extension entry wiring", () => {
     const { tools, commands, handlers } = harness();
     const notifyCalls: string[] = [];
     const ledger = mkLedger({
-      turnStartEntryId: "t1", level: 1,
+      turnStartEntryId: "u1", level: 1,   // 与 branch 首条 user 消息同 ID（真实会话口径）
       userMessage: { text: "forceRatio 是什么？为什么默认 0.76", entryId: "t1-u" },
       finalReply: { text: "forceRatio 是触发强制点的比例", entryId: "t1-f" },
       summary: { userIntent: "了解强制点", groups: [

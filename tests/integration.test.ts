@@ -99,11 +99,12 @@ describe("integration: turn → summarize → assemble → recall", () => {
     expect(await enforceForcePoint({ tokens: 9000 }, 10000, 0.76, q2, 50, status)).toBe("pass");
   });
 
-  // 模拟 index.ts 的 runDegrade：按 turnStartEntryId 升序取全量 ledgers，交给 DegradeEngine
+  // 模拟 index.ts 的 runDegrade：按 branch 顺序取窗外全量 ledgers，交给 DegradeEngine（硬下界 reserve）
   it("degrades ledgers through levels after summarize completes (L1->L2 rule path)", async () => {
     const store = new LedgerStore();
     // 阈值调小触发降级：5 turn 各 ~770 tok（用户 3000 字符原文进 L1 渲染）
-    // L1 总量 ~3900 > 3400 → 最旧 4 条降 L2（累计 ~3100 ≥ 总量−1200）；降级后 L2 ~3100 ≤ 3400 → 瀑布停止
+    // L1 总量 ~3900 > 3400 → 最旧若干条降 L2，硬下界 reserve 1200：t3 后剩 ~1500 ≥ 1200，
+    // t4 后剩 ~700 < 1200 停 → t1-t3 降级；降级后 L2 ~2300 ≤ 3400 → 瀑布停止
     const cfg = { ...config, ledgerDegradeThresholdTokens: 3400, ledgerReserveTokens: 1200 };
     const validOutput = JSON.stringify({
       groups: [{ phase: "investigate", entries: [{ target: "src/app.ts", detail: "正常" }] }],
@@ -121,20 +122,22 @@ describe("integration: turn → summarize → assemble → recall", () => {
     await engine.waitIdle(5000);
     expect(store.get("t1")?.level).toBeUndefined(); // 摘要完成时尚未降级
 
-    const ledgers = store.keys()
-      .map((k) => store.get(k)!)
-      .filter(Boolean)
-      .sort((x, y) => x.turnStartEntryId.localeCompare(y.turnStartEntryId));
+    const ledgers = splitIntoTurns(branch)
+      .map((t) => store.get(t.startEntryId))
+      .filter(Boolean) as LedgerData[];   // branch 真实顺序（时间序），与 index.ts 同口径
     await degradeEngine.run(ledgers);
 
     expect(store.get("t1")?.level).toBe(2);          // 最旧 → L2
-    expect(store.get("t4")?.level).toBe(2);
+    expect(store.get("t3")?.level).toBe(2);
+    expect(store.get("t4")?.level).toBeUndefined();  // 硬下界 reserve → 保留 L1
     expect(store.get("t5")?.level).toBeUndefined();  // 最新保留区 → 仍是 L1（缺省）
     // L2 渲染丢命令：detail 仍在，target/命令消失
     const head = ((assembleContext(branch, new Map([...store.keys().map((k) => [k, store.get(k)!] as const)]), 100)
       .messages[0] as any).content as any[]).map((c) => c.text ?? "").join("");
     expect(head).toContain("正常");
-    expect(head).not.toContain("src/app.ts");
+    // L2（t1-t3）丢命令：target 消失；t4 现为硬下界保留的 L1，target → detail 照常渲染
+    expect(head).not.toContain("调查：src/app.ts → 正常 ↩t1-a");
+    expect(head).toContain("调查：src/app.ts → 正常 ↩t4-a");
   });
 
   it("L3 ledger renders intent/outcome lines in assembled action ledger", async () => {

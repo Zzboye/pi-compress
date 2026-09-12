@@ -20,13 +20,13 @@ describe("planDegrade", () => {
     expect(p.mergeGroups).toEqual([]);
   });
 
-  it("degrades oldest L1 turns beyond reserve when L1 exceeds threshold", () => {
-    // 5 条 L1 各 ~9K = ~45K > 40K → 选中最旧若干条直至累计 ≥ 45K-10K=35K（前 4 条，保留 ~10K）
+  it("degrades oldest L1 turns preserving reserve floor when L1 exceeds threshold", () => {
+    // 5 条 L1 各 ~9K = ~45K > 40K，reserve 10K → 选中最旧若干条且剩余 ≥ 10K（前 3 条，保留 18K）
     const ls = [1, 2, 3, 4, 5].map((i) => ledger(`t${i}`, 1, 9000));
     const p = planDegrade(ls, 40000, 10000);
     expect(p.steps).toEqual([
       { turnStartEntryId: "t1", toLevel: 2 }, { turnStartEntryId: "t2", toLevel: 2 },
-      { turnStartEntryId: "t3", toLevel: 2 }, { turnStartEntryId: "t4", toLevel: 2 },
+      { turnStartEntryId: "t3", toLevel: 2 },
     ]);
     expect(p.mergeGroups).toEqual([]);
   });
@@ -40,10 +40,10 @@ describe("planDegrade", () => {
   });
 
   it("waterfalls: L2 overflow degrades oldest to L3 (L1 under threshold untouched)", () => {
-    // L2 已有 ~45K（5×9K）超阈值；L1 为空。L2 → 最旧降为 L3 直至保留 ~10K（前 4 条，累计 ~36K ≥ 35K）
+    // L2 已有 ~45K（5×9K）超阈值；L1 为空。L2 → 最旧降为 L3，剩余 ≥ 10K（前 3 条，保留 18K）
     const ls = [1, 2, 3, 4, 5].map((i) => ledger(`t${i}`, 2, 9000));
     const p = planDegrade(ls, 40000, 10000);
-    expect(p.steps.filter((s) => s.toLevel === 3).length).toBe(4);
+    expect(p.steps.filter((s) => s.toLevel === 3).length).toBe(3);
     expect(p.steps.filter((s) => s.toLevel === 2).length).toBe(0);
     expect(p.mergeGroups).toEqual([]);
   });
@@ -59,16 +59,16 @@ describe("planDegrade", () => {
     // L3 体积撑在 summary.outcome（L3 渲染含 outcome 全文，不含 finalReply 原文）
     const ls = [1, 2, 3, 4, 5].map((i) => ledger(`t${i}`, 3, 9000));
     const p = planDegrade(ls, 40000, 10000);
-    expect(p.steps.filter((s) => s.toLevel === 4).length).toBe(4);
-    expect(p.mergeGroups).toEqual([["t1", "t2", "t3", "t4"]]);
+    expect(p.steps.filter((s) => s.toLevel === 4).length).toBe(3);
+    expect(p.mergeGroups).toEqual([["t1", "t2", "t3"]]);
   });
 
   it("splits non-adjacent L3→L4 selections into separate groups", () => {
     // a(L3) 与 c/d(L3) 都被选中，但中间隔着 level=1 的 b（L1 未超不降）→ 两组
     const ls = [ledger("a", 3, 15000), ledger("b", 1, 30000), ledger("c", 3, 15000), ledger("d", 3, 15000)];
     const p = planDegrade(ls, 40000, 10000);
-    // L1: 30K ≤ 40K 不动；L3: 45K > 40K，target=35K → 选 a(15K)+c(30K)+d(45K≥35K)
-    expect(p.mergeGroups).toEqual([["a"], ["c", "d"]]);
+    // L1: 30K ≤ 40K 不动；L3: 45K > 40K，reserve 10K → 选 a(15K，剩30K)+c(30K，剩15K)，选 d 后剩 0 < 10K 停
+    expect(p.mergeGroups).toEqual([["a"], ["c"]]);
   });
 
   it("single oversized oldest turn still selected (progress guarantee)", () => {
@@ -93,9 +93,26 @@ describe("chooseOldestForLevel", () => {
 
   it("selects only entries of the requested level", () => {
     const ls = [ledger("a", 1, 100), ledger("b", 2, 20000), ledger("c", 2, 20000), ledger("d", 3, 100)];
-    // L2: 40K > 阈值 30K → target = 40K-5K = 35K → 选 b+c
+    // L2: 40K > 阈值 30K，reserve 5K → 选 b（剩 20K ≥ 5K）；选 c 后剩 0 < 5K 停
     const chosen = chooseOldestForLevel(ls, 2, 30000, 5000);
-    expect(chosen.map((l) => l.turnStartEntryId)).toEqual(["b", "c"]);
+    expect(chosen.map((l) => l.turnStartEntryId)).toEqual(["b"]);
+  });
+
+  it("preserves hard reserve floor: stops before an entry would break the reserve", () => {
+    // 硬下界语义：选中下一条前先检查「选中后剩余是否仍 ≥ reserve」；不够则停
+    // 5×9K=45K，threshold 40K，reserve 15K → target=30K，前 3 条累计 27K < 30K，
+    // 但选中第 4 条后剩余 45K-36K=9K < 15K → 停在前 3 条，保留 18K
+    const ls = [1, 2, 3, 4, 5].map((i) => ledger(`t${i}`, 1, 9000));
+    const chosen = chooseOldestForLevel(ls, 1, 40000, 15000);
+    expect(chosen.map((l) => l.turnStartEntryId)).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("degrades at least one entry when reserve floor unsatisfiable (progress guarantee)", () => {
+    // 保留区不可满足时（最旧一条就击穿 reserve）仍选第一条保证降级有进展
+    // 2×6K=12K > threshold 8K，reserve 10K：选 t1 后剩余 6K < 10K → 若硬停则零进展；强制选 t1
+    const ls = [ledger("t1", 1, 6000), ledger("t2", 1, 6000)];
+    const chosen = chooseOldestForLevel(ls, 1, 8000, 10000);
+    expect(chosen.map((l) => l.turnStartEntryId)).toEqual(["t1"]);
   });
 
   it("counts only same-level entries toward total", () => {
@@ -169,9 +186,11 @@ describe("DegradeEngine", () => {
     const eng = new DegradeEngine(backend as any, ENGINE_CONFIG, () => {}, () => {});
     const ls = [1, 2, 3, 4, 5].map((i) => big(`t${i}`, 9000, 3));
     await eng.run(ls);
+    // 硬下界 reserve 10K：t1-t3 后剩 18K，选 t4 后剩 9K < 10K → 组仅 3 条
     expect(ls[0].level).toBe(4);
-    expect(ls[3].merged?.description).toBe("调查代码结构（4 条已合并）");
-    expect(ls[4].level).toBe(3); // 保留区内不降
+    expect(ls[2].merged?.description).toBe("调查代码结构（3 条已合并）");
+    expect(ls[3].level).toBe(3); // 保留区内不降
+    expect(ls[4].level).toBe(3);
   });
 
   it("rolls back merge group to L3 on backend failure", async () => {
