@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { NoteStore, renderNotes } from "../src/notes.js";
+import { applyNotesInjection } from "../src/index.js";
 
 const dirs: string[] = [];
 function mkStore(): NoteStore {
@@ -143,5 +144,44 @@ describe("renderNotes", () => {
     s.append("prefs", { text: "P", locked: true });
     expect(() => s.remove("pref-001")).toThrow(/用户记录/);
     expect(s.findById("pref-001")).toBeDefined(); // 未被删除
+  });
+});
+
+describe("applyNotesInjection", () => {
+  const cfgOn = { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } as any;
+  const cfgOff = { projectNotes: { enabled: false, path: "notes.json", maxTokens: 0 } } as any;
+
+  it("notesStore=null（session_start 前触发 context 等生命周期边界）：enabled=true 也不注入、不抛异常", () => {
+    const messages: any[] = [{ role: "user", content: [{ type: "text", text: "既有消息" }] }];
+    expect(() => applyNotesInjection(messages, null, cfgOn)).not.toThrow();
+    expect(messages).toHaveLength(1); // 原样未动
+  });
+
+  it("config=null：不注入", () => {
+    const messages: any[] = [{ role: "user", content: [{ type: "text", text: "既有消息" }] }];
+    applyNotesInjection(messages, new NoteStore("unused.json"), null);
+    expect(messages).toHaveLength(1);
+  });
+
+  it("enabled=false：不注入", () => {
+    const messages: any[] = [{ role: "user", content: [{ type: "text", text: "既有消息" }] }];
+    applyNotesInjection(messages, new NoteStore("unused.json"), cfgOff);
+    expect(messages).toHaveLength(1);
+  });
+
+  it("enabled=true + 有条目：unshift 项目记忆块到头部", () => {
+    const dir = fs.mkdtempSync(join(os.tmpdir(), "notes-inject-test-"));
+    try {
+      const s = new NoteStore(join(dir, "notes.json"));
+      s.load();
+      s.append("prefs", { text: "偏好甲", locked: true });
+      const messages: any[] = [{ role: "user", content: [{ type: "text", text: "既有消息" }] }];
+      applyNotesInjection(messages, s, cfgOn);
+      expect(messages).toHaveLength(2);
+      expect(JSON.stringify(messages[0])).toContain("项目记忆");
+      expect(JSON.stringify(messages[1])).toContain("既有消息");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

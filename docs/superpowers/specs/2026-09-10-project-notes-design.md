@@ -166,3 +166,4 @@ recall({ ids: ["↩t42-u"] })   → 未命中 notes → 现有 branch 查找路�
 - LLM 可能忘调 notes 工具（缓解：工具 description 硬门槛 + 注入块引导行；接受不完美，Claude Code 同策略）
 - 手改 notes.md 会被覆盖（文件头注明）
 - 多会话并发写为后到后执行（单队列保证不损坏，不合并语义）
+- notesQueue 跨 session_start 竞态：写操作若恰好横跨 session_start（如 /tree 回退、会话重载），新 notesStore 的内存副本可能短暂落后于磁盘最终状态（队列保证写本身串行不丢失，下次写操作后自愈）；概率极低，接受轻量陈旧
