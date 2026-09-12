@@ -168,7 +168,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **降级状态**：`正常` 或 `已降级（pi 原生压缩接管中）`——后者表示强制点等待超时，本轮上下文不重组，交 pi 原生 auto-compaction 兜底；队列恢复后自动回到正常。
 - **最近装配**：上一次 context 事件重组的统计（窗口/替换/原文放行 turn 数）。
 - **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为逐字取回的工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退），`搜索` 为 query 关键词检索次数，`记忆召回` 为其中命中项目记忆条目的次数。全 0 表示 LLM 在窗口内就能拿到所需细节（健康信号）；持续高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
-- **项目记忆**：三表条目数与本会话记忆召回次数；`未启用` 表示未配置 `projectNotes`（见下节）。
+- **项目记忆**：三表条目数与本会话记忆召回次数；`未启用` 表示未配置 `projectNotes` 或 `enabled: false`（此时 notes 工具仍可收集，但注入不生效，见下节）。
 
 ### recall 工具的两种用法
 
@@ -202,7 +202,7 @@ recall({ query: "forceRatio" })             → 命中索引（不返回原文�
 - 任务决策 [进行中·2026-09-10] ↩task-001
 ```
 
-- **用户偏好表（prefs）**：全量注入——偏好通常只有几条，逐条原文进入上下文；由 `/compress-remember` 或 notes 工具写入，用户写入的条目（locked）LLM 不可修改删除。
+- **用户偏好表（prefs）**：优先全量注入——偏好通常只有几条，逐条原文进入上下文（超预算时同样可被截断，仅优先级第一）；由 `/compress-remember` 或 notes 工具写入，用户写入的条目（locked）LLM 不可修改删除。
 - **经验表（feedback）与任务决策表（tasks）**：注入摘要行——一句话 `text` + 状态/日期 + `↩ID`；`detail` 详情全文不进注入块，LLM 需要时按 ID 召回。
 
 ### notes 工具（LLM 主动维护）
@@ -227,7 +227,7 @@ notes({ action: "delete", id: "fb-001" })
 
 ### recall 双源
 
-recall 按 ID 取回时对项目记忆同样生效：注入块里 ↩ 标记的记忆条目 ID 返回 `detail` 详情全文，动作日志 entry ID 照旧返回原文，两种 ID 可混传批量：
+recall 按 ID 取回时对项目记忆同样生效：注入块里 ↩ 标记的记忆条目 ID 返回 `detail` 详情全文（条目无 `detail` 时返回（该条目无详情）），动作日志 entry ID 照旧返回原文，两种 ID 可混传批量：
 
 ```
 recall({ ids: ["fb-001"] })   → 记忆详情（detail 全文）

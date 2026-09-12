@@ -167,6 +167,35 @@ describe("extension entry wiring", () => {
     expect(notify2.join("\n")).toContain("项目记忆：未启用");
   });
 
+  it("compress-status：enabled=false 时即使 notesStore 已构造且有条目，项目记忆行仍显示未启用", async () => {
+    const { commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-status-off-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: false, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const seed = new NoteStore(path.join(dir, "notes.json"));
+    seed.load();
+    seed.append("prefs", { text: "commit message 用中文" });
+    seed.save();
+    const notifyCalls: string[] = [];
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx); // notesStore 已构造并 load（enabled 只关注入不关收集）
+      await commands["compress-status"].handler("", fakeCtx);
+      const out = notifyCalls.join("\n");
+      expect(out).toContain("项目记忆：未启用");
+      expect(out).not.toContain("项目记忆：启用");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("context 事件记录估算与真实 usage，compress-status 并排显示（校准观察）", async () => {
     const { handlers, commands } = harness();
     const notifyCalls: string[] = [];
