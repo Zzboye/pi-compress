@@ -12,6 +12,7 @@ export interface ContextCompressConfig {
   ledgerDegradeThresholdTokens: number;
   ledgerReserveTokens: number;
   backfillLimit: number;
+  projectNotes: { enabled: boolean; path: string; maxTokens: number };
 }
 
 export const DEFAULT_CONFIG: ContextCompressConfig = {
@@ -24,6 +25,7 @@ export const DEFAULT_CONFIG: ContextCompressConfig = {
   ledgerDegradeThresholdTokens: 40000,
   ledgerReserveTokens: 10000,
   backfillLimit: 20,
+  projectNotes: { enabled: false, path: ".pi-compress/notes.json", maxTokens: 0 },
 };
 
 interface RawSettings { contextCompress?: Record<string, unknown> }
@@ -64,5 +66,12 @@ export function loadConfig(globalRaw: unknown, projectRaw: unknown): ContextComp
     ledgerDegradeThresholdTokens: Math.floor(num(merged.ledgerDegradeThresholdTokens, DEFAULT_CONFIG.ledgerDegradeThresholdTokens, 5000, 2_000_000)),
     ledgerReserveTokens: Math.floor(num(merged.ledgerReserveTokens, DEFAULT_CONFIG.ledgerReserveTokens, 1000, 500_000)),
     backfillLimit: Math.floor(num(merged.backfillLimit, 20, 0, 100_000)),
+    projectNotes: {
+      enabled: merged.projectNotes === undefined ? DEFAULT_CONFIG.projectNotes.enabled
+        : !!(merged.projectNotes as any).enabled,
+      path: merged.projectNotes && typeof (merged.projectNotes as any).path === "string"
+        ? (merged.projectNotes as any).path : DEFAULT_CONFIG.projectNotes.path,
+      maxTokens: num((merged.projectNotes as any)?.maxTokens, 0, 0, 1_000_000),
+    },
   };
 }

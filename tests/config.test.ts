@@ -82,6 +82,20 @@ describe("loadConfig", () => {
     expect(c.keepRecentTokens).toBe(20000);
     expect(c.forceRatio).toBe(0.76);
   });
+
+  it("projectNotes：缺省 = 关闭 + 默认路径 + maxTokens 0", () => {
+    const c = loadConfig({}, {});
+    expect(c.projectNotes).toEqual({ enabled: false, path: ".pi-compress/notes.json", maxTokens: 0 });
+  });
+
+  it("projectNotes：可开启、可改路径与预算；非法值回退默认", () => {
+    const c = loadConfig({}, { contextCompress: { projectNotes: { enabled: true, path: "custom/notes.json", maxTokens: 2000 } } });
+    expect(c.projectNotes.enabled).toBe(true);
+    expect(c.projectNotes.path).toBe("custom/notes.json");
+    expect(c.projectNotes.maxTokens).toBe(2000);
+    const bad = loadConfig({}, { contextCompress: { projectNotes: { maxTokens: -5 } } });
+    expect(bad.projectNotes.maxTokens).toBe(0);
+  });
 });
 
 describe("ledger degrade config", () => {
