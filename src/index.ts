@@ -20,7 +20,7 @@ import {
   createOpenAICompatBackend,
   type SummarizerBackend,
 } from "./summarizer.js";
-import { executeRecall, searchLedger, formatSearchResult } from "./recall.js";
+import { executeRecallDual, searchLedger, formatSearchResult } from "./recall.js";
 import { dumpContext, writeContextDump, defaultDumpBase } from "./dump.js";
 import { enforceForcePoint } from "./forcepoint.js";
 import { countTokens, splitIntoTurns, type MessageEntry } from "./util.js";
@@ -78,7 +78,7 @@ export default function (pi: ExtensionAPI): void {
   let degradeEngine: DegradeEngine | null = null;
   let degraded = false;
   let lastStats: AssembleStats | null = null;
-  let recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0 };
+  let recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0, notesHits: 0 };
   // 校准观察：最近一次装配的「估算（CJK 感知）vs 真实 usage」并排记录。
   // 差值 = system prompt + 工具定义 + 模板开销 + 估算误差；长期稳定偏差即可推出校准系数。
   let lastCalibration: { estimated: number; actual: number } | null = null;
@@ -141,7 +141,7 @@ export default function (pi: ExtensionAPI): void {
     store.rebuildFromEntries(ctx.sessionManager.getBranch() as unknown as SessionEntryLike[]);
     engine = makeEngine(ctx);
     degraded = false;
-    recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0 };
+    recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0, notesHits: 0 };
     if (engine) {
       // 补摘：历史会话恢复时，无 ledger 的旧 turn 重新入队（最旧优先，上限防雪崩）
       const turns = splitIntoTurns(toMessageEntries(ctx.sessionManager.getBranch()));
@@ -241,16 +241,109 @@ export default function (pi: ExtensionAPI): void {
         parts.push(formatSearchResult(r));
       }
       if (params.ids && params.ids.length > 0) {
-        const r = executeRecall(params.ids, entries, 4_000); // 单条 4k tokens 截断
+        // 双源 recall：notes 条目 ID（fb-/task-/pref-）优先查项目记忆，其余走 branch 原文路径
+        const r = executeRecallDual(params.ids, entries, notesStore, 4_000); // 单条 4k tokens 截断
         recallStats.calls += 1;
         recallStats.hits += params.ids.length - r.missing.length;
         recallStats.missing += r.missing.length;
+        recallStats.notesHits += r.notesHits;
         parts.push(r.text);
       }
       if (parts.length === 0) {
-        return { content: [{ type: "text", text: "用法：传 ids（↩ 标记后的 entry ID 列表）取回逐字原文，或传 query 关键词检索历史定位 ID。" }] };
+        return { content: [{ type: "text", text: "用法：传 ids（↩ 标记后的 entry ID 列表）取回逐字原文，或传 query 关键词检索历史定位 ID。" }], details: undefined };
       }
       return { content: [{ type: "text", text: parts.join("\n\n---\n\n") }], details: undefined };
+    },
+  });
+
+  pi.registerTool({
+    name: "notes",
+    label: "Notes",
+    description:
+      "维护跨会话项目记忆（用户偏好/经验/任务决策）。三种操作：append 新增条目、update 更新（如任务状态翻转：进行中→已完成）、delete 删除。\n" +
+      "【写入门槛】仅当出现被用户明确纠正的做法、新任务或任务状态变化、新的稳定偏好时调用；与现有条目语义重复时用 update 合并而非 append；不要记录可从代码库推导的内容（架构、文件路径）。\n" +
+      "update/delete 对用户通过 /compress-remember 记录的条目无效。",
+    parameters: Type.Object({
+      action: Type.Union([Type.Literal("append"), Type.Literal("update"), Type.Literal("delete")], { description: "操作类型" }),
+      table: Type.Optional(Type.Union([Type.Literal("prefs"), Type.Literal("feedback"), Type.Literal("tasks")], { description: "目标表（仅 append 需要）" })),
+      id: Type.Optional(Type.String({ description: "条目 ID（update/delete 需要），如 fb-001" })),
+      text: Type.Optional(Type.String({ description: "条目摘要一句话（append 需要；update 可选）" })),
+      detail: Type.Optional(Type.String({ description: "详情全文（recall 按 ID 召回时返回这段）" })),
+      status: Type.Optional(Type.String({ description: "任务状态，如 进行中/已完成/已废弃" })),
+      source: Type.Optional(Type.String({ description: "来源说明，如用户原话或所在文件" })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+      const store = notesStore; // 收窄到 const：闭包内使用且不因 session_start 重赋值而中途换实例
+      if (!store) {
+        return { content: [{ type: "text", text: "项目记忆未启用（contextCompress.projectNotes.path 未配置）" }], details: undefined };
+      }
+      // 写路径统一走队列串行；所有校验失败（不存在/locked）转错误文本返回，不抛异常
+      const run = async (): Promise<string> => {
+        if (params.action === "append") {
+          if (!params.table) return "append 失败：缺少 table（prefs/feedback/tasks 三选一）";
+          if (!params.text || !params.text.trim()) return "append 失败：缺少非空 text（一句话摘要）";
+          const e = store.append(params.table, {
+            text: params.text.trim(),
+            detail: params.detail,
+            status: params.status,
+            source: params.source,
+            locked: false, // 工具写的条目不锁定（只有 /compress-remember 命令写的才 locked=true）
+          });
+          store.save();
+          return `已记录（${e.id}）：${e.text}`;
+        }
+        if (params.action === "update") {
+          if (!params.id) return "update 失败：缺少 id";
+          try {
+            const e = store.update(params.id, { text: params.text, detail: params.detail, status: params.status });
+            store.save();
+            return `已更新（${e.id}）：${e.text}${e.status ? ` [${e.status}]` : ""}`;
+          } catch (err) {
+            return `更新失败：${err instanceof Error ? err.message : String(err)}`;
+          }
+        }
+        if (params.action === "delete") {
+          if (!params.id) return "delete 失败：缺少 id";
+          const target = store.findById(params.id);
+          if (!target) return `删除失败：条目 ${params.id} 不存在`;
+          if (target.locked) return `删除失败：条目 ${params.id} 由用户记录（/compress-remember 写入），工具不可删除`;
+          store.remove(params.id);
+          store.save();
+          return `已删除（${params.id}）`;
+        }
+        return `未知操作：${String((params as { action?: unknown }).action)}（可选 append/update/delete）`;
+      };
+      const text = await enqueueNotesWrite(run);
+      return { content: [{ type: "text", text }], details: undefined };
+    },
+  });
+
+  pi.registerCommand("compress-remember", {
+    description: "把一条用户偏好写入项目记忆（locked=true，跨会话注入且 notes 工具不可修改）",
+    handler: async (args, ctx) => {
+      const raw = args.trim();
+      if (!raw) {
+        ctx.ui.notify("用法：/compress-remember <内容> —— 将一条用户偏好写入项目记忆（跨会话生效，LLM 不可修改）", "warning");
+        return;
+      }
+      if (/\s+global\s*$/i.test(raw)) {
+        ctx.ui.notify("全局记忆未实现：/compress-remember 目前仅支持当前项目记忆", "warning");
+        return;
+      }
+      if (!notesStore) {
+        ctx.ui.notify("项目记忆未启用（contextCompress.projectNotes.path 未配置）", "warning");
+        return;
+      }
+      const id = await enqueueNotesWrite(async () => {
+        const e = notesStore!.append("prefs", { text: raw, locked: true });
+        notesStore!.save();
+        return e.id;
+      });
+      if (id.startsWith("写失败")) {
+        ctx.ui.notify(`context-compress: ${id}`, "warning");
+        return;
+      }
+      ctx.ui.notify(`已记住（${id}）：${raw}`, "info");
     },
   });
 

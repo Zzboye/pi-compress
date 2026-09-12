@@ -175,6 +175,23 @@ describe("executeRecallDual", () => {
     expect(r.missing).toEqual([]);
     expect(r.text).toContain("（该条目无详情）");
   });
+
+  it("notesHits 计数：命中 notes 源的条目数（不存在的 notes ID 计入 missing 而非 notesHits）", () => {
+    const store = mkDualStore();
+    store.append("feedback", { text: "A", detail: "da" });
+    store.append("feedback", { text: "B", detail: "db" });
+    const r = executeRecallDual(["fb-001", "fb-002", "u1", "fb-009"], [userEntry("u1", "hi")], store, 4000);
+    expect(r.notesHits).toBe(2);
+    expect(r.missing).toContain("fb-009");
+  });
+
+  it("executeRecall 恒返回 notesHits=0（单源无 notes 概念）", () => {
+    expect(executeRecall(["e1"], branch, 4000).notesHits).toBe(0);
+  });
+
+  it("store 为 null 时 notesHits=0", () => {
+    expect(executeRecallDual(["e1"], branch, null, 4000).notesHits).toBe(0);
+  });
 });
 
 function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {

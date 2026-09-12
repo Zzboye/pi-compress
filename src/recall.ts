@@ -3,7 +3,7 @@ import { stripThinking, type MessageEntry } from "./util.js";
 import type { LedgerData, LedgerLevel } from "./ledger.js";
 import type { NoteStore } from "./notes.js";
 
-export interface RecallResult { text: string; missing: string[] }
+export interface RecallResult { text: string; missing: string[]; notesHits: number }
 
 export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPerEntry: number): RecallResult {
   const stripped = stripThinking(branch);
@@ -37,7 +37,7 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   if (missing.length > 0) {
     parts.push(`以下 ID 不在当前分支中（可能因 /tree 回退）：${missing.join(", ")}。可尝试 recall 相邻 turn 的 ID。`);
   }
-  return { text: parts.join("\n\n") || "（无内容）", missing };
+  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits: 0 };
 }
 
 // ---------- 双源 recall（notes 优先，branch 兜底）----------
@@ -52,11 +52,13 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
   const entryIds: string[] = [];
   const parts: string[] = [];
   const missing: string[] = [];
+  let notesHits = 0;
   for (const raw of ids) {
     const id = raw.replace(/^↩/, "");
     if (NOTE_PREFIX_RE.test(id) && notes) {
       const e = notes.findById(id);
       if (!e) { missing.push(id); parts.push(`【${id}】\n（记忆条目 ${id} 不存在或已删除）`); continue; }
+      notesHits += 1;
       parts.push(e.detail ? `【${id} 的记忆详情】\n${e.detail}` : `【${id}】\n（该条目无详情）`);
       continue;
     }
@@ -67,7 +69,7 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
     parts.unshift(r.text);
     missing.unshift(...r.missing);
   }
-  return { text: parts.join("\n\n") || "（无内容）", missing };
+  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits };
 }
 
 // ---------- 关键词检索（searchLedger）----------

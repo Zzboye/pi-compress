@@ -302,6 +302,142 @@ describe("extension entry wiring", () => {
     expect(messagesOff.some((m: any) => JSON.stringify(m).includes("项目记忆"))).toBe(false);
   });
 
+  it("notes 工具 append→update→delete 全链路；locked 条目拒绝改删，工具写的 prefs 不锁定", async () => {
+    const { tools, commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-notes-tool-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const notesPath = path.join(dir, "notes.json");
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      const r1 = await tools.notes.execute("tc", { action: "append", table: "feedback", text: "T", detail: "D", status: "有效" }, undefined, undefined, fakeCtx);
+      expect(r1.content[0].text).toContain("fb-001");
+      const r2 = await tools.notes.execute("tc", { action: "update", id: "fb-001", status: "纠正" }, undefined, undefined, fakeCtx);
+      expect(r2.content[0].text).toContain("纠正");
+      const r3 = await tools.notes.execute("tc", { action: "append", table: "prefs", text: "P" }, undefined, undefined, fakeCtx);
+      expect(r3.content[0].text).toContain("pref-001");
+      // 工具写 prefs 的条目 locked=false（只有 /compress-remember 命令写的才 locked=true）
+      let j = JSON.parse(fs.readFileSync(notesPath, "utf8"));
+      expect(j.prefs[0].locked).toBeFalsy();
+      // /compress-remember 写入的条目 locked=true，工具改/删被拒（含「用户记录」）
+      await commands["compress-remember"].handler("用户偏好甲", fakeCtx);
+      j = JSON.parse(fs.readFileSync(notesPath, "utf8"));
+      expect(j.prefs[1].locked).toBe(true);
+      const ru = await tools.notes.execute("tc", { action: "update", id: "pref-002", status: "x" }, undefined, undefined, fakeCtx);
+      expect(ru.content[0].text).toContain("用户记录");
+      const r4 = await tools.notes.execute("tc", { action: "delete", id: "pref-002" }, undefined, undefined, fakeCtx);
+      expect(r4.content[0].text).toContain("用户记录");
+      const r5 = await tools.notes.execute("tc", { action: "delete", id: "fb-001" }, undefined, undefined, fakeCtx);
+      expect(r5.content[0].text).toContain("已删除");
+      // notes.json 落盘校验
+      expect(JSON.parse(fs.readFileSync(notesPath, "utf8")).feedback).toHaveLength(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("notes 工具校验失败返回错误文本（不抛异常）", async () => {
+    const { tools, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-notes-tool-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      const r = await tools.notes.execute("tc", { action: "update", id: "task-999", status: "已完成" }, undefined, undefined, fakeCtx);
+      expect(r.content[0].text).toContain("不存在");
+      expect(r.content[0].text).not.toContain("throw");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("未启用时 notes 工具返回提示；/compress-remember 直写 prefs locked 条目；global 提示未实现；空参数提示用法", async () => {
+    // ① 未启用（session_start 未触发 → notesStore=null）→ 工具返回「未启用」且不抛异常
+    const h1 = harness();
+    const r = await h1.tools.notes.execute("tc", { action: "append", table: "prefs", text: "X" }, undefined, undefined, {
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    });
+    expect(r.content[0].text).toContain("未启用");
+
+    // ② 命令用例：enabled=true 的 projectNotes 指向 tmpdir
+    const { commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-remember-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const notesPath = path.join(dir, "notes.json");
+    const notifyCalls: string[] = [];
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      await commands["compress-remember"].handler("commit message 用中文", fakeCtx);
+      expect(notifyCalls.at(-1)).toContain("已记住");
+      const j = JSON.parse(fs.readFileSync(notesPath, "utf8"));
+      expect(j.prefs).toHaveLength(1);
+      expect(j.prefs[0].locked).toBe(true);
+      // ③ 末尾带 global → 全局记忆未实现
+      await commands["compress-remember"].handler("记录A global", fakeCtx);
+      expect(notifyCalls.at(-1)).toContain("未实现");
+      expect(JSON.parse(fs.readFileSync(notesPath, "utf8")).prefs).toHaveLength(1); // 未写入
+      // ④ 无参数 → 用法提示
+      await commands["compress-remember"].handler("", fakeCtx);
+      expect(notifyCalls.at(-1)).toContain("用法");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("recall 接线双源：notes ID 返回记忆详情（executeRecallDual）", async () => {
+    const { tools, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-recall-dual-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    // 预置一条带 detail 的经验条目
+    const seed = new NoteStore(path.join(dir, "notes.json"));
+    seed.load();
+    seed.append("feedback", { text: "摘要行", detail: "方法详情全文", status: "有效" });
+    seed.save();
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      const out = await tools.recall.execute("tc1", { ids: ["fb-001"] }, undefined, undefined, fakeCtx);
+      expect(out.content[0].text).toContain("记忆详情");
+      expect(out.content[0].text).toContain("方法详情全文");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("wires fallback backend: overflow error hits primary once, registry fallback takes over", async () => {
     // 主后端：本地 HTTP 服务器返回 400 溢出错误并计数 → 验证不烧重试、立即转备用
     let primaryHits = 0;
