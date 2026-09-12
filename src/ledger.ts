@@ -81,8 +81,11 @@ export function renderTurnText(l: LedgerData, n: number): string {
   return lines.join("\n") + "\n";
 }
 
+/** 召回使用提示：日志头首尾各放一次（开头建立 ↩ 语义，末尾就近提醒） */
+export const RECALL_HINT = "（需要任何条目的逐字原文时，调用 recall 工具并传入 ↩ 后的 ID）";
+
 export function renderActionLedger(ledgers: LedgerData[]): AgentMessage {
-  const lines: string[] = ["<action-ledger>", "## 会话历史（动作日志，细节已压缩）", ""];
+  const lines: string[] = ["<action-ledger>", "## 会话历史（动作日志，细节已压缩）", "", RECALL_HINT];
   for (let i = 0; i < ledgers.length; i++) {
     const l = ledgers[i];
     if ((l.level ?? 1) === 4) {
@@ -102,7 +105,7 @@ export function renderActionLedger(ledgers: LedgerData[]): AgentMessage {
     lines.push(renderTurnText(l, i + 1).trimEnd());
     lines.push("");
   }
-  lines.push("（需要任何条目的逐字原文时，调用 recall 工具并传入 ↩ 后的 ID）");
+  lines.push(RECALL_HINT);
   lines.push("</action-ledger>");
   return {
     role: "user",
