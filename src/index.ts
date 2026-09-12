@@ -375,13 +375,18 @@ export default function (pi: ExtensionAPI): void {
   pi.registerCommand("compress-status", {
     description: "显示 context-compress 状态",
     handler: async (_args, ctx) => {
+      const notes = notesStore?.all();
       const lines = [
         `已摘要 turn 数：${store.size()}`,
         `队列积压：${engine?.pending() ?? 0}`,
         `失败未摘：${engine?.failed().size ?? 0}`,
         `降级状态：${degraded ? "已降级（pi 原生压缩接管中）" : "正常"}`,
         `最近装配：${lastStats ? `窗口 ${lastStats.windowTurns} turns / 替换 ${lastStats.replacedTurns} / 原文放行 ${lastStats.passthroughTurns}` : "无"}`,
-        `召回：调用 ${recallStats.calls} 次 / 取回 ${recallStats.hits} 条 / 未中 ${recallStats.missing} 个 ID / 搜索 ${recallStats.searches} 次`,
+        `召回：调用 ${recallStats.calls} 次 / 取回 ${recallStats.hits} 条 / 未中 ${recallStats.missing} 个 ID / 搜索 ${recallStats.searches} 次 / 记忆召回 ${recallStats.notesHits} 条`,
+        // 项目记忆行：启用 = notesStore 非 null（session_start 按配置构造）；条目数从三表取，召回数 = notesHits
+        notes
+          ? `项目记忆：启用 · ${notes.prefs.length + notes.feedback.length + notes.tasks.length} 条（偏好 ${notes.prefs.length} / 经验 ${notes.feedback.length} / 任务 ${notes.tasks.length}）· 召回 ${recallStats.notesHits} 条`
+          : "项目记忆：未启用",
         `计量校准：${lastCalibration ? `估算 ~${lastCalibration.estimated} tok · 真实 ${lastCalibration.actual} tok（差值含 system prompt/工具定义/模板开销）` : "无记录"}`,
         `摘要后端：${config?.summarizer ? JSON.stringify(config.summarizer) : "未配置（插件未接管）"}`,
         `备用后端：${config?.summarizerFallback ? `${JSON.stringify(config.summarizerFallback)}（主后端溢出/重试耗尽时接管）` : "未配置"}`,

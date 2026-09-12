@@ -127,6 +127,46 @@ describe("extension entry wiring", () => {
     expect(out).toContain("未中 1 个");  // gone 未命中
   });
 
+  it("compress-status 显示项目记忆行（启用含三表计数与召回数；未启用含未启用）", async () => {
+    // ① enabled：三表各预置一条，recall 命中一条记忆 → 状态行含计数与「/ 记忆召回」
+    const { tools, commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-status-notes-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const seed = new NoteStore(path.join(dir, "notes.json"));
+    seed.load();
+    seed.append("prefs", { text: "commit message 用中文" });
+    seed.append("feedback", { text: "摘要行", detail: "详情全文" });
+    seed.append("tasks", { text: "任务决策", status: "进行中" });
+    seed.save();
+    const notifyCalls: string[] = [];
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      await tools.recall.execute("tc1", { ids: ["fb-001"] }, undefined, undefined, fakeCtx);
+      await commands["compress-status"].handler("", fakeCtx);
+      const out = notifyCalls.join("\n");
+      expect(out).toContain("项目记忆：启用 · 3 条（偏好 1 / 经验 1 / 任务 1）· 召回 1 条");
+      // 召回行末尾追加记忆召回统计（既有文案不动）
+      expect(out).toContain("/ 记忆召回 1 条");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    // ② 未配置（session_start 未触发 → notesStore=null）
+    const h2 = harness();
+    const notify2: string[] = [];
+    await h2.commands["compress-status"].handler("", { ui: { notify: (m: string) => notify2.push(m), setStatus: () => {} } });
+    expect(notify2.join("\n")).toContain("项目记忆：未启用");
+  });
+
   it("context 事件记录估算与真实 usage，compress-status 并排显示（校准观察）", async () => {
     const { handlers, commands } = harness();
     const notifyCalls: string[] = [];
