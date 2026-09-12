@@ -189,6 +189,21 @@ describe("executeRecallDual", () => {
     expect(executeRecall(["e1"], branch, 4000).notesHits).toBe(0);
   });
 
+  it("detail 纯空白字符串：视为无详情", () => {
+    const store = mkDualStore();
+    store.append("feedback", { text: "A", detail: "   \n\t " });
+    const r = executeRecallDual(["fb-001"], [], store, 4000);
+    expect(r.text).toContain("（该条目无详情）");
+  });
+
+  it("双前缀 ↩↩fb-001：剥掉全部前导 ↩ 后命中", () => {
+    const store = mkDualStore();
+    store.append("feedback", { text: "A", detail: "dd" });
+    const r = executeRecallDual(["↩↩fb-001"], [], store, 4000);
+    expect(r.missing).toEqual([]);
+    expect(r.text).toContain("dd");
+  });
+
   it("store 为 null 时 notesHits=0", () => {
     expect(executeRecallDual(["e1"], branch, null, 4000).notesHits).toBe(0);
   });

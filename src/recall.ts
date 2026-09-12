@@ -54,12 +54,12 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
   const missing: string[] = [];
   let notesHits = 0;
   for (const raw of ids) {
-    const id = raw.replace(/^↩/, "");
+    const id = raw.replace(/^[↩]+/, "");
     if (NOTE_PREFIX_RE.test(id) && notes) {
       const e = notes.findById(id);
       if (!e) { missing.push(id); parts.push(`【${id}】\n（记忆条目 ${id} 不存在或已删除）`); continue; }
       notesHits += 1;
-      parts.push(e.detail ? `【${id} 的记忆详情】\n${e.detail}` : `【${id}】\n（该条目无详情）`);
+      parts.push(e.detail?.trim() ? `【${id} 的记忆详情】\n${e.detail}` : `【${id}】\n（该条目无详情）`);
       continue;
     }
     entryIds.push(raw);

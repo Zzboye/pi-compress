@@ -136,4 +136,12 @@ describe("renderNotes", () => {
     expect(out).toContain("无时间戳经验");
     expect(out.indexOf("无时间戳经验")).toBeLessThan(out.indexOf("已完成任务")); // 三表顺序还原
   });
+
+  it("locked 条目 remove 抛中文错误（与 update 对称的不变量）", () => {
+    const s = mkStore();
+    s.load();
+    s.append("prefs", { text: "P", locked: true });
+    expect(() => s.remove("pref-001")).toThrow(/用户记录/);
+    expect(s.findById("pref-001")).toBeDefined(); // 未被删除
+  });
 });

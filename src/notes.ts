@@ -109,6 +109,7 @@ export class NoteStore {
   remove(id: string): NoteEntry {
     const e = this.findById(id);
     if (!e) throw new Error(`条目 ${id} 不存在`);
+    if (e.locked) throw new Error(`条目 ${id} 由用户记录，工具不可删除`);
     this.data[e.table] = this.data[e.table].filter((x) => x.id !== id);
     return e;
   }
