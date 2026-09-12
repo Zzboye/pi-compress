@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import piExtension from "../src/index.js";
 import { LEDGER_CUSTOM_TYPE, type LedgerData } from "../src/ledger.js";
+import { NoteStore } from "../src/notes.js";
 
 function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
   return {
@@ -241,6 +242,64 @@ describe("extension entry wiring", () => {
     await handlers.session_start({}, fakeCtx);
     const out = await tools.recall.execute("tc1", { query: "绝不存在的词zzz" }, undefined, undefined, fakeCtx);
     expect(out.content[0].text).toContain("无命中");
+  });
+
+  it("notes 注入：enabled 时项目记忆块插在 ledger 头之前；disabled 时不注入", async () => {
+    const mkCase = async (enabled: boolean) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-notes-"));
+      try {
+        // 用 NoteStore 生成真实 notes.json（含偏好+进行中任务）
+        const store = new NoteStore(path.join(dir, "notes.json"));
+        store.load();
+        store.append("prefs", { text: "commit message 用中文", locked: true });
+        store.append("tasks", { text: "写注入集成测试", detail: "d", status: "进行中" });
+        store.save();
+        fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, ".pi", "settings.json"),
+          JSON.stringify({
+            contextCompress: {
+              projectNotes: { enabled, path: "notes.json", maxTokens: 0 }, // 相对 cwd 解析
+              keepRecentTokens: 1000, // 最小值；第一 turn 塞到 600 汉字（>1000 tok）使其落在窗外、由 ledger 头替代
+            },
+          }),
+        );
+        const { handlers } = harness();
+        const ledger = mkLedger({ turnStartEntryId: "u1", level: 1, summary: { groups: [] } });
+        const branch = [
+          { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "问".repeat(1200) }] } },
+          { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+          { id: "c1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: ledger },
+          { id: "u2", type: "message", message: { role: "user", content: [{ type: "text", text: "第二问" }] } },
+          { id: "a2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第二答" }] } },
+        ];
+        const fakeCtx: any = {
+          cwd: dir,
+          ui: { notify: () => {}, setStatus: () => {} },
+          sessionManager: { getBranch: () => branch },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 200_000 }),
+        };
+        await handlers.session_start({}, fakeCtx); // notesStore 按 config.projectNotes.path（相对 cwd）构造并 load
+        const res = await handlers.context({}, fakeCtx);
+        return res?.messages ?? [];
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    // enabled：messages[0] 为项目记忆块，ledger 头在其后
+    const messages = await mkCase(true);
+    expect(messages.length).toBeGreaterThan(1);
+    const notesText = JSON.stringify(messages[0]);
+    expect(notesText).toContain("项目记忆");
+    expect(notesText).toContain("commit message 用中文");
+    expect(notesText).toContain("↩pref-001");
+    const ledgerIdx = messages.findIndex((m: any) => JSON.stringify(m).includes("<action-ledger>"));
+    expect(ledgerIdx).toBeGreaterThan(0); // notes 块插在 ledger 头之前
+
+    // disabled：不注入
+    const messagesOff = await mkCase(false);
+    expect(messagesOff.some((m: any) => JSON.stringify(m).includes("项目记忆"))).toBe(false);
   });
 
   it("wires fallback backend: overflow error hits primary once, registry fallback takes over", async () => {

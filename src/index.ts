@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import os from "node:os";
-import { join } from "node:path";
+import { join, isAbsolute } from "node:path";
 import { Type } from "typebox";
 import type {
   ExtensionAPI,
@@ -11,6 +11,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { loadConfig, type ContextCompressConfig } from "./config.js";
 import { assembleContext, type AssembleStats } from "./assembler.js";
+import { NoteStore, renderNotes } from "./notes.js";
+import type { AgentMessage } from "./types.js";
 import { LedgerStore, type SessionEntryLike } from "./store.js";
 import {
   SummarizerEngine,
@@ -34,6 +36,27 @@ function readJson(path: string): unknown {
 
 function isMessage(e: SessionEntry): e is SessionMessageEntry { return e.type === "message"; }
 
+/**
+ * 项目记忆注入：enabled 且有内容时，把 renderNotes 输出作为 user 消息 unshift 到 messages 头部
+ * （ledger 头之前；全空/enabled=false/renderNotes 返回 null 均不注入）。
+ * message 形状与 renderActionLedger 一致（user 角色 + text 内容块 + timestamp）。
+ */
+export function applyNotesInjection(
+  messages: AgentMessage[],
+  notesStore: NoteStore | null,
+  config: ContextCompressConfig | null,
+): void {
+  const notesText = config?.projectNotes.enabled && notesStore
+    ? renderNotes(notesStore.entries(), config.projectNotes.maxTokens)
+    : null;
+  if (!notesText) return;
+  messages.unshift({
+    role: "user",
+    content: [{ type: "text", text: notesText }],
+    timestamp: Date.now(),
+  } as AgentMessage);
+}
+
 function toMessageEntries(branch: SessionEntry[]): MessageEntry[] {
   return branch.filter(isMessage).map((e) => ({ id: e.id, message: e.message }));
 }
@@ -41,6 +64,16 @@ function toMessageEntries(branch: SessionEntry[]): MessageEntry[] {
 export default function (pi: ExtensionAPI): void {
   let config: ContextCompressConfig | null = null;
   let store = new LedgerStore();
+  // 项目记忆：session_start 时按 config.projectNotes.path（相对 cwd 解析）构造并 load
+  let notesStore: NoteStore | null = null;
+  // notes 写路径专用队列：Task 5 的 notes 工具/命令经此串行写，避免并发写坏 notes.json
+  let notesQueue: Promise<void> = Promise.resolve();
+  /** 串行执行 fn 并返回其结果；异常转为「写失败：…」文本不抛出，队列继续 */
+  const enqueueNotesWrite = (fn: () => Promise<string>): Promise<string> => {
+    const result = notesQueue.then(fn);
+    notesQueue = result.then(() => undefined, () => undefined);
+    return result.catch((e: unknown) => `写失败：${e instanceof Error ? e.message : String(e)}`);
+  };
   let engine: SummarizerEngine | null = null;
   let degradeEngine: DegradeEngine | null = null;
   let degraded = false;
@@ -101,6 +134,10 @@ export default function (pi: ExtensionAPI): void {
     const projectRaw = readJson(join(ctx.cwd, ".pi", "settings.json"));
     config = loadConfig(globalRaw, projectRaw);
     store = new LedgerStore();
+    notesStore = new NoteStore(
+      isAbsolute(config.projectNotes.path) ? config.projectNotes.path : join(ctx.cwd, config.projectNotes.path),
+    );
+    notesStore.load();
     store.rebuildFromEntries(ctx.sessionManager.getBranch() as unknown as SessionEntryLike[]);
     engine = makeEngine(ctx);
     degraded = false;
@@ -141,6 +178,7 @@ export default function (pi: ExtensionAPI): void {
     const cache = new Map<string, LedgerData>();
     for (const k of store.keys()) { const v = store.get(k); if (v) cache.set(k, v); }
     const { messages, stats } = assembleContext(entries, cache, config.keepRecentTokens);
+    applyNotesInjection(messages, notesStore, config); // 项目记忆块插在 ledger 头之前
     lastStats = stats;
     const estimated = messages.reduce((s, m) => s + countTokens(m as any, { skipThinking: true }), 0);
     lastCalibration = { estimated, actual: usage?.tokens ?? 0 };

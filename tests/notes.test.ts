@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
-import { NoteStore } from "../src/notes.js";
+import { NoteStore, renderNotes } from "../src/notes.js";
 
 const dirs: string[] = [];
 function mkStore(): NoteStore {
@@ -82,5 +82,58 @@ describe("NoteStore", () => {
     fs.writeFileSync((s as any).filePath, JSON.stringify({ schema: 2 }));
     s.load();
     expect(s.all().nextId).toBe(1);
+  });
+});
+
+describe("renderNotes", () => {
+  it("三表顺序：偏好→经验→任务；格式 text [状态·日期] ↩id；空表节省略", () => {
+    const s = mkStore(); s.load();
+    s.append("prefs", { text: "commit message 用中文", locked: true });
+    s.append("feedback", { text: "用 git apply --cached 暂存", detail: "detail 内容", status: "有效", date: "2026-09-10" });
+    s.append("tasks", { text: "项目记忆设计", detail: "detail 内容", status: "进行中", date: "2026-09-10" });
+    const out = renderNotes(s.entries(), 0)!;
+    const iP = out.indexOf("用户偏好"), iF = out.indexOf("经验表"), iT = out.indexOf("任务决策表");
+    expect(iP).toBeGreaterThan(-1); expect(iF).toBeGreaterThan(iP); expect(iT).toBeGreaterThan(iF);
+    expect(out).toContain("[有效·2026-09-10] ↩fb-001");
+    expect(out).toContain("[进行中·2026-09-10] ↩task-001");
+    expect(out).toContain("【项目记忆】"); // 注入块头部
+    expect(out).not.toContain("detail 内容"); // detail 不注入
+  });
+
+  it("全空 → null（不注入）", () => {
+    const s = mkStore(); s.load();
+    expect(renderNotes(s.entries(), 0)).toBeNull();
+  });
+
+  it("maxTokens>0：超预算按 偏好→进行中任务→最近经验→其余 截断并带尾注", () => {
+    const s = mkStore(); s.load();
+    s.append("prefs", { text: "偏好甲", locked: true });
+    s.append("feedback", { text: "旧经验".repeat(50), detail: "d", status: "有效", date: "2026-09-01" });
+    s.append("feedback", { text: "新经验", detail: "d", status: "纠正", date: "2026-09-10" });
+    s.append("tasks", { text: "进行中任务", detail: "d", status: "进行中", date: "2026-09-10" });
+    const out = renderNotes(s.entries(), 60)!;
+    expect(out).toContain("偏好甲");
+    expect(out).toContain("进行中任务");
+    expect(out).toContain("新经验");
+    expect(out).toContain("已截断");
+    expect(out).not.toContain("旧经验");
+  });
+
+  it("maxTokens=0 永不截断", () => {
+    const s = mkStore(); s.load();
+    s.append("feedback", { text: "长".repeat(5000), detail: "d", status: "有效" });
+    const out = renderNotes(s.entries(), 0)!;
+    expect(out).toContain("长".repeat(5000));
+  });
+
+  it("截断后三表顺序仍还原为 prefs→feedback→tasks；updatedAt 缺失的条目参与『其余』截断", () => {
+    const s = mkStore(); s.load();
+    s.append("tasks", { text: "已完成任务", detail: "d", status: "已完成", date: "2026-09-10" });
+    const e = { id: "fb-099", table: "feedback" as const, text: "无时间戳经验" };
+    (s.all().feedback).push(e); // 绕过 append，updatedAt 缺失
+    const out = renderNotes(s.entries(), 40)!;
+    expect(out).toContain("已完成任务");   // 非进行中任务走『其余』，预算内保留
+    expect(out).toContain("无时间戳经验");
+    expect(out.indexOf("无时间戳经验")).toBeLessThan(out.indexOf("已完成任务")); // 三表顺序还原
   });
 });

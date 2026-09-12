@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { join, dirname } from "node:path";
+import { countTokensText } from "./util.js";
 
 export interface NoteEntry {
   id: string;
@@ -75,7 +76,7 @@ export class NoteStore {
   entries(): NoteEntry[] { return TABLE_KEY.flatMap((k) => this.data[k]); }
   findById(id: string): NoteEntry | undefined { return this.entries().find((e) => e.id === id); }
 
-  append(table: NoteEntry["table"], data: { text: string; detail?: string; status?: string; source?: string; locked?: boolean }): NoteEntry {
+  append(table: NoteEntry["table"], data: { text: string; detail?: string; status?: string; source?: string; locked?: boolean; date?: string }): NoteEntry {
     const today = new Date().toISOString().slice(0, 10);
     const n = ++this.seq[table];
     const e: NoteEntry = {
@@ -84,7 +85,7 @@ export class NoteStore {
       text: data.text,
       detail: data.detail,
       status: data.status,
-      date: table === "prefs" ? undefined : today,
+      date: table === "prefs" ? undefined : (data.date ?? today),
       updatedAt: new Date().toISOString(),
       source: data.source,
       locked: data.locked,
@@ -111,6 +112,62 @@ export class NoteStore {
     this.data[e.table] = this.data[e.table].filter((x) => x.id !== id);
     return e;
   }
+}
+
+/** 注入块头部（装配时与项目记忆 body 拼接） */
+export const NOTES_HEADER = "【项目记忆】（跨会话沉淀；详情可按 ↩ID 召回，有新经验或任务状态变化时用 notes 工具更新）";
+
+/** 注入条目行格式：- <text> [<status>·<date>] ↩<id>（detail/source/updatedAt/locked 不进注入块） */
+function noteLine(e: NoteEntry): string {
+  const bits = [e.text];
+  if (e.status) bits.push(`[${e.status}${e.date ? "·" + e.date : ""}]`);
+  bits.push(`↩${e.id}`);
+  return `- ${bits.join(" ")}`;
+}
+
+/**
+ * 渲染项目记忆注入块；返回 null = 不注入（全空或截断后为空）。
+ * 三表顺序：用户偏好 → 经验表 → 任务决策表。
+ * maxTokens>0 时按 偏好 → 进行中任务 → 最近经验（updatedAt 降序）→ 其余 优先级截断
+ * （预算按条目行计，countTokensText 口径）；maxTokens=0 永不截断。
+ */
+export function renderNotes(entries: NoteEntry[], maxTokens: number): string | null {
+  if (entries.length === 0) return null;
+  const prefs = entries.filter((e) => e.table === "prefs");
+  const feedback = entries.filter((e) => e.table === "feedback");
+  const tasks = entries.filter((e) => e.table === "tasks");
+
+  let picked: NoteEntry[];
+  let dropped = 0;
+  if (maxTokens > 0) {
+    const budget = maxTokens;
+    const chosen = new Set<NoteEntry>();
+    const currentCost = () => countTokensText(entries.filter((e) => chosen.has(e)).map(noteLine).join("\n"));
+    const take = (list: NoteEntry[]) => {
+      for (const e of list) {
+        if (chosen.has(e)) continue;
+        if (budget - currentCost() - countTokensText(noteLine(e)) >= 0) chosen.add(e);
+        else dropped++;
+      }
+    };
+    take(prefs);
+    take(tasks.filter((t) => t.status === "进行中"));
+    take([...feedback].sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")));
+    take(tasks.filter((t) => t.status !== "进行中"));
+    // 还原三表顺序 prefs→feedback→tasks（entries() 已按此序）
+    picked = entries.filter((e) => chosen.has(e));
+  } else {
+    picked = entries;
+  }
+
+  const body = [
+    picked.some((e) => e.table === "prefs") ? `◈ 用户偏好：\n${picked.filter((e) => e.table === "prefs").map(noteLine).join("\n")}` : null,
+    picked.some((e) => e.table === "feedback") ? `◈ 经验表：\n${picked.filter((e) => e.table === "feedback").map(noteLine).join("\n")}` : null,
+    picked.some((e) => e.table === "tasks") ? `◈ 任务决策表：\n${picked.filter((e) => e.table === "tasks").map(noteLine).join("\n")}` : null,
+  ].filter(Boolean).join("\n");
+  if (!body) return null;
+  const tail = dropped > 0 ? `\n…（已截断 ${dropped} 条，详情可按 ↩ID 召回或查看 notes 文件）` : "";
+  return `${NOTES_HEADER}\n${body}${tail}`;
 }
 
 export function renderNotesView(data: NotesFile): string {
