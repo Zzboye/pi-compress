@@ -27,7 +27,7 @@ describe("integration: turn → summarize → assemble → recall", () => {
   it("full pipeline replaces old turns and recalls originals verbatim", async () => {
     const store = new LedgerStore();
     const validOutput = JSON.stringify({
-      groups: [{ phase: "investigate", entries: [{ target: "src/app.ts", detail: "正常" }] }],
+      entries: [{ target: "src/app.ts", detail: "正常", phase: "investigate" }],
     });
     const engine = new SummarizerEngine(
       { complete: async () => validOutput },
@@ -70,7 +70,7 @@ describe("integration: turn → summarize → assemble → recall", () => {
     const store = new LedgerStore();
     let fail = true;
     const engine = new SummarizerEngine(
-      { complete: async () => { if (fail) throw new Error("down"); return JSON.stringify({ userIntent: "u", outcome: "o", groups: [{ phase: "other", entries: [{ target: "src/app.ts", detail: "ok" }] }] }); } },
+      { complete: async () => { if (fail) throw new Error("down"); return JSON.stringify({ entries: [{ target: "src/app.ts", detail: "ok", phase: "other" }] }); } },
       { ...config, retry: { maxAttempts: 1, backoffMs: 1 } },
       (d) => store.set(d), vi.fn(),
     );
@@ -107,7 +107,7 @@ describe("integration: turn → summarize → assemble → recall", () => {
     // t4 后剩 ~700 < 1200 停 → t1-t3 降级；降级后 L2 ~2300 ≤ 3400 → 瀑布停止
     const cfg = { ...config, ledgerDegradeThresholdTokens: 3400, ledgerReserveTokens: 1200 };
     const validOutput = JSON.stringify({
-      groups: [{ phase: "investigate", entries: [{ target: "src/app.ts", detail: "正常" }] }],
+      entries: [{ target: "src/app.ts", detail: "正常", phase: "investigate" }],
     });
     const backend = { complete: async () => validOutput };
     const onLedger = (d: LedgerData) => store.set(d); // 与 index.ts 同一持久化通道
@@ -147,7 +147,9 @@ describe("integration: turn → summarize → assemble → recall", () => {
       turnStartEntryId: "t1", turnEndEntryId: "t1-r", level: 3,
       summary: {
         userIntent: "了解ledger结构", outcome: "确认四级占位",
-        groups: [{ phase: "investigate", entries: [{ action: "read", target: "src/ledger.ts", detail: "阅读核心数据结构", recallIds: ["t1-a"] }] }],
+        entries: [
+          { action: "read", target: "src/ledger.ts", detail: "阅读核心数据结构", recallIds: ["t1-a"], phase: "investigate" as const },
+        ],
       },
       userMessage: { text: bigUser, entryId: "t1" },
       finalReply: { text: bigReply, entryId: "t1-r" },
@@ -170,7 +172,7 @@ describe("integration: turn → summarize → assemble → recall", () => {
   it("store rejects ledger entries with invalid level on rebuild", () => {
     const base = {
       turnStartEntryId: "a", turnEndEntryId: "a-r",
-      summary: { groups: [{ phase: "other" as const, entries: [{ action: "read", target: "x", detail: "d", recallIds: ["a"] }] }] },
+      summary: { entries: [] },
     };
     const store = new LedgerStore();
     store.rebuildFromEntries([

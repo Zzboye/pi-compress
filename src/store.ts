@@ -1,4 +1,4 @@
-import { LEDGER_CUSTOM_TYPE, type LedgerData } from "./ledger.js";
+import { LEDGER_CUSTOM_TYPE, normalizeLedgerData, type LedgerData } from "./ledger.js";
 
 export interface SessionEntryLike { id: string; type: string; customType?: string; data?: unknown }
 
@@ -18,7 +18,7 @@ export class LedgerStore {
     this.cache.clear();
     for (const e of entries) {
       if (e.type === "custom" && e.customType === LEDGER_CUSTOM_TYPE && isValidLedger(e.data)) {
-        this.cache.set(e.data.turnStartEntryId, e.data); // 后写覆盖先写 = 重摘生效
+        this.cache.set(e.data.turnStartEntryId, normalizeLedgerData(e.data)); // 旧 groups schema 加载即迁移；后写覆盖先写
       }
     }
   }

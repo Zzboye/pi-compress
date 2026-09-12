@@ -111,7 +111,7 @@ function ledgerFor(turn: { startEntryId: string; endEntryId: string }): LedgerDa
     summary: {
       userIntent: "做某事",
       outcome: "完成了",
-      groups: [{ phase: "other", entries: [{ action: "bash", target: "ls", detail: "列了文件", recallIds: [turn.startEntryId] }] }],
+      entries: [],
     },
   };
 }

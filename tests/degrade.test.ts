@@ -7,7 +7,7 @@ function ledger(id: string, level: 1 | 2 | 3, tokens: number): LedgerData {
   const pad = "x".repeat(tokens * 4);
   return {
     turnStartEntryId: id, turnEndEntryId: id, level,
-    summary: { groups: [], ...(level === 3 ? { outcome: pad } : {}) },
+    summary: { entries: [], ...(level === 3 ? { outcome: pad } : {}) },
     finalReply: level === 3 ? undefined : { text: pad, entryId: id },
   };
 }
@@ -129,7 +129,7 @@ describe("DegradeEngine", () => {
     const pad = "x".repeat(tokens * 4);
     return {
       turnStartEntryId: id, turnEndEntryId: id, level,
-      summary: { groups: [], ...(level === 3 ? { outcome: pad } : {}) },
+      summary: { entries: [], ...(level === 3 ? { outcome: pad } : {}) },
       userMessage: { text: "u".repeat(40), entryId: id + "u" },
       finalReply: level === 3 ? undefined : { text: pad, entryId: id + "r" },
     };

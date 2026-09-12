@@ -137,18 +137,28 @@ export function stripThinking(entries: MessageEntry[]): MessageEntry[] {
   return out;
 }
 
-/** 从 assistant 消息的 toolCall 块机械提取动作清单；target 逐字，不经模型 */
-export function extractToolActions(turn: Turn): ToolActionInfo[] {
+/** 超长/多行 target 截断为单行首段 + …（全文可 recall 取回，行尾 ID 既有惯例不重复提示） */
+export function truncateTarget(raw: string, maxChars: number): string {
+  const firstLine = raw.split(/\r?\n/)[0];
+  if (raw.includes("\n") || firstLine.length > maxChars) {
+    return firstLine.slice(0, maxChars) + "…";
+  }
+  return raw;
+}
+
+/** 从 assistant 消息的 toolCall 块机械提取动作清单；target 经 targetMaxChars 机械截断（不经模型）。
+ *  合并键用截断后 target（清单/模型/渲染三方同口径；超长短语完整值不进提示词，合并仅是边缘退化） */
+export function extractToolActions(turn: Turn, targetMaxChars = 230): ToolActionInfo[] {
   const out: ToolActionInfo[] = [];
   for (const e of turn.entries) {
     if (e.message.role !== "assistant") continue;
     for (const block of e.message.content as any[]) {
       if (block?.type !== "toolCall") continue;
       const args = block.arguments ?? {};
-      const target = args.path ?? args.command ?? args.url ?? block.name;
+      const target = truncateTarget(String(args.path ?? args.command ?? args.url ?? block.name), targetMaxChars);
       const prev = out.find((a) => a.action === block.name && a.target === target);
       if (prev) prev.entryIds.push(e.id);
-      else out.push({ action: block.name, target: String(target), entryIds: [e.id] });
+      else out.push({ action: block.name, target, entryIds: [e.id] });
     }
   }
   return out;

@@ -16,7 +16,7 @@ function ledgerFor(turn: { startEntryId: string; endEntryId: string }): LedgerDa
   return {
     turnStartEntryId: turn.startEntryId,
     turnEndEntryId: turn.endEntryId,
-    summary: { userIntent: "旧问题意图", outcome: "旧问题已解决", groups: [] },
+    summary: { userIntent: "旧问题意图", outcome: "旧问题已解决", entries: [] },
   };
 }
 

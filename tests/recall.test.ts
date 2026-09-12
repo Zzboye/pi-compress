@@ -212,7 +212,7 @@ describe("executeRecallDual", () => {
 function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
   return {
     turnEndEntryId: partial.turnStartEntryId + "-end",
-    summary: { groups: [] },
+    summary: { entries: [] },
     ...partial,
   } as LedgerData;
 }
@@ -223,21 +223,21 @@ describe("searchLedger", () => {
       turnStartEntryId: "t1", level: 1,
       userMessage: { text: "forceRatio 是什么？为什么默认 0.76", entryId: "t1-u" },
       finalReply: { text: "forceRatio 是触发强制点的比例", entryId: "t1-f" },
-      summary: { groups: [{ phase: "investigate", entries: [
-        { action: "read", target: "src/config.ts", detail: "校验 forceRatio 范围", recallIds: ["t1-a"] },
-      ] }] },
+      summary: { entries: [
+        { action: "read", target: "src/config.ts", detail: "校验 forceRatio 范围", recallIds: ["t1-a"], phase: "investigate" },
+      ] },
     }),
     mkLedger({
       turnStartEntryId: "t2", level: 3,
-      summary: { userIntent: "了解 keepRecentTokens", groups: [] },
+      summary: { userIntent: "了解 keepRecentTokens", entries: [] },
       userMessage: { text: "keepRecentTokens 怎么配？", entryId: "t2-u" },
     }),
     mkLedger({
       turnStartEntryId: "t3", level: 4,
       merged: { description: "调整 forceRatio 并验证窗口行为" },
-      summary: { groups: [{ phase: "fix", entries: [
-        { action: "edit", target: "a.ts", detail: "改 forceRatio 默认值", recallIds: ["t3-a1", "t3-a2"] },
-      ] }] },
+      summary: { entries: [
+        { action: "edit", target: "a.ts", detail: "改 forceRatio 默认值", recallIds: ["t3-a1", "t3-a2"], phase: "fix" },
+      ] },
     }),
   ];
 
@@ -280,7 +280,7 @@ describe("searchLedger", () => {
     const t4 = mkLedger({
       turnStartEntryId: "t4", level: 4,
       merged: { description: "继续验证 forceRatio" },
-      summary: { groups: [] },
+      summary: { entries: [] },
     });
     const r = searchLedger("forceRatio", [...ledgers, t4], 15);
     const h = r.hits.find((x) => x.field === "合并描述")!;

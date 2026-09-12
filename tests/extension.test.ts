@@ -10,7 +10,7 @@ import { NoteStore } from "../src/notes.js";
 function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
   return {
     turnEndEntryId: partial.turnStartEntryId + "-end",
-    summary: { groups: [] },
+    summary: { entries: [] },
     ...partial,
   } as LedgerData;
 }
@@ -110,7 +110,7 @@ describe("extension entry wiring", () => {
     const timeOrder = ["z1", "y2", "x3", "w4", "v5", "u6"];
     const mkL1 = (start: string) => ({
       turnStartEntryId: start, turnEndEntryId: start + "-a", level: 1,
-      summary: { groups: [] },
+      summary: { entries: [] },
       userMessage: { text: "字".repeat(600), entryId: start },
       finalReply: { text: "复".repeat(600), entryId: start + "-a" },
     });
@@ -144,7 +144,12 @@ describe("extension entry wiring", () => {
       modelRegistry: {
         find: () => ({ provider: "FakeBig", model: "big" }),
         complete: async () => ({ content: [{ type: "text", text: JSON.stringify({
-          userIntent: "降级排序测试", outcome: "ok", groups: [],
+          entries: [
+            { target: "z1", detail: "d1", phase: "other" },
+            { target: "y2", detail: "d2", phase: "other" },
+            { target: "x3", detail: "d3", phase: "other" },
+            { target: "w4", detail: "d4", phase: "other" },
+          ],
         }) }] }),
       },
     };
@@ -314,11 +319,7 @@ describe("extension entry wiring", () => {
       turnStartEntryId: "u1", level: 1,   // 与 branch 首条 user 消息同 ID（真实会话口径）
       userMessage: { text: "forceRatio 是什么？为什么默认 0.76", entryId: "t1-u" },
       finalReply: { text: "forceRatio 是触发强制点的比例", entryId: "t1-f" },
-      summary: { userIntent: "了解强制点", groups: [
-        { phase: "investigate", entries: [
-          { action: "read", target: "src/config.ts", detail: "校验 forceRatio 范围", recallIds: ["t1-a"] },
-        ] },
-      ] },
+      summary: { userIntent: "了解强制点", entries: [] },
     });
     const branch = [
       { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
@@ -405,7 +406,7 @@ describe("extension entry wiring", () => {
           }),
         );
         const { handlers } = harness();
-        const ledger = mkLedger({ turnStartEntryId: "u1", level: 1, summary: { groups: [] } });
+        const ledger = mkLedger({ turnStartEntryId: "u1", level: 1, summary: { entries: [] } });
         const branch = [
           { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "问".repeat(1200) }] } },
           { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
@@ -615,7 +616,7 @@ describe("extension entry wiring", () => {
           find: (provider: string, model: string) => ({ provider, model }),
           complete: async () => ({ content: [{ type: "text", text: JSON.stringify({
             userIntent: "验证备用接线", outcome: "备用后端成功产出 ledger",
-            groups: [],
+            entries: [],
           }) }] }),
         },
       };

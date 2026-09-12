@@ -8,9 +8,9 @@ function textOf(msg: any): string {
 const full: LedgerData = {
   turnStartEntryId: "e001", turnEndEntryId: "e018", level: 1,
   userMessage: { text: "帮我了解 ledger 的结构", entryId: "e001" },
-  summary: { groups: [{ phase: "investigate", entries: [
-    { action: "bash", target: "cat src/ledger.ts", detail: "阅读核心数据结构", recallIds: ["e003"] },
-  ] }] },
+  summary: { entries: [
+    { action: "bash", target: "cat src/ledger.ts", detail: "阅读核心数据结构", recallIds: ["e003"], phase: "investigate" },
+  ] },
   finalReply: { text: "我已经看完当前代码……", entryId: "e018" },
 };
 
@@ -20,19 +20,9 @@ const sample: LedgerData = {
   summary: {
     userIntent: "修复内存泄漏",
     outcome: "hooks.ts:34 清理函数缺失，已修复",
-    groups: [
-      {
-        phase: "investigate",
-        entries: [
-          { action: "read", target: "src/hooks.ts", detail: "发现 useEffect 清理函数缺失", recallIds: ["e003", "e005"] },
-        ],
-      },
-      {
-        phase: "verify",
-        entries: [
-          { action: "bash", target: "npm test", detail: "3 passed", recallIds: ["e012"] },
-        ],
-      },
+    entries: [
+      { action: "read", target: "src/hooks.ts", detail: "发现 useEffect 清理函数缺失", recallIds: ["e003", "e005"], phase: "investigate" },
+      { action: "bash", target: "npm test", detail: "3 passed", recallIds: ["e012"], phase: "verify" },
     ],
   },
 };
@@ -67,7 +57,7 @@ describe("renderActionLedger 双格式", () => {
   const modern: LedgerData = {
     turnStartEntryId: "e001",
     turnEndEntryId: "e018",
-    summary: { groups: [] },
+    summary: { entries: [] },
     userMessage: { text: "这次对话怎么没有启动摘要？", entryId: "e001" },
     finalReply: { text: "插件正常，成功路径完全静默。", entryId: "e018" },
   };
@@ -141,8 +131,9 @@ describe("renderActionLedger levels", () => {
     const mk = (id: string, rid: string[]): LedgerData => ({ ...full, level: 4, turnStartEntryId: id,
       userMessage: undefined, finalReply: undefined,
       merged: { description: "调查代码结构与配置逻辑（2 条已合并）" },
-      summary: { groups: [{ phase: "investigate", entries: [
-        { action: "bash", target: "x", detail: "d", recallIds: rid }] }] } });
+      summary: { entries: [
+        { action: "bash", target: "x", detail: "d", recallIds: rid, phase: "investigate" },
+      ] } });
     const text = textOf(renderActionLedger([mk("a", ["e1"]), mk("b", ["e2"])]));
     expect(text).toContain("T1-T2 · 调查代码结构与配置逻辑（2 条已合并）↩e1,↩e2");
     expect(text).not.toContain("用户：「");
@@ -164,8 +155,9 @@ describe("renderActionLedger levels", () => {
     const mk = (id: string, rid: string[]): LedgerData => ({ ...full, level: 4, turnStartEntryId: id,
       userMessage: undefined, finalReply: undefined,
       merged: { description: "调查（2 条已合并）" },
-      summary: { groups: [{ phase: "investigate", entries: [
-        { action: "bash", target: "x", detail: "d", recallIds: rid }] }] } });
+      summary: { entries: [
+        { action: "bash", target: "x", detail: "d", recallIds: rid, phase: "investigate" },
+      ] } });
     const text = textOf(renderActionLedger([mk("a", ["e1", "e9"]), mk("b", ["e9", "e2"])]));
     expect(text).toContain("↩e1,↩e9,↩e2");
   });
@@ -173,7 +165,7 @@ describe("renderActionLedger levels", () => {
   it("L4 union appends quote entryIds when quotes are still present", () => {
     // L4 条目若仍带两端引用（如刚合并后），其 entryId 也要进并集供 recall
     const text = textOf(renderActionLedger([{ ...full, level: 4, merged: { description: "调查" },
-      summary: { groups: [] } }]));
+      summary: { entries: [] } }]));
     expect(text).toContain("↩e001,↩e018");
   });
 

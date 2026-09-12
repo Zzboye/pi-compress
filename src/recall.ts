@@ -96,10 +96,19 @@ function makeSnippet(text: string, query: string): string {
   return s;
 }
 
+/** 旧 groups schema 兼容（recall 可能处理未经渲染层 normalize 的持久化数据） */
+function legacyGroups(l: LedgerData): import("./ledger.js").LedgerAction[] {
+  const out: import("./ledger.js").LedgerAction[] = [];
+  for (const g of (l.summary as any).groups ?? []) {
+    for (const e of g.entries ?? []) out.push({ ...e, phase: g.phase ?? "other" });
+  }
+  return out;
+}
+
 /** 与 ledger.ts 的 allRecallIds 同口径（不导出，此处本地实现）：动作 recallIds 在前，附两端 entryId */
 function allRecallIdsOf(l: LedgerData, includeAllQuotes: boolean): string[] {
   const ids: string[] = [];
-  for (const g of l.summary.groups) for (const e of g.entries) ids.push(...e.recallIds);
+  for (const e of l.summary.entries ?? legacyGroups(l)) ids.push(...e.recallIds);
   if (includeAllQuotes && l.userMessage) ids.push(l.userMessage.entryId);
   if (includeAllQuotes && l.finalReply) ids.push(l.finalReply.entryId);
   return [...new Set(ids)];
@@ -140,8 +149,8 @@ export function searchLedger(query: string, ledgers: LedgerData[], maxHits: numb
     const label = `T${i + 1}`;
     if (l.userMessage) push(label, lvl, "用户消息", l.userMessage.text, [l.userMessage.entryId]);
     if (l.finalReply) push(label, lvl, "最终回复", l.finalReply.text, [l.finalReply.entryId]);
-    for (const g of l.summary.groups) {
-      for (const e of g.entries) push(label, lvl, "动作", `${e.target} → ${e.detail}`, e.recallIds);
+    for (const e of l.summary.entries ?? legacyGroups(l)) {
+      push(label, lvl, "动作", `${e.target} → ${e.detail}`, e.recallIds);
     }
   }
   return { hits: hits.slice(0, Math.max(0, maxHits)), truncated: hits.length > maxHits };

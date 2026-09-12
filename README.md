@@ -82,7 +82,8 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
     "forceRatio": 0.76,
     "retry": { "maxAttempts": 3, "backoffMs": 2000 },
     "ledgerDegradeThresholdTokens": 40000,
-    "ledgerReserveTokens": 10000
+    "ledgerReserveTokens": 10000,
+    "targetMaxChars": 230
   }
 }
 ```
@@ -105,7 +106,8 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 | `retry.maxAttempts` | `3` | 1–100 | 单 turn 摘要失败重试次数 |
 | `retry.backoffMs` | `2000` | 100–600000 | 指数退避基数（第 n 次等待 `backoffMs * 2^(n-1)`） |
 | `ledgerDegradeThresholdTokens` | `40000` | 5000–2000000 | 动作日志 L1 区渲染体积阈值（tokens）：超过时最旧 turns 降级为 L2（保留尾部约 `ledgerReserveTokens`），逐级瀑布 L1→L2→L3→L4 |
-| `ledgerReserveTokens` | `10000` | 1000–500000 | 每层降级时尾部的保留区大小（tokens），按 turn 边界取整 |
+| `ledgerReserveTokens` | `10000` | 1000–500000 | 每层降级时尾部的保留区大小（tokens），按 turn 边界取整（硬下界：降级后该层剩余不得低于此值，单条巨条也不得击穿） |
+| `targetMaxChars` | `230` | 40–10000 | L1 动作行 target（命令/路径）的机械截断阈值：含换行（heredoc 内联脚本）或超长的命令只保留首行/首段并加 `…`，全文可按行尾 ↩ID 召回。截断发生在机械提取阶段（摘要模型看到的就是截断值），正常短命令逐字保留 |
 | `backfillLimit` | `20` | 0–100000 | `session_start` 时补摘未摘要 turn 的上限（最旧优先），0 = 关闭。会话恢复/崩溃重启后自动补齐历史缺口 |
 | `projectNotes.enabled` | `false` | bool | 项目记忆开关。开启后每轮装配把三表条目注入上下文头部（ledger 头之前）；**只关注入不关收集**——`false` 时 notes 工具与 `/compress-remember` 仍可写入，只是不注入 |
 | `projectNotes.path` | `.pi-compress/notes.json` | 路径 | notes 文件路径（相对项目 cwd 解析，绝对路径亦可），保存时同目录生成人读视图 `notes.md` |
@@ -260,7 +262,7 @@ src/
 ├── dump.ts         /compress-dump 转储：Markdown+JSON 渲染与写盘（复用 assembleContext）
 ├── config.ts       配置解析（全局 + 项目级合并，字段校验与默认值）
 ├── summarizer.ts   摘要后端调用（registry / OpenAI 兼容直连）、重试、备用切换、thinking 剥离
-├── prompts.ts      摘要 prompt 与 JSON schema（groups-only：意图/结果由系统机械保存）
+├── prompts.ts      摘要 prompt 与 JSON schema（扁平 entries：模型只标注 phase，顺序由系统按机械清单时间序归位；意图/结果由系统机械保存）
 ├── ledger.ts       动作日志渲染（用户原话/最终回复逐字引用 + 工具动作摘要）
 ├── assembler.ts    上下文重组：近期窗口 + 动作日志头
 ├── forcepoint.ts   强制点：等待摘要队列清空，超时降级

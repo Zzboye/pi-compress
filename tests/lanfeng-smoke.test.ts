@@ -49,13 +49,13 @@ describe.skipIf(!SMOKE)("lanfeng real-model smoke", () => {
     expect(raw.length).toBeGreaterThan(10);
 
     const summary = parseLedgerOutput(raw, actions, serializeTurn(splitIntoTurns(turn)[0]), true);
-    // groups-only 语义：模型输出的 userIntent/outcome 被忽略，逐字内容由系统机械保存
+    // entries-only 语义：模型输出的 userIntent/outcome 被忽略，逐字内容由系统机械保存
     expect(summary.userIntent).toBeUndefined();
     expect(summary.outcome).toBeUndefined();
-    expect(summary.groups.length).toBeGreaterThan(0);
+    expect(summary.entries.length).toBeGreaterThan(0);
 
     // 找到 read 动作条目（verbatimCheck 通过 → 未被剔除）
-    const readEntry = summary.groups.flatMap((g) => g.entries).find((e) => e.action === "read");
+    const readEntry = summary.entries.find((e) => e.action === "read");
     expect(readEntry).toBeTruthy();
     expect(readEntry!.target).toBe("src/hooks.ts");       // 逐字字段来自机械清单
     expect(readEntry!.recallIds).toEqual(["a1"]);          // recallIds 指向 assistant 消息

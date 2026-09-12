@@ -49,37 +49,42 @@ describe("parseLedgerOutput", () => {
     const raw = JSON.stringify({
       userIntent: "修复内存泄漏",
       outcome: "已修复",
-      groups: [{ phase: "investigate", entries: [{ target: "src/hooks.ts", detail: "清理函数缺失" }, { target: "npm test", detail: "通过", phase: "verify" }] }],
+      entries: [
+        { target: "src/hooks.ts", detail: "清理函数缺失", phase: "investigate" },
+        { target: "npm test", detail: "通过", phase: "verify" },
+      ],
     });
     const s = parseLedgerOutput(raw, actions, turnText, true);
     expect(s.userIntent).toBeUndefined();          // 模型输出的 userIntent 被忽略
     expect(s.outcome).toBeUndefined();             // 模型输出的 outcome 被忽略
-    const read = s.groups[0].entries.find((e) => e.action === "read")!;
+    const read = s.entries.find((e) => e.action === "read")!;
     expect(read.recallIds).toEqual(["e003"]);       // recallIds 来自机械清单
     expect(read.target).toBe("src/hooks.ts");        // target 来自机械清单
     expect(read.detail).toBe("清理函数缺失");        // detail 来自模型
+    expect(read.phase).toBe("investigate");
   });
 
-  it("accepts groups-only output（新 schema 无 userIntent/outcome）", () => {
+  it("entries-only output：缺失的 phase 落为 other，机械时间序", () => {
     const raw = JSON.stringify({
-      groups: [{ phase: "investigate", entries: [{ target: "src/hooks.ts", detail: "清理函数缺失" }] }],
+      entries: [{ target: "src/hooks.ts", detail: "清理函数缺失" }],
     });
     const s = parseLedgerOutput(raw, actions, turnText, true);
-    expect(s.groups[0].entries[0].detail).toBe("清理函数缺失");
+    expect(s.entries[0].detail).toBe("清理函数缺失");
+    expect(s.entries[0].phase).toBe("other");
   });
 
-  it("throws LedgerParseError when groups missing", () => {
+  it("throws LedgerParseError when entries missing", () => {
     expect(() => parseLedgerOutput(JSON.stringify({ userIntent: "u", outcome: "o" }), actions, turnText, true)).toThrow();
   });
 
   it("drops entries whose model detail contains a target-like path not in source (verbatim guard)", () => {
     const raw = JSON.stringify({
       userIntent: "u", outcome: "o",
-      groups: [{ phase: "other", entries: [{ target: "src/hooks.ts", detail: "见 src/other.ts" }] }],
+      entries: [{ target: "src/hooks.ts", detail: "见 src/other.ts", phase: "other" }],
     });
     // src/other.ts 不在 turnText 中 → 该条目被剔除
     const s = parseLedgerOutput(raw, actions, turnText, true);
-    expect(s.groups[0].entries.length).toBe(0);
+    expect(s.entries.length).toBe(0);
   });
 
   it("throws LedgerParseError on invalid JSON", () => {
