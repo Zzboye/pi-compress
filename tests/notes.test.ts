@@ -22,7 +22,7 @@ describe("NoteStore", () => {
   it("append 分配单调 ID：fb-001、fb-002；save 后文件存在且 load 可还原", () => {
     const s = mkStore();
     s.load();
-    const a = s.append("feedback", { text: "用 git apply --cached 暂存", detail: "详", status: "有效", date: "2026-09-10" });
+    const a = s.append("feedback", { text: "用 git apply --cached 暂存", detail: "详", status: "有效" });
     const b = s.append("feedback", { text: "第二条", detail: "详2", status: "纠正" });
     expect(a.id).toBe("fb-001");
     expect(b.id).toBe("fb-002");
@@ -50,6 +50,17 @@ describe("NoteStore", () => {
     s.append("feedback", { text: "b", detail: "d", status: "有效" });
     s.remove("fb-002");
     expect(s.append("feedback", { text: "c", detail: "d", status: "有效" }).id).toBe("fb-003");
+  });
+
+  it("跨会话不复用：删除后保存重启，新条目不复用序号", () => {
+    const s = mkStore(); s.load();
+    s.append("feedback", { text: "a", detail: "d", status: "有效" });
+    s.append("feedback", { text: "b", detail: "d", status: "有效" });
+    s.remove("fb-002");
+    s.save();
+    const s2 = new NoteStore((s as any).filePath);
+    s2.load();
+    expect(s2.append("feedback", { text: "c", detail: "d", status: "有效" }).id).toBe("fb-003");
   });
 
   it("update 修改字段并刷新 updatedAt；未找到/locked 抛中文错误", () => {

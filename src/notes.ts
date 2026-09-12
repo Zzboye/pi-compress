@@ -13,7 +13,15 @@ export interface NoteEntry {
   locked?: boolean;
 }
 
-export interface NotesFile { schema: 1; nextId: number; prefs: NoteEntry[]; feedback: NoteEntry[]; tasks: NoteEntry[]; }
+export interface NotesFile
+{
+  schema: 1;
+  /** 兼容 schema 保留的全局单调计数，不参与 ID 分配 */
+  nextId: number;
+  prefs: NoteEntry[]; feedback: NoteEntry[]; tasks: NoteEntry[];
+  /** 容错可选：每表已分配的最大序号，持久化以防删除后跨会话复用 */
+  seq?: { prefs: number; feedback: number; tasks: number };
+}
 
 const PREFIX: Record<NoteEntry["table"], string> = { prefs: "pref", feedback: "fb", tasks: "task" };
 const TABLE_KEY: NoteEntry["table"][] = ["prefs", "feedback", "tasks"];
@@ -35,7 +43,12 @@ export class NoteStore {
       this.data = raw as NotesFile;
       // 容错：条目缺 table 字段时按所在数组回填
       for (const k of TABLE_KEY) for (const e of this.data[k]) e.table = k;
-      this.reseedSeq();
+      const sq = (this.data as NotesFile).seq;
+      if (sq && TABLE_KEY.every((k) => typeof sq[k] === "number" && sq[k] >= 0)) {
+        this.seq = { prefs: sq.prefs, feedback: sq.feedback, tasks: sq.tasks };
+      } else {
+        this.reseedSeq(); // 旧文件缺失 seq 字段时回退到现存条目回填
+      }
     } else {
       this.data = { schema: 1, nextId: 1, prefs: [], feedback: [], tasks: [] };
       this.seq = { prefs: 0, feedback: 0, tasks: 0 };
@@ -53,7 +66,8 @@ export class NoteStore {
 
   save(): void {
     fs.mkdirSync(dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2) + "\n");
+    const out: NotesFile = { ...this.data, seq: { ...this.seq } };
+    fs.writeFileSync(this.filePath, JSON.stringify(out, null, 2) + "\n");
     fs.writeFileSync(join(dirname(this.filePath), "notes.md"), renderNotesView(this.data));
   }
 
