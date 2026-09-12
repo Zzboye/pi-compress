@@ -1,5 +1,9 @@
-import { describe, it, expect } from "vitest";
-import { executeRecall, searchLedger } from "../src/recall.js";
+import { describe, it, expect, afterEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import { join } from "node:path";
+import { executeRecall, executeRecallDual, searchLedger } from "../src/recall.js";
+import { NoteStore } from "../src/notes.js";
 import type { MessageEntry } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
 import type { LedgerData } from "../src/ledger.js";
@@ -111,6 +115,82 @@ describe("executeRecall", () => {
     ];
     const r = executeRecall(["t1"], b, 100); // 阈值 400 chars
     expect(r.text).toContain("截断");
+  });
+});
+
+// ---------- executeRecallDual（notes 双源）----------
+
+const dualDirs: string[] = [];
+function mkDualStore(): NoteStore {
+  const dir = fs.mkdtempSync(join(os.tmpdir(), "recall-dual-test-"));
+  dualDirs.push(dir);
+  const s = new NoteStore(join(dir, "notes.json"));
+  s.load();
+  return s;
+}
+afterEach(() => { for (const d of dualDirs) fs.rmSync(d, { recursive: true, force: true }); dualDirs.length = 0; });
+
+function userEntry(id: string, text: string): MessageEntry {
+  return { id, message: { role: "user", content: [{ type: "text", text }] } } as unknown as MessageEntry;
+}
+
+describe("executeRecallDual", () => {
+  it("notes ID 命中：返回 detail 而非 branch 原文", () => {
+    const store = mkDualStore();
+    store.append("feedback", { text: "摘要行", detail: "方法详情全文", status: "有效" });
+    const r = executeRecallDual(["fb-001"], [], store, 4000);
+    expect(r.text).toContain("记忆详情");
+    expect(r.text).toContain("方法详情全文");
+    expect(r.missing).toEqual([]);
+  });
+
+  it("带 ↩ 前缀与带 entry 前缀混传：各走各的源", () => {
+    const store = mkDualStore();
+    store.append("tasks", { text: "T", detail: "任务详情", status: "进行中" });
+    const b = [userEntry("u1", "你好")];
+    const r = executeRecallDual(["↩task-001", "u1"], b, store, 4000);
+    expect(r.text).toContain("任务详情");
+    expect(r.text).toContain("u1");            // entry 原文路径照常
+    expect(r.missing).toEqual([]);
+  });
+
+  it("notes ID 条目不存在：missing 计入 + 专用文案", () => {
+    const store = mkDualStore();
+    const r = executeRecallDual(["fb-042"], [], store, 4000);
+    expect(r.missing).toEqual(["fb-042"]);
+    expect(r.text).toContain("不存在或已删除");
+  });
+
+  it("store 为 null（未启用）：entry ID 行为与现有 executeRecall 完全一致", () => {
+    const r = executeRecallDual(["e1"], branch, null, 4000);
+    const r2 = executeRecall(["e1"], branch, 4000);
+    expect(r.text).toBe(r2.text);
+    expect(r.missing).toEqual(r2.missing);
+  });
+
+  it("notes ID 命中但 detail 为空：输出无详情提示", () => {
+    const store = mkDualStore();
+    store.append("prefs", { text: "P" });
+    const r = executeRecallDual(["pref-001"], [], store, 4000);
+    expect(r.missing).toEqual([]);
+    expect(r.text).toContain("（该条目无详情）");
+  });
+
+  it("notesHits 计数：命中 notes 源的条目数（不存在的 notes ID 计入 missing 而非 notesHits）", () => {
+    const store = mkDualStore();
+    store.append("feedback", { text: "A", detail: "da" });
+    store.append("feedback", { text: "B", detail: "db" });
+    const r = executeRecallDual(["fb-001", "fb-002", "u1", "fb-009"], [userEntry("u1", "hi")], store, 4000);
+    expect(r.notesHits).toBe(2);
+    expect(r.missing).toContain("fb-009");
+  });
+
+  it("executeRecall 恒返回 notesHits=0（单源无 notes 概念）", () => {
+    expect(executeRecall(["e1"], branch, 4000).notesHits).toBe(0);
+  });
+
+  it("store 为 null 时 notesHits=0", () => {
+    expect(executeRecallDual(["e1"], branch, null, 4000).notesHits).toBe(0);
   });
 });
 

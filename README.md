@@ -28,6 +28,7 @@
                   │ 下次 context 事件
                   ▼
    ┌─────────────── 窗外旧 turn → 动作日志头（用户原话 + 工具动作 + 最终回复原文，细节 ↩ID 可召回）
+   │                 项目记忆（enabled）→ 三表条目注入头部（↩ID 可召回详情）
    │                 窗内近 turn → 原文保留（默认 20k tokens）
    │                  │ 上下文 ≥ 76%（forceRatio）
    │                  ▼
@@ -106,6 +107,9 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 | `ledgerDegradeThresholdTokens` | `40000` | 5000–2000000 | 动作日志 L1 区渲染体积阈值（tokens）：超过时最旧 turns 降级为 L2（保留尾部约 `ledgerReserveTokens`），逐级瀑布 L1→L2→L3→L4 |
 | `ledgerReserveTokens` | `10000` | 1000–500000 | 每层降级时尾部的保留区大小（tokens），按 turn 边界取整 |
 | `backfillLimit` | `20` | 0–100000 | `session_start` 时补摘未摘要 turn 的上限（最旧优先），0 = 关闭。会话恢复/崩溃重启后自动补齐历史缺口 |
+| `projectNotes.enabled` | `false` | bool | 项目记忆开关。开启后每轮装配把三表条目注入上下文头部（ledger 头之前）；**只关注入不关收集**——`false` 时 notes 工具与 `/compress-remember` 仍可写入，只是不注入 |
+| `projectNotes.path` | `.pi-compress/notes.json` | 路径 | notes 文件路径（相对项目 cwd 解析，绝对路径亦可），保存时同目录生成人读视图 `notes.md` |
+| `projectNotes.maxTokens` | `0` | 0–1000000 | 注入块 token 预算，`0` = 不限制。**只限制注入块（notes 文件永不截断）**；预算不含块头，实际峰值约 `maxTokens`+45 tok。超预算时按 偏好 → 进行中任务 → 最近经验 → 其余 优先级截断，被截条目可按 ↩ID 召回 |
 
 ### 动作日志四级分层（L1–L4）
 
@@ -153,7 +157,8 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 失败未摘：0
 降级状态：正常
 最近装配：窗口 3 turns / 替换 2 / 原文放行 0
-召回：调用 4 次 / 取回 6 条 / 未中 0 个 ID / 搜索 1 次
+召回：调用 4 次 / 取回 6 条 / 未中 0 个 ID / 搜索 1 次 / 记忆召回 2 条
+项目记忆：启用 · 5 条（偏好 1 / 经验 2 / 任务 2）· 召回 2 条
 计量校准：估算 ~15340 tok · 真实 18920 tok（差值含 system prompt/工具定义/模板开销）
 摘要后端：{"kind":"registry","provider":"ollama","model":"qwen3:8b"}
 备用后端：{"kind":"registry","provider":"HSFZ","model":"glm-5.3-flash"}（主后端溢出/重试耗尽时接管）
@@ -162,7 +167,8 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **已摘要 turn 数** / **队列积压** / **失败未摘**：摘要进度与健康度。
 - **降级状态**：`正常` 或 `已降级（pi 原生压缩接管中）`——后者表示强制点等待超时，本轮上下文不重组，交 pi 原生 auto-compaction 兜底；队列恢复后自动回到正常。
 - **最近装配**：上一次 context 事件重组的统计（窗口/替换/原文放行 turn 数）。
-- **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为逐字取回的工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退），`搜索` 为 query 关键词检索次数。全 0 表示 LLM 在窗口内就能拿到所需细节（健康信号）；持续高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
+- **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为逐字取回的工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退），`搜索` 为 query 关键词检索次数，`记忆召回` 为其中命中项目记忆条目的次数。全 0 表示 LLM 在窗口内就能拿到所需细节（健康信号）；持续高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
+- **项目记忆**：三表条目数与本会话记忆召回次数；`未启用` 表示未配置 `projectNotes` 或 `enabled: false`（此时 notes 工具仍可收集，但注入不生效，见下节）。
 
 ### recall 工具的两种用法
 
@@ -181,6 +187,54 @@ recall({ query: "forceRatio" })             → 命中索引（不返回原文�
 `query` 与 `ids` 可同传（先搜索再取回，两段结果拼接）。搜索在 LedgerData 全量字段（用户原话/最终回复逐字全文、动作 target+detail、L4 合并描述）上做大小写不敏感子串匹配，零模型调用。
 - **计量校准**：最近一次装配的「估算（CJK 感知）vs 真实 usage」并排对比。差值 = system prompt + 工具定义 + 模板开销 + 估算误差；长期稳定偏差即可推出校准系数，供后续自动校准参考。
 - **摘要后端** / **备用后端**：当前生效的后端配置；未配置时显示 `未配置`。
+
+## 项目记忆
+
+跨会话沉淀的用户偏好 / 经验 / 任务决策，存于 `projectNotes.path` 指向的 notes.json（三表：`prefs` / `feedback` / `tasks`）。启用 `projectNotes.enabled` 后，每次装配把条目注入上下文头部（ledger 头之前）：
+
+```
+【项目记忆】（跨会话沉淀；详情可按 ↩ID 召回，有新经验或任务状态变化时用 notes 工具更新）
+◈ 用户偏好：
+- commit message 用中文 ↩pref-001
+◈ 经验表：
+- 摘要行 [有效] ↩fb-001
+◈ 任务决策表：
+- 任务决策 [进行中·2026-09-10] ↩task-001
+```
+
+- **用户偏好表（prefs）**：优先全量注入——偏好通常只有几条，逐条原文进入上下文（超预算时同样可被截断，仅优先级第一）；由 `/compress-remember` 或 notes 工具写入，用户写入的条目（locked）LLM 不可修改删除。
+- **经验表（feedback）与任务决策表（tasks）**：注入摘要行——一句话 `text` + 状态/日期 + `↩ID`；`detail` 详情全文不进注入块，LLM 需要时按 ID 召回。
+
+### notes 工具（LLM 主动维护）
+
+LLM 通过 `notes` 工具维护三表，三种操作：
+
+```
+notes({ action: "append", table: "feedback", text: "一句话摘要", detail: "详情全文" })
+notes({ action: "update", id: "fb-001", status: "已完成" })    -- 如任务状态翻转：进行中→已完成
+notes({ action: "delete", id: "fb-001" })
+```
+
+- **写入门槛**（工具描述已约束）：仅当出现被用户明确纠正的做法、新任务或任务状态变化、新的稳定偏好时调用；与现有条目语义重复时用 update 合并而非 append；不记录可从代码库推导的内容（架构、文件路径）。
+- **边界**：`/compress-remember` 写入的条目 `locked=true`，工具 update/delete 均被拒绝；写入经专用队列串行落盘，避免并发写坏 notes.json。
+
+### `/compress-remember` 命令
+
+```
+/compress-remember <内容>          把一条用户偏好写入 prefs（locked=true，跨会话注入且 LLM 不可改删）
+/compress-remember <内容> global   全局记忆预留语法，当前提示「未实现」
+```
+
+### recall 双源
+
+recall 按 ID 取回时对项目记忆同样生效：注入块里 ↩ 标记的记忆条目 ID 返回 `detail` 详情全文（条目无 `detail` 时返回（该条目无详情）），动作日志 entry ID 照旧返回原文，两种 ID 可混传批量：
+
+```
+recall({ ids: ["fb-001"] })   → 记忆详情（detail 全文）
+recall({ ids: ["t12-u"] })    → 动作日志逐字原文
+```
+
+记忆召回次数计入 `/compress-status` 召回行的「记忆召回」统计。
 
 ## `/compress-dump` 命令
 
@@ -212,6 +266,7 @@ src/
 ├── forcepoint.ts   强制点：等待摘要队列清空，超时降级
 ├── backfill.ts     session_start 补摘历史缺口
 ├── recall.ts       recall 工具实现：按 ID 取回逐字原文（含配对 toolResult）+ searchLedger 关键词检索
+├── notes.ts        项目记忆三表存储（notes.json 读写、注入块渲染、notes.md 视图）
 ├── store.ts        状态持久化
 └── util.ts         消息提取、thinking 剥离、路径抽取等
 ```

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import piExtension from "../src/index.js";
 import { LEDGER_CUSTOM_TYPE, type LedgerData } from "../src/ledger.js";
+import { NoteStore } from "../src/notes.js";
 
 function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
   return {
@@ -126,6 +127,75 @@ describe("extension entry wiring", () => {
     expect(out).toContain("未中 1 个");  // gone 未命中
   });
 
+  it("compress-status 显示项目记忆行（启用含三表计数与召回数；未启用含未启用）", async () => {
+    // ① enabled：三表各预置一条，recall 命中一条记忆 → 状态行含计数与「/ 记忆召回」
+    const { tools, commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-status-notes-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const seed = new NoteStore(path.join(dir, "notes.json"));
+    seed.load();
+    seed.append("prefs", { text: "commit message 用中文" });
+    seed.append("feedback", { text: "摘要行", detail: "详情全文" });
+    seed.append("tasks", { text: "任务决策", status: "进行中" });
+    seed.save();
+    const notifyCalls: string[] = [];
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      await tools.recall.execute("tc1", { ids: ["fb-001"] }, undefined, undefined, fakeCtx);
+      await commands["compress-status"].handler("", fakeCtx);
+      const out = notifyCalls.join("\n");
+      expect(out).toContain("项目记忆：启用 · 3 条（偏好 1 / 经验 1 / 任务 1）· 召回 1 条");
+      // 召回行末尾追加记忆召回统计（既有文案不动）
+      expect(out).toContain("/ 记忆召回 1 条");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    // ② 未配置（session_start 未触发 → notesStore=null）
+    const h2 = harness();
+    const notify2: string[] = [];
+    await h2.commands["compress-status"].handler("", { ui: { notify: (m: string) => notify2.push(m), setStatus: () => {} } });
+    expect(notify2.join("\n")).toContain("项目记忆：未启用");
+  });
+
+  it("compress-status：enabled=false 时即使 notesStore 已构造且有条目，项目记忆行仍显示未启用", async () => {
+    const { commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-status-off-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: false, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const seed = new NoteStore(path.join(dir, "notes.json"));
+    seed.load();
+    seed.append("prefs", { text: "commit message 用中文" });
+    seed.save();
+    const notifyCalls: string[] = [];
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx); // notesStore 已构造并 load（enabled 只关注入不关收集）
+      await commands["compress-status"].handler("", fakeCtx);
+      const out = notifyCalls.join("\n");
+      expect(out).toContain("项目记忆：未启用");
+      expect(out).not.toContain("项目记忆：启用");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("context 事件记录估算与真实 usage，compress-status 并排显示（校准观察）", async () => {
     const { handlers, commands } = harness();
     const notifyCalls: string[] = [];
@@ -241,6 +311,200 @@ describe("extension entry wiring", () => {
     await handlers.session_start({}, fakeCtx);
     const out = await tools.recall.execute("tc1", { query: "绝不存在的词zzz" }, undefined, undefined, fakeCtx);
     expect(out.content[0].text).toContain("无命中");
+  });
+
+  it("notes 注入：enabled 时项目记忆块插在 ledger 头之前；disabled 时不注入", async () => {
+    const mkCase = async (enabled: boolean) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-notes-"));
+      try {
+        // 用 NoteStore 生成真实 notes.json（含偏好+进行中任务）
+        const store = new NoteStore(path.join(dir, "notes.json"));
+        store.load();
+        store.append("prefs", { text: "commit message 用中文", locked: true });
+        store.append("tasks", { text: "写注入集成测试", detail: "d", status: "进行中" });
+        store.save();
+        fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, ".pi", "settings.json"),
+          JSON.stringify({
+            contextCompress: {
+              projectNotes: { enabled, path: "notes.json", maxTokens: 0 }, // 相对 cwd 解析
+              keepRecentTokens: 1000, // 最小值；第一 turn 塞到 600 汉字（>1000 tok）使其落在窗外、由 ledger 头替代
+            },
+          }),
+        );
+        const { handlers } = harness();
+        const ledger = mkLedger({ turnStartEntryId: "u1", level: 1, summary: { groups: [] } });
+        const branch = [
+          { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "问".repeat(1200) }] } },
+          { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+          { id: "c1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: ledger },
+          { id: "u2", type: "message", message: { role: "user", content: [{ type: "text", text: "第二问" }] } },
+          { id: "a2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第二答" }] } },
+        ];
+        const fakeCtx: any = {
+          cwd: dir,
+          ui: { notify: () => {}, setStatus: () => {} },
+          sessionManager: { getBranch: () => branch },
+          getContextUsage: () => ({ tokens: 100, contextWindow: 200_000 }),
+        };
+        await handlers.session_start({}, fakeCtx); // notesStore 按 config.projectNotes.path（相对 cwd）构造并 load
+        const res = await handlers.context({}, fakeCtx);
+        return res?.messages ?? [];
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    // enabled：messages[0] 为项目记忆块，ledger 头在其后
+    const messages = await mkCase(true);
+    expect(messages.length).toBeGreaterThan(1);
+    const notesText = JSON.stringify(messages[0]);
+    expect(notesText).toContain("项目记忆");
+    expect(notesText).toContain("commit message 用中文");
+    expect(notesText).toContain("↩pref-001");
+    const ledgerIdx = messages.findIndex((m: any) => JSON.stringify(m).includes("<action-ledger>"));
+    expect(ledgerIdx).toBeGreaterThan(0); // notes 块插在 ledger 头之前
+
+    // disabled：不注入
+    const messagesOff = await mkCase(false);
+    expect(messagesOff.some((m: any) => JSON.stringify(m).includes("项目记忆"))).toBe(false);
+  });
+
+  it("notes 工具 append→update→delete 全链路；locked 条目拒绝改删，工具写的 prefs 不锁定", async () => {
+    const { tools, commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-notes-tool-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const notesPath = path.join(dir, "notes.json");
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      const r1 = await tools.notes.execute("tc", { action: "append", table: "feedback", text: "T", detail: "D", status: "有效" }, undefined, undefined, fakeCtx);
+      expect(r1.content[0].text).toContain("fb-001");
+      const r2 = await tools.notes.execute("tc", { action: "update", id: "fb-001", status: "纠正" }, undefined, undefined, fakeCtx);
+      expect(r2.content[0].text).toContain("纠正");
+      const r3 = await tools.notes.execute("tc", { action: "append", table: "prefs", text: "P" }, undefined, undefined, fakeCtx);
+      expect(r3.content[0].text).toContain("pref-001");
+      // 工具写 prefs 的条目 locked=false（只有 /compress-remember 命令写的才 locked=true）
+      let j = JSON.parse(fs.readFileSync(notesPath, "utf8"));
+      expect(j.prefs[0].locked).toBeFalsy();
+      // /compress-remember 写入的条目 locked=true，工具改/删被拒（含「用户记录」）
+      await commands["compress-remember"].handler("用户偏好甲", fakeCtx);
+      j = JSON.parse(fs.readFileSync(notesPath, "utf8"));
+      expect(j.prefs[1].locked).toBe(true);
+      const ru = await tools.notes.execute("tc", { action: "update", id: "pref-002", status: "x" }, undefined, undefined, fakeCtx);
+      expect(ru.content[0].text).toContain("用户记录");
+      const r4 = await tools.notes.execute("tc", { action: "delete", id: "pref-002" }, undefined, undefined, fakeCtx);
+      expect(r4.content[0].text).toContain("用户记录");
+      const r5 = await tools.notes.execute("tc", { action: "delete", id: "fb-001" }, undefined, undefined, fakeCtx);
+      expect(r5.content[0].text).toContain("已删除");
+      // notes.json 落盘校验
+      expect(JSON.parse(fs.readFileSync(notesPath, "utf8")).feedback).toHaveLength(0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("notes 工具校验失败返回错误文本（不抛异常）", async () => {
+    const { tools, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-notes-tool-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      const r = await tools.notes.execute("tc", { action: "update", id: "task-999", status: "已完成" }, undefined, undefined, fakeCtx);
+      expect(r.content[0].text).toContain("不存在");
+      expect(r.content[0].text).not.toContain("throw");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("未启用时 notes 工具返回提示；/compress-remember 直写 prefs locked 条目；global 提示未实现；空参数提示用法", async () => {
+    // ① 未启用（session_start 未触发 → notesStore=null）→ 工具返回「未启用」且不抛异常
+    const h1 = harness();
+    const r = await h1.tools.notes.execute("tc", { action: "append", table: "prefs", text: "X" }, undefined, undefined, {
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    });
+    expect(r.content[0].text).toContain("未启用");
+
+    // ② 命令用例：enabled=true 的 projectNotes 指向 tmpdir
+    const { commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-remember-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    const notesPath = path.join(dir, "notes.json");
+    const notifyCalls: string[] = [];
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      await commands["compress-remember"].handler("commit message 用中文", fakeCtx);
+      expect(notifyCalls.at(-1)).toContain("已记住");
+      const j = JSON.parse(fs.readFileSync(notesPath, "utf8"));
+      expect(j.prefs).toHaveLength(1);
+      expect(j.prefs[0].locked).toBe(true);
+      // ③ 末尾带 global → 全局记忆未实现
+      await commands["compress-remember"].handler("记录A global", fakeCtx);
+      expect(notifyCalls.at(-1)).toContain("未实现");
+      expect(JSON.parse(fs.readFileSync(notesPath, "utf8")).prefs).toHaveLength(1); // 未写入
+      // ④ 无参数 → 用法提示
+      await commands["compress-remember"].handler("", fakeCtx);
+      expect(notifyCalls.at(-1)).toContain("用法");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("recall 接线双源：notes ID 返回记忆详情（executeRecallDual）", async () => {
+    const { tools, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-recall-dual-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { projectNotes: { enabled: true, path: "notes.json", maxTokens: 0 } } }),
+    );
+    // 预置一条带 detail 的经验条目
+    const seed = new NoteStore(path.join(dir, "notes.json"));
+    seed.load();
+    seed.append("feedback", { text: "摘要行", detail: "方法详情全文", status: "有效" });
+    seed.save();
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      const out = await tools.recall.execute("tc1", { ids: ["fb-001"] }, undefined, undefined, fakeCtx);
+      expect(out.content[0].text).toContain("记忆详情");
+      expect(out.content[0].text).toContain("方法详情全文");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("wires fallback backend: overflow error hits primary once, registry fallback takes over", async () => {
