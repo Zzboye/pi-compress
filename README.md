@@ -131,6 +131,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **L2** 丢动作中的命令，两端原文保留
 - **L3** 意图（↩ID）+ 动作摘要 + 最终回复摘要（↩ID）——本地模型生成
 - **L4** 多 turn 合并一行 `T3-T7 · 描述（N 条已合并）↩id1,id2,...`——本地模型生成
+- **图片**：用户消息中的图片在 L1–L3 渲染占位行 `[图片 ×N: mime1, mime2 ↩entryId]`（不随层级降级——一行字换 1200 tok 的图，recall 线索不能断；N>2 时只列前 2 个 mime 加 `…`）；摘要模型输入中图片以 `[图片: mime]` 文本标记呈现；recall 对应 entry 返回文本 + 真图块（~1200 tok/张，按需付费）。L4 不渲染占位行，图片存在感由合并描述承载。
 
 ```jsonc
 { "contextCompress": { "ledgerDegradeThresholdTokens": 40000, "ledgerReserveTokens": 10000 } }
@@ -195,6 +196,8 @@ recall({ query: "forceRatio" })             → 命中索引（不返回原文�
 
   需要逐字原文时，调用 recall 并传入对应 ↩ 后的 ID。
 ```
+
+含图 entry 的 recall 返回混合 content——原文文本 + 真图块（命中 entry 自身及配对 toolResult 中的 image 块原样带回），文本尾部附 `[含图片 ×N，已附在结果中]` 提示。
 
 `query` 与 `ids` 可同传（先搜索再取回，两段结果拼接）。搜索在 LedgerData 全量字段（用户原话/最终回复逐字全文、动作 target+detail、L4 合并描述）上做大小写不敏感子串匹配，零模型调用。
 - **计量校准**：最近一次装配的「估算（CJK 感知）vs 真实 usage」并排对比。差值 = system prompt + 工具定义 + 模板开销 + 估算误差；长期稳定偏差即可推出校准系数，供后续自动校准参考。
