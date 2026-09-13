@@ -343,6 +343,24 @@ describe("extension entry wiring", () => {
     expect(status).toContain("调用 0");
   });
 
+  it("recall 工具返回混合 content（文本 + image 块）", async () => {
+    const { tools } = harness();
+    const pngBlock = { type: "image", mimeType: "image/png", data: "AAAA" };
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "看图" }, pngBlock] } },
+    ];
+    const fakeCtx: any = {
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    const out = await tools.recall.execute("tc1", { ids: ["u1"] }, undefined, undefined, fakeCtx);
+    expect(out.content.length).toBe(2);              // 文本 + image 块
+    expect(out.content[0].type).toBe("text");
+    expect(out.content[0].text).toContain("看图");
+    expect(out.content[0].text).toContain("[含图片 ×1，已附在结果中]");
+    expect(out.content[1]).toEqual(pngBlock);        // 第二块为原样 image 块
+  });
+
   it("recall 只传 query、只传 ids 均合法；都不传返回用法提示", async () => {
     const { tools, handlers } = harness();
     const branch = [

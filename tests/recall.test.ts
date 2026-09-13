@@ -209,6 +209,50 @@ describe("executeRecallDual", () => {
   });
 });
 
+// ---------- recall 返回图片（混合 content）----------
+
+describe("recall 返回图片", () => {
+  const pngBlock = { type: "image", mimeType: "image/png", data: "AAAA" };
+  const jpegBlock = { type: "image", mimeType: "image/jpeg", data: "BBBB" };
+
+  const imgBranch: MessageEntry[] = [
+    { id: "u1", message: { role: "user", content: [{ type: "text", text: "看图" }, pngBlock] } } as unknown as MessageEntry,
+    { id: "a1", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "shot", arguments: {} }] } } as unknown as MessageEntry,
+    { id: "r1", message: { role: "toolResult", toolCallId: "tc1", toolName: "shot", content: [{ type: "text", text: "截图完成" }, jpegBlock] } } as unknown as MessageEntry,
+  ];
+
+  it("命中含图 entry：images 收集自身 content 的图 + 文本提示", () => {
+    const r = executeRecall(["u1"], imgBranch, 4000);
+    expect(r.images).toEqual([{ block: pngBlock, sourceId: "u1" }]);
+    expect(r.text).toContain("[含图片 ×1，已附在结果中]");
+  });
+
+  it("recall toolCall entry：配对 toolResult 的图一并带回", () => {
+    const r = executeRecall(["a1"], imgBranch, 4000);
+    expect(r.images).toEqual([{ block: jpegBlock, sourceId: "a1" }]);
+    expect(r.text).toContain("[含图片 ×1，已附在结果中]");
+  });
+
+  it("多图多源：按命中顺序收集，sourceId 标注来源", () => {
+    const r = executeRecall(["u1", "a1"], imgBranch, 4000);
+    expect(r.images.map((i) => i.sourceId)).toEqual(["u1", "a1"]);
+  });
+
+  it("无图 entry：images 为空数组、文本无提示（零变化）", () => {
+    const r = executeRecall(["e1"], branch, 4000);
+    expect(r.images).toEqual([]);
+    expect(r.text).not.toContain("[含图片");
+  });
+
+  it("executeRecallDual 透传 images；notes 命中不产图", () => {
+    const store = mkDualStore();
+    store.append("prefs", { text: "偏好 X", detail: "细节", status: "有效" });
+    const r = executeRecallDual(["pref-001", "u1"], imgBranch, store, 4000);
+    expect(r.images.map((i) => i.sourceId)).toEqual(["u1"]);
+    expect(r.notesHits).toBe(1);
+  });
+});
+
 function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
   return {
     turnEndEntryId: partial.turnStartEntryId + "-end",

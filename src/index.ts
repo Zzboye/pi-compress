@@ -243,6 +243,8 @@ export default function (pi: ExtensionAPI): void {
       const entries = toMessageEntries(ctx.sessionManager.getBranch());
       const q = params.query?.trim() ?? "";
       const parts: string[] = [];
+      // ids 模式召回的 image 块：拼在文本后作为混合 content 返回（query-only 时为空数组无影响）
+      const imageBlocks: any[] = [];
       if (q) {
         // query 模式：关键词检索已压缩历史，返回命中索引（不消耗 calls，calls 只计逐字取回）
         // T 标签按 branch 顺序编号，与 renderActionLedger 同口径
@@ -260,11 +262,12 @@ export default function (pi: ExtensionAPI): void {
         recallStats.missing += r.missing.length;
         recallStats.notesHits += r.notesHits;
         parts.push(r.text);
+        if (r.images.length > 0) imageBlocks.push(...r.images.map((i) => i.block));
       }
       if (parts.length === 0) {
         return { content: [{ type: "text", text: "用法：传 ids（↩ 标记后的 entry ID 列表）取回逐字原文，或传 query 关键词检索历史定位 ID。" }], details: undefined };
       }
-      return { content: [{ type: "text", text: parts.join("\n\n---\n\n") }], details: undefined };
+      return { content: [{ type: "text", text: parts.join("\n\n---\n\n") }, ...imageBlocks], details: undefined };
     },
   });
 

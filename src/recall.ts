@@ -3,7 +3,9 @@ import { stripThinking, type MessageEntry } from "./util.js";
 import type { LedgerData, LedgerLevel } from "./ledger.js";
 import type { NoteStore } from "./notes.js";
 
-export interface RecallResult { text: string; missing: string[]; notesHits: number }
+/** recall 召回的图片块：block 可直接作为 pi 工具结果的 image content，sourceId 标注来源 entry */
+export interface RecallImage { block: { type: "image"; data: string; mimeType: string }; sourceId: string }
+export interface RecallResult { text: string; missing: string[]; notesHits: number; images: RecallImage[] }
 
 export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPerEntry: number): RecallResult {
   const stripped = stripThinking(branch);
@@ -16,6 +18,7 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   }
   const missing: string[] = [];
   const parts: string[] = [];
+  const images: RecallImage[] = [];
   for (const id of ids) {
     const e = byId.get(id);
     if (!e) { missing.push(id); continue; }
@@ -32,12 +35,27 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
       // 估算约 4 字符/token 截断（入口已剥离 thinking，text 即有效内容全量）
       text = text.slice(0, maxTokensPerEntry * 4) + `\n…（已截断，原消息过大；如需其余部分请用相邻 ID 分段 recall）`;
     }
+    // 图片召回：命中 entry 自身及配对 toolResult content 中的 image 块原样带回（sourceId 标注来源）。
+    // 提示行加在截断之后，保证不被截掉。
+    const imgs: RecallImage[] = [];
+    const collectImages = (m: any) => {
+      if (Array.isArray(m?.content)) {
+        for (const b of m.content) {
+          if (b?.type === "image" && typeof b.data === "string") imgs.push({ block: { type: "image", data: b.data, mimeType: b.mimeType ?? "image/png" }, sourceId: id });
+        }
+      }
+    };
+    for (const m of msgs) collectImages(m);
+    if (imgs.length > 0) {
+      text += `\n[含图片 ×${imgs.length}，已附在结果中]`;
+      images.push(...imgs);
+    }
     parts.push(`【${id} 的原文】\n${text}`);
   }
   if (missing.length > 0) {
     parts.push(`以下 ID 不在当前分支中（可能因 /tree 回退）：${missing.join(", ")}。可尝试 recall 相邻 turn 的 ID。`);
   }
-  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits: 0 };
+  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits: 0, images };
 }
 
 // ---------- 双源 recall（notes 优先，branch 兜底）----------
@@ -52,6 +70,7 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
   const entryIds: string[] = [];
   const parts: string[] = [];
   const missing: string[] = [];
+  const allImages: RecallImage[] = [];
   let notesHits = 0;
   for (const raw of ids) {
     const id = raw.replace(/^[↩]+/, "");
@@ -68,8 +87,9 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
     const r = executeRecall(entryIds, branch, maxTokensPerEntry);
     parts.unshift(r.text);
     missing.unshift(...r.missing);
+    allImages.push(...r.images);
   }
-  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits };
+  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits, images: allImages };
 }
 
 // ---------- 关键词检索（searchLedger）----------
