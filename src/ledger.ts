@@ -77,6 +77,14 @@ function allRecallIds(l: LedgerData, includeAllQuotes = false): string[] {
   return [...new Set(ids)];
 }
 
+/** 图片占位行：L1–L3 渲染在用户消息行后；L4 不渲染（图片存在感靠摘要描述）。↩ 复用 userMessage.entryId */
+export function renderImagesLine(l: LedgerData): string | undefined {
+  const imgs = l.userMessage?.images;
+  if (!imgs || imgs.length === 0) return undefined;
+  const mimes = imgs.slice(0, 2).map((i) => i.mimeType).join(", ") + (imgs.length > 2 ? " …" : "");
+  return `[图片 ×${imgs.length}: ${mimes} ↩${l.userMessage!.entryId}]`;
+}
+
 /** 渲染单个 turn 在其 level 下的文本块（含结尾空行）——渲染与体积计量的单一真相 */
 export function renderTurnText(l: LedgerData, n: number): string {
   const lines: string[] = [];
@@ -98,6 +106,9 @@ export function renderTurnText(l: LedgerData, n: number): string {
       lines.push(`### T${n} · 用户意图：${l.summary.userIntent ?? "（未知）"}`);
     }
   }
+  // 图片占位行：紧跟用户行（用户原话行或用户意图行）之后、动作行之前；无图时零变化
+  const imagesLine = renderImagesLine(l);
+  if (imagesLine) lines.push(imagesLine);
   for (const e of l.summary.entries) {
     const recall = e.recallIds.length ? ` ↩${e.recallIds.join(",↩")}` : "";
     if (lvl === 1) {

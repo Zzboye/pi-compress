@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderActionLedger, type LedgerData } from "../src/ledger.js";
+import { renderActionLedger, renderTurnText, type LedgerData } from "../src/ledger.js";
 
 function textOf(msg: any): string {
   return msg.content.map((c: any) => c.text ?? "").join("");
@@ -174,5 +174,57 @@ describe("renderActionLedger levels", () => {
     expect(renderTurnText(full, 1)).toContain("调查：cat src/ledger.ts → 阅读核心数据结构 ↩e003");
     expect(renderTurnText({ ...full, level: 2 }, 1)).toContain("调查：阅读核心数据结构 ↩e003");
     expect(renderTurnText({ ...full, level: 2 }, 1)).not.toContain("cat src/ledger.ts");
+  });
+});
+
+describe("图片占位行", () => {
+  const withImgs = (level: 1 | 2 | 3 | 4, imgs?: { mimeType: string; bytes: number }[]): LedgerData => ({
+    turnStartEntryId: "u1", turnEndEntryId: "a1", level,
+    summary: { userIntent: "看报错", outcome: "ok", entries: [] },
+    userMessage: { text: "帮我看下这个报错", entryId: "u1", ...(imgs ? { images: imgs } : {}) },
+    finalReply: { text: "好的", entryId: "a1" },
+    ...(level === 4 ? { merged: { description: "调试会话" } } : {}),
+  } as LedgerData);
+
+  it("L1 用户消息行后渲染占位行，↩ 指向 userMessage.entryId", () => {
+    const out = renderTurnText(withImgs(1, [{ mimeType: "image/png", bytes: 100 }, { mimeType: "image/png", bytes: 100 }]), 7);
+    expect(out).toContain("[图片 ×2: image/png, image/png ↩u1]");
+    // 占位行在用户消息行之后、动作行之前
+    const iUser = out.indexOf("### T7");
+    const iImg = out.indexOf("[图片 ×2");
+    expect(iImg).toBeGreaterThan(iUser);
+  });
+
+  it("单图渲染", () => {
+    const out = renderTurnText(withImgs(2, [{ mimeType: "image/jpeg", bytes: 100 }]), 3);
+    expect(out).toContain("[图片 ×1: image/jpeg ↩u1]");
+  });
+
+  it("超过 2 张：mime 列表截断为前两个 + …", () => {
+    const imgs = Array.from({ length: 4 }, () => ({ mimeType: "image/png", bytes: 1 }));
+    const out = renderTurnText(withImgs(1, imgs), 1);
+    expect(out).toContain("[图片 ×4: image/png, image/png … ↩u1]");
+  });
+
+  it("L2/L3 同样渲染占位行", () => {
+    expect(renderTurnText(withImgs(2, [{ mimeType: "image/png", bytes: 1 }]), 2)).toContain("[图片 ×1");
+    expect(renderTurnText(withImgs(3, [{ mimeType: "image/png", bytes: 1 }]), 2)).toContain("[图片 ×1");
+  });
+
+  it("L4 不渲染占位行", () => {
+    const out = renderTurnText(withImgs(4, [{ mimeType: "image/png", bytes: 1 }]), 5);
+    expect(out).not.toContain("[图片");
+    expect(out).toContain("调试会话");
+  });
+
+  it("无图：不渲染占位行（零变化不变式）", () => {
+    expect(renderTurnText(withImgs(1), 1)).not.toContain("[图片");
+  });
+
+  it("占位行计入 turnRenderTokens", async () => {
+    const { turnRenderTokens } = await import("../src/degrade.js");
+    const noImg = turnRenderTokens(withImgs(1) as any, 0);
+    const hasImg = turnRenderTokens(withImgs(1, [{ mimeType: "image/png", bytes: 1 }]) as any, 0);
+    expect(hasImg).toBeGreaterThan(noImg);
   });
 });
