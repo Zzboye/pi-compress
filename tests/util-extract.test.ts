@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractUserMessage, extractFinalReply, extractImages, type Turn, type MessageEntry } from "../src/util.js";
+import { extractUserMessage, extractFinalReply, extractImages, serializeTurn, type Turn, type MessageEntry } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
 
 function userEntry(id: string, text: string): MessageEntry {
@@ -86,6 +86,37 @@ describe("extractImages / extractUserMessage images", () => {
     // 此用例锁定现状行为，防止实现时意外改变分支条件。
     const e: MessageEntry = { id: "u-only-img", message: { role: "user", content: [img("image/png", 100)] } } as unknown as MessageEntry;
     expect(extractUserMessage(turnOf(e))).toBeUndefined();
+  });
+});
+
+describe("serializeTurn 图片标记", () => {
+  it("user content 中的 image 块替换为 [图片: mime] 文本", () => {
+    const entries: MessageEntry[] = [
+      { id: "u1", message: { role: "user", content: [{ type: "text", text: "看图" }, { type: "image", mimeType: "image/png", data: "AAAA" }] } } as unknown as MessageEntry,
+      { id: "a1", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } } as unknown as MessageEntry,
+    ];
+    const out = serializeTurn({ startEntryId: "u1", endEntryId: "a1", entries });
+    expect(out).toContain("[图片: image/png]");
+    expect(out).toContain("看图");
+    expect(out).not.toContain("AAAA");
+  });
+
+  it("toolResult content 中的 image 块同样替换", () => {
+    const entries: MessageEntry[] = [
+      { id: "u1", message: { role: "user", content: [{ type: "text", text: "截个图" }] } } as unknown as MessageEntry,
+      { id: "a1", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "shot", arguments: {} }] } } as unknown as MessageEntry,
+      { id: "r1", message: { role: "toolResult", toolCallId: "tc1", toolName: "shot", content: [{ type: "image", mimeType: "image/png", data: "BBBB" }] } } as unknown as MessageEntry,
+    ];
+    const out = serializeTurn({ startEntryId: "u1", endEntryId: "r1", entries });
+    expect(out).toContain("[图片: image/png]");
+    expect(out).not.toContain("BBBB");
+  });
+
+  it("无图 turn 输出不含标记（零变化）", () => {
+    const entries: MessageEntry[] = [
+      { id: "u1", message: { role: "user", content: [{ type: "text", text: "纯文本" }] } } as unknown as MessageEntry,
+    ];
+    expect(serializeTurn({ startEntryId: "u1", endEntryId: "u1", entries })).not.toContain("[图片");
   });
 });
 

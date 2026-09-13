@@ -129,8 +129,22 @@ function preTruncateToolResults(entries: MessageEntry[]): MessageEntry[] {
   });
 }
 
+/** image 块 → 文本标记：摘要模型不可见图（serializeConversation 只取 text），替换为标记保留存在感 */
+function imageToTextMarkers(entries: MessageEntry[]): MessageEntry[] {
+  return entries.map((e) => {
+    const content = (e.message as any).content;
+    if (!Array.isArray(content) || !content.some((b: any) => b?.type === "image")) return e;
+    const mapped = content.map((b: any) =>
+      b?.type === "image" ? { type: "text", text: `[图片: ${b.mimeType ?? "unknown"}]` } : b,
+    );
+    return { ...e, message: { ...(e.message as any), content: mapped } } as MessageEntry;
+  });
+}
+
 export function serializeTurn(turn: Turn): string {
-  return serializeConversation(convertToLlm(stripThinking(preTruncateToolResults(turn.entries)).map((e) => e.message)) as any);
+  return serializeConversation(
+    convertToLlm(stripThinking(imageToTextMarkers(preTruncateToolResults(turn.entries))).map((e) => e.message)) as any,
+  );
 }
 
 /** 剥离 assistant 消息中的 thinking 块（过程噪声）：LLM 不可见、不占窗口预算、不进摘要 prompt。
