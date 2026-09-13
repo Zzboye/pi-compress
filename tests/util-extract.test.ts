@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractUserMessage, extractFinalReply, type Turn, type MessageEntry } from "../src/util.js";
+import { extractUserMessage, extractFinalReply, extractImages, type Turn, type MessageEntry } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
 
 function userEntry(id: string, text: string): MessageEntry {
@@ -44,6 +44,48 @@ describe("extractUserMessage", () => {
       { type: "text", text: "第一段" }, { type: "text", text: "第二段" },
     ] } as AgentMessage };
     expect(extractUserMessage(turnOf(e))!.text).toBe("第一段\n第二段");
+  });
+});
+
+describe("extractImages / extractUserMessage images", () => {
+  const img = (mime: string, dataLen: number) => ({ type: "image", mimeType: mime, data: "A".repeat(dataLen) });
+
+  it("extractImages 提取 mimeType 与估算字节", () => {
+    const blocks = [img("image/png", 4800), { type: "text", text: "x" }];
+    expect(extractImages(blocks)).toEqual([{ mimeType: "image/png", bytes: 3600 }]);
+  });
+
+  it("extractUserMessage 携带 images 元信息", () => {
+    const e: MessageEntry = {
+      id: "u-img",
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "看这个报错" },
+          img("image/png", 4800),
+          img("image/jpeg", 8000),
+        ],
+      },
+    } as unknown as MessageEntry;
+    const q = extractUserMessage(turnOf(e))!;
+    expect(q.text).toBe("看这个报错");
+    expect(q.entryId).toBe("u-img");
+    expect(q.images).toEqual([
+      { mimeType: "image/png", bytes: 3600 },
+      { mimeType: "image/jpeg", bytes: 6000 },
+    ]);
+  });
+
+  it("纯文本消息 images 为 undefined（零变化不变式）", () => {
+    const q = extractUserMessage(turnOf(userEntry("u-plain", "没有图")))!;
+    expect(q.images).toBeUndefined();
+  });
+
+  it("无 text 但有图：仍返回 quote（text 空串不成立时才 undefined）——现状 text='' 返回 undefined，图随 turn 丢失", () => {
+    // 维持现状：text 为空 → undefined（占位渲染走 userIntent 兜底）。
+    // 此用例锁定现状行为，防止实现时意外改变分支条件。
+    const e: MessageEntry = { id: "u-only-img", message: { role: "user", content: [img("image/png", 100)] } } as unknown as MessageEntry;
+    expect(extractUserMessage(turnOf(e))).toBeUndefined();
   });
 });
 

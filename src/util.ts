@@ -102,6 +102,18 @@ function joinedText(content: unknown): string {
   return content.filter((b: any) => b?.type === "text").map((b: any) => b.text ?? "").join("\n");
 }
 
+/** 提取 content 中的图片块元信息；bytes ≈ base64 解码后字节数 */
+export function extractImages(content: unknown): { mimeType: string; bytes: number }[] {
+  if (!Array.isArray(content)) return [];
+  const out: { mimeType: string; bytes: number }[] = [];
+  for (const b of content) {
+    if (b?.type === "image" && typeof b.mimeType === "string") {
+      out.push({ mimeType: b.mimeType, bytes: Math.ceil((b.data?.length ?? 0) * 3 / 4) });
+    }
+  }
+  return out;
+}
+
 /**
  * 头+尾采样：开头是结构（imports/签名），结尾是结论（测试汇总/错误/exit code），
  * 中段替换为省略标记。总预算 ~1950 < pi 的 2000，pi 不会二次截断。
@@ -170,7 +182,8 @@ export function extractUserMessage(turn: Turn): LedgerQuote | undefined {
   if (!first || first.message.role !== "user") return undefined;
   const text = joinedText((first.message as any).content);
   if (text === "") return undefined;
-  return { text, entryId: first.id };
+  const images = extractImages((first.message as any).content);
+  return { text, entryId: first.id, ...(images.length > 0 ? { images } : {}) };
 }
 
 /** turn 内最后一条含 text 的 assistant 消息全量保留（跳过纯 thinking）；不截断 */

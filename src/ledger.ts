@@ -16,7 +16,12 @@ export interface LedgerAction {
 }
 
 /** 逐字引用（L1 起为全量原文）；entryId 供 recall 取回原文 */
-export interface LedgerQuote { text: string; entryId: string }
+export interface LedgerQuote {
+  text: string;
+  entryId: string;
+  /** 用户消息中的图片元信息（仅 userMessage 提取；bytes 为 base64 估算字节） */
+  images?: { mimeType: string; bytes: number }[];
+}
 
 export interface LedgerSummary { userIntent?: string; outcome?: string; entries: LedgerAction[] }
 
