@@ -127,13 +127,20 @@ function noteLine(e: NoteEntry): string {
 }
 
 /**
- * 渲染项目记忆注入块；返回 null = 不注入（全空或截断后为空）。
+ * 空记忆注入块：不返 null，让模型知道记忆已启用、首条怎么记（否则空记忆时模型只靠工具描述的记性）。
+ * ~30 tokens 固定开销，直到首条写入。
+ */
+export const NOTES_EMPTY = "◈ 项目记忆已启用，当前为空。用户提出新任务或表达稳定偏好时，用 notes 工具记录（append）。";
+
+/**
+ * 渲染项目记忆注入块；返回 null = 不注入（enabled=false 等外部条件由调用方判定）。
+ * 全空时返回空态提示（NOTES_EMPTY）而非 null——首条记录需要持续在场的引导。
  * 三表顺序：用户偏好 → 经验表 → 任务决策表。
  * maxTokens>0 时按 偏好 → 进行中任务 → 最近经验（updatedAt 降序）→ 其余 优先级截断
  * （预算按条目行计，countTokensText 口径）；maxTokens=0 永不截断。
  */
 export function renderNotes(entries: NoteEntry[], maxTokens: number): string | null {
-  if (entries.length === 0) return null;
+  if (entries.length === 0) return NOTES_EMPTY;
   const prefs = entries.filter((e) => e.table === "prefs");
   const feedback = entries.filter((e) => e.table === "feedback");
   const tasks = entries.filter((e) => e.table === "tasks");

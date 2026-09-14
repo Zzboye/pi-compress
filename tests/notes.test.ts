@@ -101,9 +101,13 @@ describe("renderNotes", () => {
     expect(out).not.toContain("detail 内容"); // detail 不注入
   });
 
-  it("全空 → null（不注入）", () => {
+  it("全空 → 空态提示（引导首条记录）", () => {
     const s = mkStore(); s.load();
-    expect(renderNotes(s.entries(), 0)).toBeNull();
+    const out = renderNotes(s.entries(), 0);
+    expect(out).toContain("项目记忆");
+    expect(out).toContain("notes 工具");
+    expect(out).toContain("append");
+    expect(out).not.toContain("用户偏好"); // 无三表小节
   });
 
   it("maxTokens>0：超预算按 偏好→进行中任务→最近经验→其余 截断并带尾注", () => {

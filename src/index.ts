@@ -275,8 +275,14 @@ export default function (pi: ExtensionAPI): void {
     name: "notes",
     label: "Notes",
     description:
-      "维护跨会话项目记忆（用户偏好/经验/任务决策）。三种操作：append 新增条目、update 更新（如任务状态翻转：进行中→已完成）、delete 删除。\n" +
-      "【写入门槛】仅当出现被用户明确纠正的做法、新任务或任务状态变化、新的稳定偏好时调用；与现有条目语义重复时用 update 合并而非 append；不要记录可从代码库推导的内容（架构、文件路径）。\n" +
+      "维护跨会话项目记忆。三表分工：prefs=用户明说的稳定偏好（语言/风格/流程约定）；" +
+      "feedback=做法被验证有效或被用户纠正的经验（记「做法+结果」）；tasks=任务状态与关键决策（记「决策+改动文件」）。\n" +
+      "【何时写】用户提出新任务/开始新工作单元 → append(tasks) 记下任务与目标；状态翻转（进行中→已完成/已否决）或关键决策落定 → update；" +
+      "做法被用户纠正、出现新稳定偏好 → 相应记录。与现有条目语义重复时用 update 合并而非 append；" +
+      "不要记录可从代码库推导的内容（架构、文件路径）。\n" +
+      "【怎么填】text=一句话摘要（注入上下文的就是它）；detail=完整细节（recall 召回时返回）；" +
+      "source=出处（用户原话片段或文件路径）。示例：append(tasks, text:\"选定方案B：手动工具+自动沉淀\", " +
+      "detail:\"理由：LLM 主动维护优于本地摘要模型…\", status:\"进行中\", source:\"会话讨论\")。\n" +
       "update/delete 对用户通过 /compress-remember 记录的条目无效。",
     parameters: Type.Object({
       action: Type.Union([Type.Literal("append"), Type.Literal("update"), Type.Literal("delete")], { description: "操作类型" }),
