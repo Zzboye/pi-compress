@@ -700,4 +700,54 @@ describe("extension entry wiring", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("降级后队列清空自动恢复（不等到 session_start）", async () => {
+    // 回归：degraded 置位后 context 早退在恢复代码之前，队列清空也无人检查——
+    // 一旦 120s 超时，整个会话剩余时间插件停摆（Codex P1）。
+    // 构造：摘要后端挂起（pending>0）→ context 超限等待 → 释放 backend →
+    // 队列清空 → 下一轮 context 必须恢复重组（旧行为：永远早退）。
+    const { handlers } = harness();
+    const notifyCalls: string[] = [];
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "问" }] } },
+      { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "答" }] } },
+    ];
+    // 可控 deferred：pending 的摘要请求，手动释放
+    let release: (() => void) | null = null;
+    const gated = new Promise<{ content: { type: "text"; text: string }[] }>((r) => { release = () => r({ content: [{ type: "text", text: JSON.stringify({ entries: [] }) }] }); });
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+      getContextUsage: () => ({ tokens: 900, contextWindow: 1000 }), // 0.9 > 0.76 → 走等待分支
+      modelRegistry: {
+        find: () => ({ provider: "FakeBig", model: "big" }),
+        complete: () => gated,
+      },
+    };
+    await handlers.session_start({}, fakeCtx);
+    // agent_settled 入队末 turn → drain 启动 → complete 挂起（pending ≥1）
+    const settle = handlers.agent_settled({}, fakeCtx);
+    await new Promise((r) => setTimeout(r, 50));
+    // context：usage 超限 + pending>0 → enforceForcePoint 等待 120s。
+    // fake timers 推进让 waitIdle 的 setTimeout 立刻超时（不真等 120s）
+    vi.useFakeTimers();
+    try {
+      const p1 = handlers.context({}, fakeCtx);
+      await vi.advanceTimersByTimeAsync(120_001);
+      await p1;
+      expect(notifyCalls.join("\n")).toContain("已降级");
+      // 释放挂起的摘要请求 → drain 完成 → 队列清空。
+      // 退回真实 timers 等 drain 收尾（onLedger 落盘在下一微任务轮）。
+      vi.useRealTimers();
+      release!();
+      await settle;
+      await new Promise((r) => setTimeout(r, 20)); // drain 收尾
+      // 恢复轮：旧行为在这里早退（不重组、无恢复）→ 新行为恢复重组
+      await handlers.context({}, fakeCtx);
+      expect(notifyCalls.join("\n")).toContain("恢复正常重组");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

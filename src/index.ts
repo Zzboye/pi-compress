@@ -172,7 +172,14 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("context", async (_event, ctx) => {
-    if (degraded || !config) return;
+    if (!config) return;
+    if (degraded) {
+      // 降级恢复：队列清空即回到正常重组（不依赖本轮是否走到重组——修复恢复代码在
+      // 早退之后永不可达的 bug：120s 等待超时后整个会话剩余时间插件停摆）。
+      if (!engine || engine.pending() > 0) return; // 队列未清空，继续让 pi 原生压缩兜底
+      degraded = false;
+      ctx.ui.notify("context-compress: 摘要队列已清空，恢复正常重组", "info");
+    }
     const branch = ctx.sessionManager.getBranch();
     const entries = toMessageEntries(branch);
     if (entries.length === 0) return;
