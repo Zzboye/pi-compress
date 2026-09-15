@@ -156,7 +156,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 ## 模型选型建议
 
 - **参数量 4B–8B**：摘要任务量小，本地推理要快；过小（<4B）指令遵循不稳，过大（>13B）本地延迟高、拖慢回答后整理。
-- **指令遵循稳定优先于推理力**：摘要只做「结构化复述 + 路径逐字复制」，不需要强推理，但必须严格遵守 JSON schema 与「target 来自清单」约束。
+- **指令遵循稳定优先于推理力**：摘要只做「结构化复述 + 动作序号逐字复制」，不需要强推理，但必须严格遵守 JSON schema 与「id 来自清单」约束（同一路径先读后写等多条同 target 动作靠 id 区分，无 id 时系统按 target 轮转匹配）。
 - **Qwen 系推荐**：中文表达自然、JSON 输出稳定。`qwen3:8b` 是甜点档；显存紧用 `qwen3:4b`。
 - **中英混合注意**：代码路径/标识符多为英文，prompt 已要求「detail 中路径必须能在原文找到」，但小模型偶有改写——`verbatimCheck: true` 会自动剔除失真条目。
 
@@ -275,7 +275,7 @@ src/
 ├── dump.ts         /compress-dump 转储：Markdown+JSON 渲染与写盘（复用 assembleContext）
 ├── config.ts       配置解析（全局 + 项目级合并，字段校验与默认值）
 ├── summarizer.ts   摘要后端调用（registry / OpenAI 兼容直连）、重试、备用切换、thinking 剥离
-├── prompts.ts      摘要 prompt 与 JSON schema（扁平 entries：模型只标注 phase，顺序由系统按机械清单时间序归位；意图/结果由系统机械保存）
+├── prompts.ts      摘要 prompt 与 JSON schema（扁平 entries：每条带 id 序号——同 target 不同动作靠 id 区分，无 id 旧格式按 target 轮转兼容；模型只标注 phase，顺序由系统按机械清单时间序归位；意图/结果由系统机械保存）
 ├── ledger.ts       动作日志渲染（用户原话/最终回复逐字引用 + 工具动作摘要）
 ├── assembler.ts    上下文重组：近期窗口 + 动作日志头
 ├── forcepoint.ts   强制点：等待摘要队列清空，超时降级

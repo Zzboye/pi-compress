@@ -9,6 +9,12 @@ const actions: ToolActionInfo[] = [
 ];
 const turnText = '[User]: 修内存泄漏\n[Assistant tool calls]: read(path="src/hooks.ts")\n[Tool result]: ...\n[Assistant tool calls]: bash(command="npm test")\n[Tool result]: 3 passed';
 
+const samePathActions: ToolActionInfo[] = [
+  { action: "read", target: "src/a.ts", entryIds: ["id-read"] },
+  { action: "write", target: "src/a.ts", entryIds: ["id-write"] },
+];
+const samePathTurnText = '[User]: 改配置\n[Assistant tool calls]: read(path="src/a.ts")\n[Tool result]: ...\n[Assistant tool calls]: write(path="src/a.ts")\n[Tool result]: ok';
+
 describe("buildSummarizePrompt", () => {
   it("contains serialized turn, verbatim action list with entry ids, and JSON schema", () => {
     const p = buildSummarizePrompt(turnText, actions);
@@ -71,6 +77,36 @@ describe("parseLedgerOutput", () => {
     const s = parseLedgerOutput(raw, actions, turnText, true);
     expect(s.entries[0].detail).toBe("清理函数缺失");
     expect(s.entries[0].phase).toBe("other");
+  });
+
+  it("同 target 不同 action：按 id 序号匹配，不错配不丢失（Codex P1 回归）", () => {
+    const p = buildSummarizePrompt(samePathTurnText, samePathActions);
+    expect(p).toContain("id=0"); // 清单每条带稳定序号
+    expect(p).toContain("id=1");
+    const raw = JSON.stringify({
+      entries: [
+        { id: 0, detail: "先读配置", phase: "investigate" },
+        { id: 1, detail: "再改写入", phase: "fix" },
+      ],
+    });
+    const s = parseLedgerOutput(raw, samePathActions, samePathTurnText, true);
+    expect(s.entries).toHaveLength(2);
+    expect(s.entries[0]).toMatchObject({ action: "read", target: "src/a.ts", detail: "先读配置", recallIds: ["id-read"] });
+    expect(s.entries[1]).toMatchObject({ action: "write", target: "src/a.ts", detail: "再改写入", recallIds: ["id-write"] });
+  });
+
+  it("同 target 不同 action 旧格式（无 id）：两条都能命中，不因 target 冲突去重丢失", () => {
+    // 兼容模型不带 id 的输出：target 相同时第一条机械条目占位，第二条不得被 seen 去重吞掉
+    const raw = JSON.stringify({
+      entries: [
+        { target: "src/a.ts", detail: "读了一条", phase: "investigate" },
+        { target: "src/a.ts", detail: "写了改动", phase: "fix" },
+      ],
+    });
+    const s = parseLedgerOutput(raw, samePathActions, samePathTurnText, true);
+    // 两条都被接受：第一条配首个同 target 机械条目，第二条配下一个
+    expect(s.entries).toHaveLength(2);
+    expect(s.entries.map((e) => e.action).sort()).toEqual(["read", "write"]);
   });
 
   it("throws LedgerParseError when entries missing", () => {

@@ -181,35 +181,54 @@ export function parseLedgerOutput(
   if (!Array.isArray(parsed?.entries) && !groups) {
     throw new LedgerParseError("model output missing required fields");
   }
-  const byTarget = new Map(actions.map((a) => [a.target, a]));
-  // 机械时间序位置：模型只能标注 phase，不能决定顺序（分组归并曾导致 5/57 逆序）
-  const order = new Map(actions.map((a, i) => [a.target, i]));
+  // 匹配键：优先 id 序号（同 target 不同 action 的唯一区分——纯 target 键会把
+  // 先 read 后 write 同一文件的两条错配成一条混合记录，Codex P1）；无 id 时回退 target。
+  const byId = new Map(actions.map((a, i) => [i, { a, order: i }]));
+  const byTarget = new Map<string, Array<{ a: (typeof actions)[number]; order: number }>>();
+  actions.forEach((a, i) => {
+    const list = byTarget.get(a.target) ?? [];
+    list.push({ a, order: i });
+    byTarget.set(a.target, list);
+  });
+  const consumedByTarget = new Map<string, number>(); // 无 id 回退时同 target 第 n 次输出配第 n 个机械条目
   const picked: Array<LedgerAction & { _order: number }> = [];
-  const seen = new Set<string>(); // 同一机械条目被模型重复输出（新旧 schema 交叠）只取首次
-  const addRaw = (targetOut: unknown, detailOut: unknown, entryPhase: unknown, groupPhase: unknown) => {
-    const mech = byTarget.get(String(targetOut));
-    if (!mech) return;
-    if (seen.has(mech.target)) return;
+  const seen = new Set<number>(); // 同一机械条目被模型重复输出只取首次
+  const addRaw = (idOut: unknown, targetOut: unknown, detailOut: unknown, entryPhase: unknown, groupPhase: unknown) => {
+    let mech: (typeof actions)[number] | undefined;
+    let order: number | undefined;
+    const idNum = Number(idOut);
+    if (idOut !== undefined && idOut !== null && idOut !== "" && Number.isInteger(idNum) && byId.has(idNum)) {
+      ({ a: mech, order } = byId.get(idNum)!);
+    } else {
+      // 旧格式/无 id：按 target 轮转匹配（同 target 第 n 次输出配第 n 个机械条目，不再互相吞掉）
+      const list = byTarget.get(String(targetOut));
+      if (!list) return;
+      const used = consumedByTarget.get(String(targetOut)) ?? 0;
+      if (used >= list.length) return;
+      consumedByTarget.set(String(targetOut), used + 1);
+      ({ a: mech, order } = list[used]);
+    }
+    if (seen.has(order!)) return;
     if (verbatimCheck) {
       const suspicious = String(detailOut ?? "").match(PATH_RE) ?? [];
       if (suspicious.some((p) => !turnText.includes(p) && !mech.target.includes(p))) return;
     }
-    seen.add(mech.target);
+    seen.add(order!);
     const p = entryPhase ?? groupPhase;
     picked.push({
       action: mech.action, target: mech.target, detail: String(detailOut ?? ""),
       recallIds: mech.entryIds,
       phase: LEDGER_PHASES.includes(p as LedgerPhase) ? (p as LedgerPhase) : "other",
-      _order: order.get(mech.target)!,
+      _order: order!,
     });
   };
   if (Array.isArray(parsed?.entries)) {
-    for (const e of parsed.entries) addRaw(e?.target, e?.detail, e?.phase, undefined);
+    for (const e of parsed.entries) addRaw(e?.id, e?.target ?? e?.id, e?.detail, e?.phase, undefined);
   }
   if (groups) {
     for (const g of groups) {
       for (const e of (g?.entries ?? []) as Array<Record<string, unknown>>) {
-        addRaw(e?.target, e?.detail, e?.phase, g?.phase);
+        addRaw(e?.id, e?.target ?? e?.id, e?.detail, e?.phase, g?.phase);
       }
     }
   }
