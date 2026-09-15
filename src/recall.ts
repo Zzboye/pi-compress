@@ -1,5 +1,4 @@
-import { serializeConversation, convertToLlm } from "@earendil-works/pi-coding-agent";
-import { stripThinking, type MessageEntry } from "./util.js";
+import { stripThinking, serializeForRecall, type MessageEntry } from "./util.js";
 import type { LedgerData, LedgerLevel } from "./ledger.js";
 import type { NoteStore } from "./notes.js";
 
@@ -30,7 +29,9 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
         if (r) msgs.push(r.message);
       }
     }
-    let text = serializeConversation(convertToLlm(msgs) as any);
+    // serializeForRecall：与 pi 同格式但 toolResult 不截断（pi 原版纯头截 2000 字符，
+    // 尾部结论丢失，超长结果无法完整 recall）。全量预算由下方 maxTokensPerEntry 统一负责。
+    let text = serializeForRecall(msgs.map((m, i) => ({ id: i === 0 ? id : `${id}-r${i}`, message: m as any })));
     if (text.length > maxTokensPerEntry * 4) {
       // 估算约 4 字符/token 截断（入口已剥离 thinking，text 即有效内容全量）
       text = text.slice(0, maxTokensPerEntry * 4) + `\n…（已截断，原消息过大；如需其余部分请用相邻 ID 分段 recall）`;

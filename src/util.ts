@@ -42,6 +42,48 @@ function contentTokens(content: unknown): number {
 }
 
 /**
+ * recall 专用序列化：与 pi serializeConversation 同格式，但 toolResult 不做 2000 字符截断。
+ * pi 原版对 toolResult 纯头部截断（尾部连结论一起丢），导致 recall 无法取回超长工具结果
+ * （实测 20000 字符只回 2100）——README「逐字内容仍可通过 recall 取回」由此承诺兑现。
+ * 与摘要路径共享 stripThinking / imageToTextMarkers 管道；不套 preTruncateToolResults
+ * （recall 本该全量，预算截断由 executeRecall 的 maxTokensPerEntry 负责）。
+ */
+export function serializeForRecall(entries: Array<{ id: string; message: AgentMessage }>): string {
+  const parts: string[] = [];
+  for (const { message: msg } of imageToTextMarkers(stripThinking(entries) as any)) {
+    if (msg.role === "user") {
+      const content = joinedText((msg as any).content);
+      if (content) parts.push(`[User]: ${content}`);
+    } else if (msg.role === "assistant") {
+      const toolCalls: string[] = [];
+      for (const block of (msg as any).content) {
+        if (block?.type === "toolCall") {
+          const argsStr = Object.entries(block.arguments ?? {})
+            .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+            .join(", ");
+          toolCalls.push(`${block.name}(${argsStr})`);
+        }
+      }
+      const text = joinedText((msg as any).content);
+      if (text) parts.push(`[Assistant]: ${text}`);
+      if (toolCalls.length > 0) parts.push(`[Assistant tool calls]: ${toolCalls.join("; ")}`);
+    } else if (msg.role === "toolResult") {
+      const content = joinedText((msg as any).content);
+      if (content) parts.push(`[Tool result]: ${content}`);
+    } else if (msg.role === "bashExecution") {
+      const m = msg as any;
+      if (!m.excludeFromContext) parts.push(`[Bash]: ${m.command}\n${m.output}`);
+    } else if (msg.role === "custom") {
+      const content = typeof (msg as any).content === "string" ? (msg as any).content : joinedText((msg as any).content);
+      if (content) parts.push(content);
+    } else if (msg.role === "branchSummary" || msg.role === "compactionSummary") {
+      parts.push((msg as any).summary);
+    }
+  }
+  return parts.join("\n\n");
+}
+
+/**
  * CJK 感知的消息 token 估算（与 pi estimateTokens 同角色分支，替换其 chars/4 口径）。
  * skipThinking: 跳过 assistant 的 thinking 块——窗口发给 LLM 时 thinking 被剥离，
  * 预算必须与实际发送内容一致（与旧 turnTokens 口径一致）。

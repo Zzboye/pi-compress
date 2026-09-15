@@ -263,7 +263,7 @@ export default function (pi: ExtensionAPI): void {
       }
       if (params.ids && params.ids.length > 0) {
         // 双源 recall：notes 条目 ID（fb-/task-/pref-）优先查项目记忆，其余走 branch 原文路径
-        const r = executeRecallDual(params.ids, entries, notesStore, 4_000); // 单条 4k tokens 截断
+        const r = executeRecallDual(params.ids, entries, notesStore, config?.recallMaxTokensPerEntry ?? 4_000);
         recallStats.calls += 1;
         recallStats.hits += params.ids.length - r.missing.length;
         recallStats.missing += r.missing.length;

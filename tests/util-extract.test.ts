@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractUserMessage, extractFinalReply, extractImages, serializeTurn, type Turn, type MessageEntry } from "../src/util.js";
+import { extractUserMessage, extractFinalReply, extractImages, serializeTurn, serializeForRecall, type Turn, type MessageEntry } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
 
 function userEntry(id: string, text: string): MessageEntry {
@@ -167,5 +167,46 @@ describe("extractFinalReply", () => {
     const long = "y".repeat(3000);
     const q = extractFinalReply(turnOf(userEntry("u1", "问题"), assistantEntry("a2", [{ type: "text", text: long }])))!;
     expect(q?.text).toBe(long);
+  });
+});
+
+describe("serializeForRecall（recall 全量序列化，绕开 pi 的 toolResult 2000 截断）", () => {
+  const toolBranch = (resultText: string): MessageEntry[] => [
+    { id: "u1", message: { role: "user", content: [{ type: "text", text: "跑一下" }] }, timestamp: 1 } as any,
+    { id: "a1", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "cat big.log" } }] }, timestamp: 2 } as any,
+    { id: "r1", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: resultText }] }, timestamp: 3 } as any,
+  ];
+
+  it("20000 字符 toolResult 全量保留（Codex P1 回归：pi serializeConversation 只留 2000）", () => {
+    const big = "HEAD".repeat(500) + "M".repeat(18000) + "TAIL".repeat(125);
+    const text = serializeForRecall(toolBranch(big).map((e) => ({ id: e.id, message: e.message })));
+    expect(text.length).toBeGreaterThan(19000);
+    expect(text).toContain("TAILTAILTAIL");   // 尾部在（pi 截断会把尾吃掉）
+    expect(text).not.toContain("truncated");  // 自身无 pi 截断标记
+  });
+
+  it("输出格式与 pi serializeConversation 同款（[User]/[Assistant tool calls]/[Tool result]）", () => {
+    const text = serializeForRecall(toolBranch("ok output"));
+    expect(text).toContain("[User]: 跑一下");
+    expect(text).toContain('[Assistant tool calls]: bash(command="cat big.log")');
+    expect(text).toContain("[Tool result]: ok output");
+  });
+
+  it("2000 字符边界：恰好 2000 不截，2001 起全量保留（pi 原版会截）", () => {
+    const exact = serializeForRecall(toolBranch("z".repeat(2000)));
+    expect(exact).toContain("z".repeat(2000));
+    const over = serializeForRecall(toolBranch("z".repeat(2001)));
+    expect(over).toContain("z".repeat(2001));
+  });
+
+  it("thinking 剥离与图片标记照常生效（与摘要路径同一管道口径）", () => {
+    const branch: MessageEntry[] = [
+      { id: "u1", message: { role: "user", content: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }, { type: "text", text: "看图" }] }, timestamp: 1 } as any,
+      { id: "a1", message: { role: "assistant", content: [{ type: "thinking", thinking: "内部推理" }, { type: "text", text: "答复" }] }, timestamp: 2 } as any,
+    ];
+    const text = serializeForRecall(branch.map((e) => ({ id: e.id, message: e.message })));
+    expect(text).not.toContain("内部推理");
+    expect(text).toContain("[图片: image/png]");
+    expect(text).toContain("看图");
   });
 });

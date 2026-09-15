@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "nextId": 2,
+  "prefs": [],
+  "feedback": [],
+  "tasks": [
+    {
+      "id": "task-001",
+      "table": "tasks",
+      "text": "Codex 外部审查发现两个 P1 真实 bug，均已验证属实并修复",
+      "detail": "用 Codex 审查 pi-compress 两次报 P1 均为真 bug：①降级后恢复代码位于 context 处理器 degraded 早退之后永不可达（120s 超时后整个会话插件停摆）——修法：恢复检查移入早退分支，队列清空即恢复（commit 2cb8864）；②parseLedgerOutput 只按 target 建键去重，同 turn 先 read 后 write 同一文件会错配成一条混合记录——修法：prompt 清单每条带 id=N 序号，解析按 id 匹配，无 id 旧格式按 target 轮转兼容（commit 433ebcf）。经验：机械键与解析键的口径必须一致；外部审查（Codex）值得纳入流程。两个 commit 均在本地 main，因 GitHub connection reset 尚未推送。",
+      "date": "2026-09-15",
+      "updatedAt": "2026-09-15T16:04:10.437Z",
+      "source": "会话：Codex 审查 pi-compress 反馈验证",
+      "locked": false
+    }
+  ],
+  "seq": {
+    "prefs": 0,
+    "feedback": 0,
+    "tasks": 1
+  }
+}

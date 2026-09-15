@@ -13,6 +13,8 @@ export interface ContextCompressConfig {
   ledgerReserveTokens: number;
   /** L1 动作行 target（命令/路径）机械截断阈值；超长或多行（heredoc）截首段 + …，全文可 recall 取回 */
   targetMaxChars: number;
+  /** recall 单条召回预算（tokens）：序列化文本超过则截断；总量无上限但单次注入受控 */
+  recallMaxTokensPerEntry: number;
   backfillLimit: number;
   projectNotes: { enabled: boolean; path: string; maxTokens: number };
 }
@@ -27,6 +29,7 @@ export const DEFAULT_CONFIG: ContextCompressConfig = {
   ledgerDegradeThresholdTokens: 40000,
   ledgerReserveTokens: 10000,
   targetMaxChars: 230,
+  recallMaxTokensPerEntry: 4000,
   backfillLimit: 20,
   projectNotes: { enabled: false, path: ".pi-compress/notes.json", maxTokens: 0 },
 };
@@ -69,6 +72,7 @@ export function loadConfig(globalRaw: unknown, projectRaw: unknown): ContextComp
     ledgerDegradeThresholdTokens: Math.floor(num(merged.ledgerDegradeThresholdTokens, DEFAULT_CONFIG.ledgerDegradeThresholdTokens, 5000, 2_000_000)),
     ledgerReserveTokens: Math.floor(num(merged.ledgerReserveTokens, DEFAULT_CONFIG.ledgerReserveTokens, 1000, 500_000)),
     targetMaxChars: Math.floor(num(merged.targetMaxChars, DEFAULT_CONFIG.targetMaxChars, 40, 10_000)),
+    recallMaxTokensPerEntry: Math.floor(num(merged.recallMaxTokensPerEntry, DEFAULT_CONFIG.recallMaxTokensPerEntry, 500, 1_000_000)),
     backfillLimit: Math.floor(num(merged.backfillLimit, 20, 0, 100_000)),
     projectNotes: {
       enabled: merged.projectNotes === undefined ? DEFAULT_CONFIG.projectNotes.enabled

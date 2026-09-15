@@ -84,6 +84,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
     "ledgerDegradeThresholdTokens": 40000,
     "ledgerReserveTokens": 10000,
     "targetMaxChars": 230,
+    "recallMaxTokensPerEntry": 4000,
 
     // 会话启动时补摘未摘要 turn 的上限（0 = 关闭）
     "backfillLimit": 20,
@@ -112,6 +113,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 | `ledgerDegradeThresholdTokens` | `40000` | 5000–2000000 | 动作日志 L1 区渲染体积阈值（tokens）：超过时最旧 turns 降级为 L2（保留尾部约 `ledgerReserveTokens`），逐级瀑布 L1→L2→L3→L4 |
 | `ledgerReserveTokens` | `10000` | 1000–500000 | 每层降级时尾部的保留区大小（tokens），按 turn 边界取整（硬下界：降级后该层剩余不得低于此值，单条巨条也不得击穿） |
 | `targetMaxChars` | `230` | 40–10000 | L1 动作行 target（命令/路径）的机械截断阈值：含换行（heredoc 内联脚本）或超长的命令只保留首行/首段并加 `…`，全文可按行尾 ↩ID 召回。截断发生在机械提取阶段（摘要模型看到的就是截断值），正常短命令逐字保留 |
+| `recallMaxTokensPerEntry` | `4000` | 500–1000000 | recall 单条召回预算（tokens）：单个 ID 序列化后的文本超过此值则截断并提示；不设总量限制（多 ID 各享独立预算）。recall 用专用全量序列化器，toolResult 不经 pi 的 2000 字符截断，超长工具结果在预算内可完整取回 |
 | `backfillLimit` | `20` | 0–100000 | `session_start` 时补摘未摘要 turn 的上限（最旧优先），0 = 关闭。会话恢复/崩溃重启后自动补齐历史缺口 |
 | `projectNotes.enabled` | `false` | bool | 项目记忆开关。开启后每轮装配把三表条目注入上下文头部（ledger 头之前）；**只关注入不关收集**——`false` 时 notes 工具与 `/compress-remember` 仍可写入，只是不注入 |
 | `projectNotes.path` | `.pi-compress/notes.json` | 路径 | notes 文件路径（相对项目 cwd 解析，绝对路径亦可），保存时同目录生成人读视图 `notes.md` |
@@ -301,7 +303,7 @@ npm test        # vitest 单测（tests/）
 - **RPC/print 模式未特殊处理**：插件在 `tui` 模式下完整工作；`rpc`/`json`/`print` 模式下事件仍触发，但 `ctx.ui.notify`/`setStatus` 可能无可见输出。
 - **单 turn 超大**：单个 turn 超过 `keepRecentTokens` 时，按设计仍整体保留在窗口内（不拆分），会导致窗口临时超过预算，直到下一轮 pi 原生压缩兜底。
 - **逐字校验依赖路径正则**：`verbatimCheck` 用 `/[\w./\\-]+\.\w{1,4}/g` 提取疑似路径，对无扩展名的命令/参数不做校验。
-- **摘要只见 toolResult 的头+尾**：超过 2000 字符的 toolResult 在摘要 prompt 中按「前 1400 + 后 500 + 中段省略标记」采样；中段内容对摘要模型不可见（逐字内容仍可通过 recall 取回）。
+- **摘要只见 toolResult 的头+尾**：超过 2000 字符的 toolResult 在摘要 prompt 中按「前 1400 + 后 500 + 中段省略标记」采样；中段内容对摘要模型不可见（recall 可取回：单条 `recallMaxTokensPerEntry`（默认 4000 token）内逐字全量，超出部分截断）。
 
 ## 许可
 

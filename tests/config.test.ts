@@ -116,4 +116,15 @@ describe("ledger degrade config", () => {
     const c = loadConfig({ contextCompress: { ledgerMergeThreshold: 40 } }, {});
     expect((c as any).ledgerMergeThreshold).toBeUndefined();
   });
+
+  it("recallMaxTokensPerEntry：默认 4000，可覆盖；越界回退默认（沿用 num 惯例）", () => {
+    const d = loadConfig({}, {});
+    expect(d.recallMaxTokensPerEntry).toBe(4000);
+    const c = loadConfig({ contextCompress: { recallMaxTokensPerEntry: 16000 } }, {});
+    expect(c.recallMaxTokensPerEntry).toBe(16000);
+    const lo = loadConfig({ contextCompress: { recallMaxTokensPerEntry: 10 } }, {});
+    expect(lo.recallMaxTokensPerEntry).toBe(4000);
+    const hi = loadConfig({ contextCompress: { recallMaxTokensPerEntry: 999_999_999 } }, {});
+    expect(hi.recallMaxTokensPerEntry).toBe(4000);
+  });
 });
