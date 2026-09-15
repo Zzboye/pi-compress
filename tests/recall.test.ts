@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { executeRecall, executeRecallDual, searchLedger } from "../src/recall.js";
+import { serializeTurn } from "../src/util.js";
 import { NoteStore } from "../src/notes.js";
 import type { MessageEntry } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
@@ -250,6 +251,43 @@ describe("recall 返回图片", () => {
     const r = executeRecallDual(["pref-001", "u1"], imgBranch, store, 4000);
     expect(r.images.map((i) => i.sourceId)).toEqual(["u1"]);
     expect(r.notesHits).toBe(1);
+  });
+
+  it("同图去重：同一图块（同 mimeType+data）经自身+配对 toolResult 双路径只收一次", () => {
+    // a1 的 toolCall 配对 r1；r1 的 content 含 jpegBlock；再把同块塞进 a1 自身 content
+    // → 收集时 a1（自含+配对 toolResult）应只产一张图
+    const dupBranch: MessageEntry[] = [
+      { id: "u1", message: { role: "user", content: [{ type: "text", text: "看图" }, pngBlock] } } as unknown as MessageEntry,
+      { id: "a1", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "shot", arguments: {} }, jpegBlock] } } as unknown as MessageEntry,
+      { id: "r1", message: { role: "toolResult", toolCallId: "tc1", toolName: "shot", content: [{ type: "text", text: "完成" }, jpegBlock] } } as unknown as MessageEntry,
+    ];
+    const r = executeRecall(["a1"], dupBranch, 4000);
+    expect(r.images).toEqual([{ block: jpegBlock, sourceId: "a1" }]);
+  });
+
+  it("截断+图提示共存：图提示在截断后追加，不被截掉", () => {
+    // imgBranch 的 u1 文本极短，改用长文本含图 entry
+    const longBranch: MessageEntry[] = [
+      { id: "u2", message: { role: "user", content: [{ type: "text", text: "长".repeat(9000) }, pngBlock] } } as unknown as MessageEntry,
+    ];
+    const r = executeRecall(["u2"], longBranch, 1000); // maxTokensPerEntry=1000 → 截断
+    expect(r.text).toContain("已截断");
+    expect(r.text).toContain("[含图片 ×1，已附在结果中]");
+    expect(r.text.indexOf("[含图片")).toBeGreaterThan(r.text.indexOf("已截断")); // 提示在截断标记之后
+    expect(r.images).toEqual([{ block: pngBlock, sourceId: "u2" }]);
+  });
+
+  it("image 块缺 mimeType → 回退 unknown（收集与标记双路）", () => {
+    const noMimeBranch: MessageEntry[] = [
+      { id: "u3", message: { role: "user", content: [{ type: "text", text: "看" }, { type: "image", data: "CCCC" }] } } as unknown as MessageEntry,
+    ];
+    // 收集路：mimeType 缺失回退 image/png（保持块可用）
+    const r = executeRecall(["u3"], noMimeBranch, 4000);
+    expect(r.images[0].block.mimeType).toBe("image/png");
+    // 标记路：imageToTextMarkers 缺 mimeType 回退 unknown
+    const turn = { startEntryId: "u3", endEntryId: "u3", entries: noMimeBranch } as any;
+    const s = serializeTurn(turn);
+    expect(s).toContain("[图片: unknown]");
   });
 });
 

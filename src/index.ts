@@ -19,7 +19,7 @@ import {
   createOpenAICompatBackend,
   type SummarizerBackend,
 } from "./summarizer.js";
-import { executeRecallDual, searchLedger, formatSearchResult } from "./recall.js";
+import { executeRecallDual, searchLedger, formatSearchResult, type RecallImage } from "./recall.js";
 import { dumpContext, writeContextDump, defaultDumpBase } from "./dump.js";
 import { enforceForcePoint } from "./forcepoint.js";
 import { countTokens, splitIntoTurns, type MessageEntry } from "./util.js";
@@ -244,7 +244,7 @@ export default function (pi: ExtensionAPI): void {
       const q = params.query?.trim() ?? "";
       const parts: string[] = [];
       // ids 模式召回的 image 块：拼在文本后作为混合 content 返回（query-only 时为空数组无影响）
-      const imageBlocks: any[] = [];
+      const imageBlocks: RecallImage["block"][] = [];
       if (q) {
         // query 模式：关键词检索已压缩历史，返回命中索引（不消耗 calls，calls 只计逐字取回）
         // T 标签按 branch 顺序编号，与 renderActionLedger 同口径

@@ -36,12 +36,19 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
       text = text.slice(0, maxTokensPerEntry * 4) + `\n…（已截断，原消息过大；如需其余部分请用相邻 ID 分段 recall）`;
     }
     // 图片召回：命中 entry 自身及配对 toolResult content 中的 image 块原样带回（sourceId 标注来源）。
+    // 同图去重：同 mimeType+data 的块只收一次（assistant 自含+配对 toolResult 双路径常见重复）。
     // 提示行加在截断之后，保证不被截掉。
     const imgs: RecallImage[] = [];
+    const seen = new Set<string>();
     const collectImages = (m: any) => {
       if (Array.isArray(m?.content)) {
         for (const b of m.content) {
-          if (b?.type === "image" && typeof b.data === "string") imgs.push({ block: { type: "image", data: b.data, mimeType: b.mimeType ?? "image/png" }, sourceId: id });
+          if (b?.type === "image" && typeof b.data === "string") {
+            const key = `${b.mimeType ?? "image/png"}:${b.data}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            imgs.push({ block: { type: "image", data: b.data, mimeType: b.mimeType ?? "image/png" }, sourceId: id });
+          }
         }
       }
     };
