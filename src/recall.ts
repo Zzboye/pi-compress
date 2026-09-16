@@ -162,14 +162,15 @@ export function searchLedger(query: string, ledgers: LedgerData[], maxHits: numb
   for (let i = 0; i < ledgers.length; i++) {
     const l = ledgers[i];
     const lvl = (l.level ?? 1) as LedgerLevel;
-    if (lvl === 4) {
-      // L4 组范围：向后聚合连续 level=4（renderActionLedger 同款边界）
+    if (lvl === 5) {
+      // L5 组范围：向后聚合连续 level=5（renderActionLedger 同款边界）。
+      // Task 2 阶梯右移：合并组从 L4 变为 L5，聚合边界随之改为 5。
       let end = i;
-      while (end + 1 < ledgers.length && (ledgers[end + 1].level ?? 1) === 4) end++;
+      while (end + 1 < ledgers.length && (ledgers[end + 1].level ?? 1) === 5) end++;
       const label = end > i ? `T${i + 1}-T${end + 1}` : `T${i + 1}`;
       for (let j = i; j <= end; j++) {
         const m = ledgers[j];
-        if (m.merged?.description) push(label, 4, "合并描述", m.merged.description, allRecallIdsOf(m, true));
+        if (m.merged?.description) push(label, 5, "合并描述", m.merged.description, allRecallIdsOf(m, true));
       }
       i = end;
       continue;
@@ -192,7 +193,7 @@ export function formatSearchResult(r: SearchResult): string {
   if (r.hits.length === 0) {
     return "无命中。建议：换更短或更具体的关键词（如文件名、函数名、命令词）；动作日志只覆盖窗外已摘要的 turn，近期内容可能仍在上下文窗口内。";
   }
-  const lvlAbbr: Record<number, string> = { 1: "L1", 2: "L2", 3: "L3", 4: "L4" };
+  const lvlAbbr: Record<number, string> = { 1: "L1", 2: "L2", 3: "L3", 4: "L4", 5: "L5" };
   const lines = r.hits.map((h) => {
     const ids = h.entryIds.length ? ` ↩${h.entryIds.join(",↩")}` : "";
     return `${h.turnLabel} [${lvlAbbr[h.level]}] ${h.field}：${h.snippet}${ids}`;

@@ -174,6 +174,17 @@ describe("renderActionLedger levels（五级阶梯）", () => {
     expect(text).toContain("最终回复（原文）：");
     expect(text).not.toContain("调查：");
   });
+
+  it("孤立 L5 单条渲染：单行 T1 · 描述，无组范围也无 ↩IDs", () => {
+    // Task 1 审查移交：单条 level=5 不与任何相邻 L5 聚合 → 渲染为 T1 · 描述（无 T1-T2 式组范围）
+    const l5: LedgerData = { ...full, level: 5 as any, merged: { description: "调查代码结构" } };
+    const text = textOf(renderActionLedger([l5]));
+    expect(text).toContain("T1 · 调查代码结构");
+    expect(text).not.toContain("T1-T");
+    const line = text.split("\n").find((l) => l.includes("调查代码结构"));
+    expect(line).toBeDefined();
+    expect(line!).not.toContain("↩");
+  });
 });
 
 describe("图片占位行", () => {

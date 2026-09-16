@@ -180,9 +180,13 @@ describe("integration: turn → summarize → assemble → recall", () => {
       { id: "x1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: { ...base, level: 7 } }, // 脏 level → 拒绝
       { id: "x2", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: { ...base, turnStartEntryId: "b", level: 3 } },
       { id: "x3", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: { ...base, turnStartEntryId: "c" } }, // 缺省 level → 合法（视为 L1）
+      { id: "x4", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: { ...base, turnStartEntryId: "d", level: 5 } }, // L5 合并条目 → 合法（Task 2 放宽）
+      { id: "x5", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: { ...base, turnStartEntryId: "e", level: 6 } }, // 越界 level → 拒绝
     ]);
     expect(store.get("a")).toBeUndefined();
+    expect(store.get("e")).toBeUndefined();
     expect(store.get("b")?.level).toBe(3);
     expect(store.get("c")).toBeTruthy();
+    expect(store.get("d")?.level).toBe(5);
   });
 });

@@ -5,8 +5,8 @@ export interface SessionEntryLike { id: string; type: string; customType?: strin
 function isValidLedger(d: unknown): d is LedgerData {
   if (typeof d !== "object" || d === null) return false;
   const v = d as Record<string, unknown>;
-  // level 存在时必须是 1|2|3|4（防脏数据）；缺省视为 1，兼容旧持久化数据
-  const levelOk = v.level === undefined || v.level === 1 || v.level === 2 || v.level === 3 || v.level === 4;
+  // level 存在时必须是 1|2|3|4|5（防脏数据，5 为 L5 合并条目，Task 2 放宽）；缺省视为 1，兼容旧持久化数据
+  const levelOk = v.level === undefined || v.level === 1 || v.level === 2 || v.level === 3 || v.level === 4 || v.level === 5;
   return levelOk && typeof v.turnStartEntryId === "string" && typeof v.turnEndEntryId === "string"
     && typeof v.summary === "object" && v.summary !== null;
 }

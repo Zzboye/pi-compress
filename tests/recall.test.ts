@@ -315,7 +315,7 @@ describe("searchLedger", () => {
       userMessage: { text: "keepRecentTokens 怎么配？", entryId: "t2-u" },
     }),
     mkLedger({
-      turnStartEntryId: "t3", level: 4,
+      turnStartEntryId: "t3", level: 5, // Task 2：合并组右移为 L5
       merged: { description: "调整 forceRatio 并验证窗口行为" },
       summary: { entries: [
         { action: "edit", target: "a.ts", detail: "改 forceRatio 默认值", recallIds: ["t3-a1", "t3-a2"], phase: "fix" },
@@ -339,11 +339,11 @@ describe("searchLedger", () => {
     expect(h.snippet).toContain("forceRatio");
   });
 
-  it("命中 L4 merged.description → turnLabel 显示组内 turn 范围", () => {
+  it("命中 L5 merged.description → turnLabel 显示组内 turn 范围", () => {
     const r = searchLedger("forceRatio", ledgers, 15);
     const h = r.hits.find((x) => x.field === "合并描述")!;
     expect(h.turnLabel).toBe("T3");
-    expect(h.level).toBe(4);
+    expect(h.level).toBe(5);
   });
 
   it("大小写不敏感", () => {
@@ -358,9 +358,9 @@ describe("searchLedger", () => {
     expect(r.truncated).toBe(true);
   });
 
-  it("L4 连续组 turnLabel 显示范围（多 ledger L4 相邻时合并为 T3-T4）", () => {
+  it("L5 连续组 turnLabel 显示范围（多 ledger L5 相邻时合并为 T3-T4）", () => {
     const t4 = mkLedger({
-      turnStartEntryId: "t4", level: 4,
+      turnStartEntryId: "t4", level: 5,
       merged: { description: "继续验证 forceRatio" },
       summary: { entries: [] },
     });

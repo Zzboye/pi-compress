@@ -15,7 +15,7 @@ function parseJson(raw: string): any {
   return parsed;
 }
 
-/** L2→L3：压缩两端——用户输入→意图、最终回复→结果。失败抛错，由调用方回滚 level。 */
+/** L3→L4：压缩两端——用户输入→意图、最终回复→结果。失败抛错，由调用方回滚 level。 */
 export async function compressEnds(
   backend: SummarizerBackend, ledger: LedgerData, signal?: AbortSignal,
 ): Promise<{ userIntent: string; outcome: string }> {
@@ -29,7 +29,7 @@ export async function compressEnds(
   return { userIntent: p.userIntent, outcome: p.outcome };
 }
 
-/** L3→L4：多条 turn 合并为一行主题描述，形如 "调查代码结构与配置逻辑（5 条已合并）"。 */
+/** L4→L5：多条 turn 合并为一行主题描述，形如 "调查代码结构与配置逻辑（5 条已合并）"。 */
 export async function mergeDescribe(
   backend: SummarizerBackend, ledgers: LedgerData[], signal?: AbortSignal,
 ): Promise<{ description: string }> {
