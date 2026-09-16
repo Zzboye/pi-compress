@@ -140,11 +140,12 @@ describe("integration: turn → summarize → assemble → recall", () => {
     expect(head).toContain("调查：src/app.ts → 正常 ↩t4-a");
   });
 
-  it("L3 ledger renders intent/outcome lines in assembled action ledger", async () => {
+  it("L4 ledger renders intent/outcome summary lines in assembled action ledger", async () => {
+    // 五级阶梯：旧 L3（意图+动作行+摘要 outcome）已不存在；压缩摘要形态现为 L4
     const bigUser = "帮我了解 ledger 的结构（完整原文内容）" + "背景".repeat(1000);
-    const bigReply = "这是完整回复原文，不该出现在 L3" + "细节".repeat(1000);
+    const bigReply = "这是完整回复原文，不该出现在 L4" + "细节".repeat(1000);
     const ledger: LedgerData = {
-      turnStartEntryId: "t1", turnEndEntryId: "t1-r", level: 3,
+      turnStartEntryId: "t1", turnEndEntryId: "t1-r", level: 4,
       summary: {
         userIntent: "了解ledger结构", outcome: "确认四级占位",
         entries: [
@@ -162,11 +163,11 @@ describe("integration: turn → summarize → assemble → recall", () => {
     ];
     const { messages } = assembleContext(branch, new Map([["t1", ledger]]), 100); // 小预算 → t1（大）窗外，t2 窗内
     const head = ((messages[0] as any).content as any[]).map((c) => c.text ?? "").join("");
-    expect(head).toContain("意图：了解ledger结构");        // 用户输入 → 意图单行
-    expect(head).toContain("调查：阅读核心数据结构");       // 动作摘要仍在
-    expect(head).toContain("最终回复（摘要）：确认四级占位"); // 最终回复 → 摘要单行
+    expect(head).toContain("意图：了解ledger结构 ↩t1");            // 用户输入 → 意图单行
+    expect(head).toContain("最终回复（摘要）：确认四级占位 ↩t1-r"); // 最终回复 → 摘要单行
     expect(head).not.toContain("帮我了解");               // 用户原文不再出现
     expect(head).not.toContain("完整回复原文");            // 回复原文不再出现
+    expect(head).not.toContain("调查：");                  // 动作行 L4 起全丢（L2 形态已由上一用例覆盖）
   });
 
   it("store rejects ledger entries with invalid level on rebuild", () => {

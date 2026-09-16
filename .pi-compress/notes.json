@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nextId": 3,
+  "nextId": 5,
   "prefs": [],
   "feedback": [],
   "tasks": [
@@ -24,11 +24,33 @@
       "updatedAt": "2026-09-15T17:26:07.875Z",
       "source": "会话讨论：B 方案改动评估",
       "locked": false
+    },
+    {
+      "id": "task-003",
+      "table": "tasks",
+      "text": "图片透传观察 + 全局记忆设计 + 四项锦上添花",
+      "detail": "来自 T55/T69 的遗留清单中尚未记录的项。①图片透传观察：recall 真图代码闭环已就绪（含同图去重），pi 的 downgradeUnsupportedImages 会自动为不支持 vision 的模型降级占位符（无拒收风险）；验证方法=LM Studio 服务端日志看请求体是否含 image 块，或用 vision 模型实测 recall 是否真能\"看到\"图。②全局记忆（正餐）：三个设计点未定——a) 原因文件：每条全局记忆在单独文件写清\"为什么记、有什么用\"，原因可 recall；b) 提炼时机：从多会话的项目记忆提炼，session_start 自动增量/手动命令/攒批（T20 给过 A-D 选项未定）；c) /compress-remember global 分支目前为预留，且有 global 正则误匹配边界的已知小瑕疵（Task 5 遗留 Minor）。③锦上添花（非承诺）：notes 注入块在头部击穿 prompt cache 前缀——当时定的是 bench 量化后再考虑移到尾部，未量化；/compress-status 显示「配置值→生效值」不一致（钳制透明化，一行）；bench 加摘要保真度 LLM-judge 评测；README \"~1200 tok/张\" 口径提为导出常量。",
+      "status": "待办",
+      "date": "2026-09-15",
+      "updatedAt": "2026-09-15T18:04:37.726Z",
+      "source": "T55/T69 遗留清单",
+      "locked": false
+    },
+    {
+      "id": "task-004",
+      "table": "tasks",
+      "text": "五级降级阶梯（L1–L5）：spec + 实现计划已定稿，待选执行方式",
+      "detail": "spec（3630bd8）+ 实现计划（52d2ccc）已提交，分支 discuss/l4-compress。计划 5 任务 TDD：1 渲染层（renderTurnText 新阶梯+L5 无 IDs）→ 2 降级层（瀑布右移、L2→L3 机械）→ 3 recall 三档（L3/L4 turn 级、L5 拒绝）→ 4 index.ts 接线 → 5 README。计划文档：docs/superpowers/plans/2026-09-16-five-level-degrade.md。待用户选执行方式（SDD 推荐 / inline）。",
+      "status": "进行中",
+      "date": "2026-09-16",
+      "updatedAt": "2026-09-16T16:28:22.198Z",
+      "source": "docs/superpowers/specs/2026-09-16-five-level-degrade-design.md",
+      "locked": false
     }
   ],
   "seq": {
     "prefs": 0,
     "feedback": 0,
-    "tasks": 2
+    "tasks": 4
   }
 }

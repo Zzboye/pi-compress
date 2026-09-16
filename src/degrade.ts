@@ -1,5 +1,5 @@
 import { countTokens } from "./util.js";
-import { renderTurnText, type LedgerData } from "./ledger.js";
+import { renderTurnText, type LedgerData, type LedgerLevel } from "./ledger.js";
 import type { AgentMessage } from "./types.js";
 import type { SummarizerBackend } from "./summarizer.js";
 import type { ContextCompressConfig } from "./config.js";
@@ -57,8 +57,8 @@ export function planDegrade(
   ledgers: LedgerData[], thresholdTokens: number, reserveTokens: number,
 ): DegradePlan {
   const steps: DegradeStep[] = [];
-  // 工作副本：降级立即生效供下层计量（level 拷贝为可变字段）
-  const working: Array<{ l: LedgerData; level: 1 | 2 | 3 | 4 }> = ledgers.map((l) => ({ l, level: l.level ?? 1 }));
+  // 工作副本：降级立即生效供下层计量（level 拷贝为可变字段）；类型随 LedgerLevel 放宽，逻辑不变（Task 2 重写）
+  const working: Array<{ l: LedgerData; level: LedgerLevel }> = ledgers.map((l) => ({ l, level: l.level ?? 1 }));
   const levels: Array<1 | 2 | 3> = [1, 2, 3];
   for (const level of levels) {
     const selected = chooseOldestForLevel(

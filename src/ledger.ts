@@ -25,8 +25,8 @@ export interface LedgerQuote {
 
 export interface LedgerSummary { userIntent?: string; outcome?: string; entries: LedgerAction[] }
 
-/** 降级层级：缺省视为 1（兼容旧持久化数据）；4 表示已合并为单行 */
-export type LedgerLevel = 1 | 2 | 3 | 4;
+/** 降级层级：缺省视为 1（兼容旧持久化数据）；5 表示已合并为单行 */
+export type LedgerLevel = 1 | 2 | 3 | 4 | 5;
 
 export interface LedgerData {
   turnStartEntryId: string;
@@ -35,7 +35,7 @@ export interface LedgerData {
   userMessage?: LedgerQuote;  // 全量：用户原话
   finalReply?: LedgerQuote;   // 全量：最终回复
   level?: LedgerLevel;
-  /** level=4 时有效：合并行描述；turn 范围由渲染时相邻 level=4 条目聚合得出 */
+  /** level=5 时有效：合并行描述；turn 范围由渲染时相邻 level=5 条目聚合得出 */
   merged?: { description: string };
 }
 
@@ -67,16 +67,6 @@ export function normalizeLedgerData(d: LedgerData): LedgerData {
   return { ...d, summary: { userIntent: s.userIntent, outcome: s.outcome, entries } };
 }
 
-/** 条目全部 recall IDs：动作 recallIds 在前，随后附两端 entryId（includeAllQuotes 供 L4 用，原文已不可见仍可 recall）；有序去重 */
-function allRecallIds(l: LedgerData, includeAllQuotes = false): string[] {
-  const ids: string[] = [];
-  for (const e of l.summary.entries) ids.push(...e.recallIds);
-  const um = l.userMessage, fr = l.finalReply;
-  if (um && includeAllQuotes) ids.push(um.entryId);
-  if (fr && includeAllQuotes) ids.push(fr.entryId);
-  return [...new Set(ids)];
-}
-
 /** 图片占位行：L1–L3 渲染在用户消息行后；L4 不渲染（图片存在感靠摘要描述）。↩ 复用 userMessage.entryId */
 export function renderImagesLine(l: LedgerData): string | undefined {
   const imgs = l.userMessage?.images;
@@ -89,38 +79,41 @@ export function renderImagesLine(l: LedgerData): string | undefined {
 export function renderTurnText(l: LedgerData, n: number): string {
   const lines: string[] = [];
   const lvl = l.level ?? 1;
-  if (lvl === 4) {
+  // L5：合并终态行，无任何 ↩IDs（拒绝召回语义，spec §7）
+  if (lvl === 5) {
     const desc = l.merged?.description ?? "（已合并）";
-    const ids = allRecallIds(l, true);
-    lines.push(`T${n} · ${desc}${ids.length ? `↩${ids.join(",↩")}` : ""}`);
+    lines.push(`T${n} · ${desc}`);
     return lines.join("\n") + "\n";
   }
-  if (lvl === 3) {
+  // L4：意图 + outcome 摘要（两端 ID 仍可见，recall 走 turn 级）
+  if (lvl === 4) {
     const intentId = l.userMessage?.entryId ?? l.turnStartEntryId;
     lines.push(`### T${n} · 意图：${l.summary.userIntent ?? "（未知）"} ↩${intentId}`);
-  } else {
-    const uq = l.userMessage;
-    if (uq) {
-      lines.push(`### T${n} · 用户：「${uq.text.replace(/\n+/g, " ")}」`);
-    } else {
-      lines.push(`### T${n} · 用户意图：${l.summary.userIntent ?? "（未知）"}`);
-    }
-  }
-  // 图片占位行：紧跟用户行（用户原话行或用户意图行）之后、动作行之前；无图时零变化
-  const imagesLine = renderImagesLine(l);
-  if (imagesLine) lines.push(imagesLine);
-  for (const e of l.summary.entries) {
-    const recall = e.recallIds.length ? ` ↩${e.recallIds.join(",↩")}` : "";
-    if (lvl === 1) {
-      lines.push(`- ${PHASE_LABEL[e.phase]}：${e.target} → ${e.detail}${recall}`);
-    } else { // L2/L3：丢 target/命令
-      lines.push(`- ${PHASE_LABEL[e.phase]}：${e.detail}${recall}`);
-    }
-  }
-  if (lvl === 3) {
     const outId = l.finalReply?.entryId ?? l.turnEndEntryId;
     lines.push(`- 最终回复（摘要）：${l.summary.outcome ?? "（无）"} ↩${outId}`);
-  } else if (l.finalReply) {
+    return lines.join("\n") + "\n";
+  }
+  // L1–L3 共通骨架：用户行 + 图片占位行（L3 用户侧仍是原文）
+  const uq = l.userMessage;
+  if (uq) {
+    lines.push(`### T${n} · 用户：「${uq.text.replace(/\n+/g, " ")}」`);
+  } else {
+    lines.push(`### T${n} · 用户意图：${l.summary.userIntent ?? "（未知）"} ↩${l.turnStartEntryId}`);
+  }
+  const imagesLine = renderImagesLine(l);
+  if (imagesLine) lines.push(imagesLine);
+  // 动作行：L1/L2 渲染；L3 起全丢（spec §3：L3 删除的是"工具过程"这一整类信息）
+  if (lvl <= 2) {
+    for (const e of l.summary.entries) {
+      const recall = e.recallIds.length ? ` ↩${e.recallIds.join(",↩")}` : "";
+      if (lvl === 1) {
+        lines.push(`- ${PHASE_LABEL[e.phase]}：${e.target} → ${e.detail}${recall}`);
+      } else {
+        lines.push(`- ${PHASE_LABEL[e.phase]}：${e.detail}${recall}`);
+      }
+    }
+  }
+  if (l.finalReply) {
     lines.push("最终回复（原文）：");
     lines.push(l.finalReply.text);
   } else if (l.summary.outcome !== undefined) {
@@ -137,17 +130,14 @@ export function renderActionLedger(rawLedgers: LedgerData[]): AgentMessage {
   const lines: string[] = ["<action-ledger>", "## 会话历史（动作日志，细节已压缩）", "", RECALL_HINT];
   for (let i = 0; i < ledgers.length; i++) {
     const l = ledgers[i];
-    if ((l.level ?? 1) === 4) {
-      // 聚合连续 level=4 条目为一行（turn 范围 + 全部条目 recallIds 有序去重并集）
+    if ((l.level ?? 1) === 5) {
+      // 聚合连续 level=5 条目为一行（终态无任何 ↩IDs，拒绝召回语义）
       let end = i;
-      while (end + 1 < ledgers.length && (ledgers[end + 1].level ?? 1) === 4) end++;
+      while (end + 1 < ledgers.length && (ledgers[end + 1].level ?? 1) === 5) end++;
       const group = ledgers.slice(i, end + 1);
-      const ids: string[] = [];
-      for (const m of group) ids.push(...allRecallIds(m, true));
-      const uniq = [...new Set(ids)];
       const desc = group[0].merged?.description ?? "（已合并）";
       const range = group.length > 1 ? `T${i + 1}-T${end + 1}` : `T${i + 1}`;
-      lines.push(`### ${range} · ${desc}${uniq.length ? `↩${uniq.join(",↩")}` : ""}\n`);
+      lines.push(`### ${range} · ${desc}\n`);
       i = end;
       continue;
     }

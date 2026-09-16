@@ -101,7 +101,7 @@ describe("renderActionLedger 双格式", () => {
   });
 });
 
-describe("renderActionLedger levels", () => {
+describe("renderActionLedger levels（五级阶梯）", () => {
   it("L1 renders user quote + action with target + final reply original", () => {
     const text = textOf(renderActionLedger([full]));
     expect(text).toContain("T1 · 用户：「帮我了解 ledger 的结构」");
@@ -113,67 +113,66 @@ describe("renderActionLedger levels", () => {
     const text = textOf(renderActionLedger([{ ...full, level: 2 }]));
     expect(text).toContain("调查：阅读核心数据结构 ↩e003");
     expect(text).not.toContain("cat src/ledger.ts");
-    expect(text).toContain("用户：「帮我了解 ledger 的结构」");
     expect(text).toContain("最终回复（原文）：");
   });
 
-  it("L3 renders intent + actions + summarized outcome with recall ids", () => {
+  it("L3 drops action lines entirely, keeps user quote + final reply original", () => {
     const l3: LedgerData = { ...full, level: 3, summary: { ...full.summary, userIntent: "了解ledger结构", outcome: "确认LedgerData含level字段" } };
     const text = textOf(renderActionLedger([l3]));
-    expect(text).toContain("T1 · 意图：了解ledger结构 ↩e001");
-    expect(text).toContain("调查：阅读核心数据结构 ↩e003");
-    expect(text).toContain("最终回复（摘要）：确认LedgerData含level字段 ↩e018");
-    expect(text).not.toContain("最终回复（原文）");
+    expect(text).toContain("T1 · 用户：「帮我了解 ledger 的结构」");
+    expect(text).toContain("最终回复（原文）：\n我已经看完当前代码……");
+    expect(text).not.toContain("调查：");      // 动作行全丢
+    expect(text).not.toContain("最终回复（摘要）");
+    expect(text).not.toContain("意图：");       // L3 用户侧是原文
   });
 
-  it("L4 merges consecutive level-4 turns into one line", () => {
-    // L4 形态下两端原文已压缩不可见，fixture 同样剥去 userMessage/finalReply
-    const mk = (id: string, rid: string[]): LedgerData => ({ ...full, level: 4, turnStartEntryId: id,
-      userMessage: undefined, finalReply: undefined,
-      merged: { description: "调查代码结构与配置逻辑（2 条已合并）" },
+  it("L3 keeps intent fallback only when userMessage missing (legacy edge)", () => {
+    const l3: LedgerData = { ...full, level: 3, userMessage: undefined, summary: { ...full.summary, userIntent: "了解ledger结构" } };
+    const text = textOf(renderActionLedger([l3]));
+    expect(text).toContain("T1 · 用户意图：了解ledger结构 ↩e001");
+  });
+
+  it("L4 renders intent + outcome summary lines with both-end ids only", () => {
+    const l4: LedgerData = { ...full, level: 4, summary: { ...full.summary, userIntent: "了解ledger结构", outcome: "确认LedgerData含level字段" }, merged: { description: "旧合并描述（应被忽略）" } };
+    const text = textOf(renderActionLedger([l4]));
+    expect(text).toContain("T1 · 意图：了解ledger结构 ↩e001");
+    expect(text).toContain("- 最终回复（摘要）：确认LedgerData含level字段 ↩e018");
+    expect(text).not.toContain("用户：「");              // 两端原文不再渲染
+    expect(text).not.toContain("我已经看完当前代码");
+    expect(text).not.toContain("调查：");                // 动作行全丢
+    expect(text).not.toContain("旧合并描述");             // merged.description 是 L5 产物，L4 忽略
+  });
+
+  it("L5 renders one merged line without any recall ids", () => {
+    const mk = (id: string): LedgerData => ({ ...full, level: 5 as any, turnStartEntryId: id,
+      merged: { description: "调查代码结构与配置逻辑" },
       summary: { entries: [
-        { action: "bash", target: "x", detail: "d", recallIds: rid, phase: "investigate" },
+        { action: "bash", target: "x", detail: "d", recallIds: ["e1"], phase: "investigate" },
       ] } });
-    const text = textOf(renderActionLedger([mk("a", ["e1"]), mk("b", ["e2"])]));
-    expect(text).toContain("T1-T2 · 调查代码结构与配置逻辑（2 条已合并）↩e1,↩e2");
+    const text = textOf(renderActionLedger([mk("a"), mk("b")]));
+    expect(text).toContain("T1-T2 · 调查代码结构与配置逻辑");
+    // 行尾不渲染任何 IDs：断言限定在合并行内（RECALL_HINT 本身含 ↩ 字样，不能对全文断言）
+    const mergedLine = text.split("\n").find((l) => l.includes("T1-T2 · 调查代码结构与配置逻辑"));
+    expect(mergedLine).toBeDefined();
+    expect(mergedLine!).not.toContain("↩");
     expect(text).not.toContain("用户：「");
   });
 
-  it("missing level defaults to 1 (backcompat)", () => {
-    const noLevel = { ...full } as Partial<LedgerData>;
-    delete noLevel.level;
-    const text = textOf(renderActionLedger([noLevel as LedgerData]));
-    expect(text).toContain("cat src/ledger.ts");
+  it("legacy L4 (merged group data) renders as new L4 per-entry from intent/outcome", () => {
+    // 存量旧 L4：经过旧 compressEnds，userIntent/outcome 都在；无新代码分支，直接按 L4 渲染
+    const legacy: LedgerData = { ...full, level: 4, summary: { ...full.summary, userIntent: "修复降级bug", outcome: "已修复推送" }, merged: { description: "旧的组描述" } };
+    const text = textOf(renderActionLedger([legacy]));
+    expect(text).toContain("T1 · 意图：修复降级bug ↩e001");
+    expect(text).toContain("- 最终回复（摘要）：已修复推送 ↩e018");
   });
 
-  it("isolated level-4 turn renders single-turn range T3 · …", () => {
-    const text = textOf(renderActionLedger([{ ...full, level: 4, merged: { description: "孤立合并行" } }]));
-    expect(text).toContain("T1 · 孤立合并行");
-  });
-
-  it("L4 union dedupes recall ids in order across merged turns", () => {
-    const mk = (id: string, rid: string[]): LedgerData => ({ ...full, level: 4, turnStartEntryId: id,
-      userMessage: undefined, finalReply: undefined,
-      merged: { description: "调查（2 条已合并）" },
-      summary: { entries: [
-        { action: "bash", target: "x", detail: "d", recallIds: rid, phase: "investigate" },
-      ] } });
-    const text = textOf(renderActionLedger([mk("a", ["e1", "e9"]), mk("b", ["e9", "e2"])]));
-    expect(text).toContain("↩e1,↩e9,↩e2");
-  });
-
-  it("L4 union appends quote entryIds when quotes are still present", () => {
-    // L4 条目若仍带两端引用（如刚合并后），其 entryId 也要进并集供 recall
-    const text = textOf(renderActionLedger([{ ...full, level: 4, merged: { description: "调查" },
-      summary: { entries: [] } }]));
-    expect(text).toContain("↩e001,↩e018");
-  });
-
-  it("renderTurnText matches per-level rendering (single source of truth)", async () => {
-    const { renderTurnText } = await import("../src/ledger.js");
-    expect(renderTurnText(full, 1)).toContain("调查：cat src/ledger.ts → 阅读核心数据结构 ↩e003");
-    expect(renderTurnText({ ...full, level: 2 }, 1)).toContain("调查：阅读核心数据结构 ↩e003");
-    expect(renderTurnText({ ...full, level: 2 }, 1)).not.toContain("cat src/ledger.ts");
+  it("legacy L3 data renders under new L3 (user + reply original, actions dropped)", () => {
+    // 存量旧 L3：渲染函数统一按新阶梯——数据里 quotes 还在，直接出原文
+    const legacy: LedgerData = { ...full, level: 3, summary: { ...full.summary, userIntent: "了解ledger结构", outcome: "确认" } };
+    const text = textOf(renderActionLedger([legacy]));
+    expect(text).toContain("T1 · 用户：「帮我了解 ledger 的结构」");
+    expect(text).toContain("最终回复（原文）：");
+    expect(text).not.toContain("调查：");
   });
 });
 
@@ -214,7 +213,9 @@ describe("图片占位行", () => {
   it("L4 不渲染占位行", () => {
     const out = renderTurnText(withImgs(4, [{ mimeType: "image/png", bytes: 1 }]), 5);
     expect(out).not.toContain("[图片");
-    expect(out).toContain("调试会话");
+    // 新 L4 渲染意图+outcome；merged.description 是 L5 产物，L4 忽略
+    expect(out).toContain("意图：看报错");
+    expect(out).not.toContain("调试会话");
   });
 
   it("无图：不渲染占位行（零变化不变式）", () => {

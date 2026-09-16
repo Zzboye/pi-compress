@@ -104,7 +104,7 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
 
 export interface SearchHit {
   turnLabel: string;   // "T12" 或 "T29-T33"（L4 已聚合组显示组范围，与 renderActionLedger 的 T 序号同口径：数组下标+1）
-  level: 1 | 2 | 3 | 4;
+  level: LedgerLevel; // 随 LedgerLevel 放宽至 1-5；L5 拒绝召回由 executeRecall 防御（Task 3）
   field: string;       // "用户消息" | "最终回复" | "动作" | "合并描述"
   snippet: string;     // 命中行片段（截断到 ~200 chars）
   entryIds: string[];  // 该字段关联、可直接 recall 的 ID（有序去重，与 executeRecall 同一命名空间）
