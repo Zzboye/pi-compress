@@ -196,12 +196,12 @@ recall({ query: "forceRatio" })             → 命中索引（不返回原文�
   命中 3 处：
   T12 [L1] 用户消息：…为什么默认 0.76 ↩t12-u
   T15 [L2] 动作：src/config.ts → 校验 forceRatio 范围 ↩t15-a
-  T31 [L5] 合并描述：调整 forceRatio 并验证窗口行为（3 条已合并）
+  T29-T31 [L5] 合并描述：调整 forceRatio 并验证窗口行为（3 条已合并） ↩t29-u,↩t29-a,↩t30-f,…
 
   需要逐字原文时，调用 recall 并传入对应 ↩ 后的 ID。
 ```
 
-- **召回按层级路由**：L1/L2 条目的 ↩ID 返回该 entry 逐字原文（toolCall 连带配对 toolResult）；L3/L4 的 ↩ID 返回**所在 turn 的整段原文**（被压缩丢弃的工具过程完整恢复）；L5 无 ↩ID 可见，持旧 ID 召回会得到「已合并为终态摘要」说明。整段召回同样受 `recallMaxTokensPerEntry` 预算约束。
+- **召回按层级路由**：L1/L2 条目的 ↩ID 返回该 entry 逐字原文（toolCall 连带配对 toolResult）；L3/L4 的 ↩ID 返回**所在 turn 的整段原文**（被压缩丢弃的工具过程完整恢复）；L5 命中行附带的 ↩ID 召回会得到「已合并为终态摘要」的终态说明，不返回原文（L5 行尾虽随搜索命中展示 IDs，但渲染层不显示 ↩ID，持旧 ID 亦被拒）。整段召回同样受 `recallMaxTokensPerEntry` 预算约束。
 
 含图 entry 的 recall 返回混合 content——原文文本 + 真图块（命中 entry 自身及配对 toolResult 中的 image 块原样带回），文本尾部附 `[含图片 ×N，已附在结果中]` 提示。
 
