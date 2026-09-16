@@ -1,4 +1,4 @@
-import { stripThinking, serializeForRecall, type MessageEntry } from "./util.js";
+import { stripThinking, serializeForRecall, type MessageEntry, type Turn } from "./util.js";
 import type { LedgerData, LedgerLevel } from "./ledger.js";
 import type { NoteStore } from "./notes.js";
 
@@ -6,7 +6,24 @@ import type { NoteStore } from "./notes.js";
 export interface RecallImage { block: { type: "image"; data: string; mimeType: string }; sourceId: string }
 export interface RecallResult { text: string; missing: string[]; notesHits: number; images: RecallImage[] }
 
-export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPerEntry: number): RecallResult {
+/** recall 层级路由上下文：ledgers 按 branch 序（index.ts 的 ledgersInBranchOrder 产出） */
+export interface RecallDegradeCtx { ledgers: LedgerData[]; turns: Turn[] }
+
+/** 收集消息 content 中的 image 块（同 mimeType+data 去重）：entry 级与 turn 级路径共用 */
+function collectImages(m: any, sourceId: string, imgs: RecallImage[], seen: Set<string>): void {
+  if (Array.isArray(m?.content)) {
+    for (const b of m.content) {
+      if (b?.type === "image" && typeof b.data === "string") {
+        const key = `${b.mimeType ?? "image/png"}:${b.data}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        imgs.push({ block: { type: "image", data: b.data, mimeType: b.mimeType ?? "image/png" }, sourceId });
+      }
+    }
+  }
+}
+
+export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPerEntry: number, degradeCtx?: RecallDegradeCtx): RecallResult {
   const stripped = stripThinking(branch);
   const byId = new Map(stripped.map((e) => [e.id, e]));
   // toolCallId → toolResult：recall 含 toolCall 的 assistant 条目时，连带取回配对的工具结果，
@@ -18,9 +35,34 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   const missing: string[] = [];
   const parts: string[] = [];
   const images: RecallImage[] = [];
+  // entryId → 所属 turn；turnStartEntryId → ledger 层级（spec §7 三档路由）
+  const turnOfEntry = new Map<string, Turn>();
+  for (const t of degradeCtx?.turns ?? []) for (const e of t.entries) turnOfEntry.set(e.id, t);
+  const levelOfTurn = new Map<string, number>();
+  for (const l of degradeCtx?.ledgers ?? []) levelOfTurn.set(l.turnStartEntryId, l.level ?? 1);
   for (const id of ids) {
     const e = byId.get(id);
     if (!e) { missing.push(id); continue; }
+    const turn = degradeCtx ? turnOfEntry.get(id) : undefined;
+    const lvl = turn ? levelOfTurn.get(turn.startEntryId) ?? 1 : 1;
+    if (turn && lvl >= 3 && lvl <= 4) {
+      // turn 级：整段原文（恢复被丢的工具过程/两端原文，spec §7）
+      let text = serializeForRecall(turn.entries.map((te) => ({ id: te.id, message: te.message as any })));
+      if (text.length > maxTokensPerEntry * 4) {
+        text = text.slice(0, maxTokensPerEntry * 4) + `\n…（已截断，原 turn 过大；如需其余部分请用相邻 ID 分段 recall）`;
+      }
+      const imgs: RecallImage[] = [];
+      const seen = new Set<string>();
+      for (const te of turn.entries) collectImages(te.message, id, imgs, seen);
+      if (imgs.length > 0) { text += `\n[含图片 ×${imgs.length}，已附在结果中]`; images.push(...imgs); }
+      parts.push(`【${id} 所在 turn（L${lvl}）的整段原文】\n${text}`);
+      continue;
+    }
+    if (turn && lvl === 5) {
+      // L5 终态：拒绝召回（防连环巨条挤爆上下文，spec §7）
+      parts.push(`【${id}】该 turn 已合并为终态摘要（L5），仅保留合并描述，细节不可恢复。`);
+      continue;
+    }
     const msgs = [e.message];
     if (e.message.role === "assistant") {
       for (const block of e.message.content as any[]) {
@@ -41,19 +83,7 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
     // 提示行加在截断之后，保证不被截掉。
     const imgs: RecallImage[] = [];
     const seen = new Set<string>();
-    const collectImages = (m: any) => {
-      if (Array.isArray(m?.content)) {
-        for (const b of m.content) {
-          if (b?.type === "image" && typeof b.data === "string") {
-            const key = `${b.mimeType ?? "image/png"}:${b.data}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            imgs.push({ block: { type: "image", data: b.data, mimeType: b.mimeType ?? "image/png" }, sourceId: id });
-          }
-        }
-      }
-    };
-    for (const m of msgs) collectImages(m);
+    for (const m of msgs) collectImages(m, id, imgs, seen);
     if (imgs.length > 0) {
       text += `\n[含图片 ×${imgs.length}，已附在结果中]`;
       images.push(...imgs);
@@ -74,7 +104,7 @@ const NOTE_PREFIX_RE = /^(fb|task|pref)-/;
  * 双源 recall：ID 剥掉前导 ↩ 后以 fb-/task-/pref- 开头且 notes 已启用时，
  * 先查 notes（返回 detail，而非 branch 原文）；其余 ID 走现有 executeRecall 路径（行为与文案不变）。
  */
-export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: NoteStore | null, maxTokensPerEntry: number): RecallResult {
+export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: NoteStore | null, maxTokensPerEntry: number, degradeCtx?: RecallDegradeCtx): RecallResult {
   const entryIds: string[] = [];
   const parts: string[] = [];
   const missing: string[] = [];
@@ -92,7 +122,7 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
     entryIds.push(raw);
   }
   if (entryIds.length > 0) {
-    const r = executeRecall(entryIds, branch, maxTokensPerEntry);
+    const r = executeRecall(entryIds, branch, maxTokensPerEntry, degradeCtx);
     parts.unshift(r.text);
     missing.unshift(...r.missing);
     allImages.push(...r.images);

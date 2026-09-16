@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import { executeRecall, executeRecallDual, searchLedger } from "../src/recall.js";
-import { serializeTurn } from "../src/util.js";
+import { serializeTurn, splitIntoTurns } from "../src/util.js";
 import { NoteStore } from "../src/notes.js";
 import type { MessageEntry } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
@@ -288,6 +288,77 @@ describe("recall 返回图片", () => {
     const turn = { startEntryId: "u3", endEntryId: "u3", entries: noMimeBranch } as any;
     const s = serializeTurn(turn);
     expect(s).toContain("[图片: unknown]");
+  });
+});
+
+describe("三档召回语义（L3/L4 turn 级、L5 拒绝）", () => {
+  // branch：u1 用户原话 → a1 工具调用 → r1 工具结果 → a2 最终回复
+  const branch: MessageEntry[] = [
+    { id: "u1", message: { role: "user", content: [{ type: "text", text: "修一下排序" }] }, timestamp: 1 } as any,
+    { id: "a1", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "npm test" } }] }, timestamp: 2 } as any,
+    { id: "r1", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "3 passed" }] }, timestamp: 3 } as any,
+    { id: "a2", message: { role: "assistant", content: [{ type: "text", text: "已修复并推送" }] }, timestamp: 4 } as any,
+  ];
+  const turns = splitIntoTurns(branch); // 单 turn，startEntryId=u1
+  const mkCtx = (level: number) => ({
+    ledgers: [{ turnStartEntryId: "u1", turnEndEntryId: "a2", level } as any],
+    turns,
+  });
+
+  it("L3 的任意 ID 触发 turn 级召回：整段原文含工具过程", () => {
+    const r = executeRecallDual(["r1"], branch, null, 4000, mkCtx(3));
+    expect(r.text).toContain("整段原文");
+    expect(r.text).toContain("修一下排序");
+    expect(r.text).toContain("npm test");           // 工具过程可恢复
+    expect(r.text).toContain("3 passed");           // toolResult 在
+    expect(r.text).toContain("已修复并推送");         // 最终回复在
+  });
+
+  it("L4 的 ID 同样 turn 级召回", () => {
+    const r = executeRecallDual(["u1"], branch, null, 4000, mkCtx(4));
+    expect(r.text).toContain("整段原文");
+    expect(r.text).toContain("3 passed");
+  });
+
+  it("L5 的 ID 拒绝召回：返回终态说明，不返回原文", () => {
+    const r = executeRecallDual(["u1"], branch, null, 4000, mkCtx(5));
+    expect(r.text).toContain("已合并为终态摘要");
+    expect(r.text).not.toContain("npm test");
+    expect(r.text).not.toContain("修一下排序");
+  });
+
+  it("无 degradeCtx 时行为不变（entry 级），L1/L2 同样 entry 级", () => {
+    const noCtx = executeRecallDual(["a1"], branch, null, 4000);
+    expect(noCtx.text).toContain("[Tool result]: 3 passed"); // 配对 toolResult 连带（既有语义；serializeForRecall 不输出 toolCall id）
+    const l1 = executeRecallDual(["a1"], branch, null, 4000, mkCtx(1));
+    expect(l1.text).toContain("[Tool result]: 3 passed");
+    const l2 = executeRecallDual(["a1"], branch, null, 4000, mkCtx(2));
+    expect(l2.text).toContain("[Tool result]: 3 passed");
+  });
+
+  it("turn 级召回受 maxTokensPerEntry 预算截断", () => {
+    const r = executeRecallDual(["u1"], branch, null, 1, mkCtx(3)); // 1 token = 4 字符
+    expect(r.text).toContain("已截断");
+    expect(r.text.length).toBeLessThan(400);
+  });
+
+  it("多 ID 混合层级：各自路由，互不影响", () => {
+    // 两个 turn：t1 (L3) 与 t2 (L5)
+    const branch2: MessageEntry[] = [
+      ...branch,
+      { id: "u2", message: { role: "user", content: [{ type: "text", text: "下一个任务" }] }, timestamp: 5 } as any,
+      { id: "a3", message: { role: "assistant", content: [{ type: "text", text: "完成" }] }, timestamp: 6 } as any,
+    ];
+    const ctx = {
+      ledgers: [
+        { turnStartEntryId: "u1", turnEndEntryId: "a2", level: 3 },
+        { turnStartEntryId: "u2", turnEndEntryId: "a3", level: 5 },
+      ] as any[],
+      turns: splitIntoTurns(branch2),
+    };
+    const r = executeRecallDual(["r1", "u2"], branch2, null, 4000, ctx);
+    expect(r.text).toContain("整段原文");              // r1 → turn 级
+    expect(r.text).toContain("已合并为终态摘要");       // u2 → 拒绝
   });
 });
 
