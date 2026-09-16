@@ -39,11 +39,11 @@
     {
       "id": "task-004",
       "table": "tasks",
-      "text": "五级降级阶梯（L1–L5）：spec + 实现计划已定稿，待选执行方式",
+      "text": "五级降级阶梯（L1–L5）实现完成：SDD 5 任务全绿（267 passed），final review 可合并，等用户选合并方式",
       "detail": "spec（3630bd8）+ 实现计划（52d2ccc）已提交，分支 discuss/l4-compress。计划 5 任务 TDD：1 渲染层（renderTurnText 新阶梯+L5 无 IDs）→ 2 降级层（瀑布右移、L2→L3 机械）→ 3 recall 三档（L3/L4 turn 级、L5 拒绝）→ 4 index.ts 接线 → 5 README。计划文档：docs/superpowers/plans/2026-09-16-five-level-degrade.md。待用户选执行方式（SDD 推荐 / inline）。",
-      "status": "进行中",
+      "status": "已完成",
       "date": "2026-09-16",
-      "updatedAt": "2026-09-16T16:28:22.198Z",
+      "updatedAt": "2026-09-16T17:57:30.546Z",
       "source": "docs/superpowers/specs/2026-09-16-five-level-degrade-design.md",
       "locked": false
     }
