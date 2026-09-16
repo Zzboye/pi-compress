@@ -262,8 +262,15 @@ export default function (pi: ExtensionAPI): void {
         parts.push(formatSearchResult(r));
       }
       if (params.ids && params.ids.length > 0) {
-        // 双源 recall：notes 条目 ID（fb-/task-/pref-）优先查项目记忆，其余走 branch 原文路径
-        const r = executeRecallDual(params.ids, entries, notesStore, config?.recallMaxTokensPerEntry ?? 4_000);
+        // 双源 recall：notes 条目 ID（fb-/task-/pref-）优先查项目记忆，其余走 branch 原文路径；
+        // 层级上下文驱动三档路由（L3/L4 turn 级、L5 拒绝、L1/L2 entry 级，spec §7）。
+        // ledgers 与 turns 同源自当前 branch（同一 entries 传入 splitIntoTurns / ledgersInBranchOrder），
+        // turnStartEntryId 恒对齐 Turn.startEntryId；分支回退残留的旧 ledger 因起点不在任何 turn 上
+        // 而自然回退 entry 级（不误路由）。
+        const r = executeRecallDual(params.ids, entries, notesStore, config?.recallMaxTokensPerEntry ?? 4_000, {
+          ledgers: ledgersInBranchOrder(entries, false),
+          turns: splitIntoTurns(entries),
+        });
         recallStats.calls += 1;
         recallStats.hits += params.ids.length - r.missing.length;
         recallStats.missing += r.missing.length;

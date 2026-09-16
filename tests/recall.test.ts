@@ -360,6 +360,28 @@ describe("三档召回语义（L3/L4 turn 级、L5 拒绝）", () => {
     expect(r.text).toContain("整段原文");              // r1 → turn 级
     expect(r.text).toContain("已合并为终态摘要");       // u2 → 拒绝
   });
+
+  it("F1 去重：同 turn 多 ID 只有首个返回整段原文，后续 ID 输出一行提示", () => {
+    const r = executeRecallDual(["a1", "a2"], branch, null, 4000, mkCtx(3));
+    // 首个 ID（a1）正常 turn 级整段返回
+    expect(r.text).toContain("修一下排序");
+    expect(r.text).toContain("已随 ↩a1 返回，不重复输出");   // a2 的去重提示
+    expect(r.text).not.toContain("↩a2 所在 turn");           // a2 不再重复整段原文
+    // 整段原文只出现一次（旧实现按 ID 重复输出）
+    expect(r.text.split("修一下排序").length - 1).toBe(1);
+    expect(r.missing).toEqual([]);
+  });
+
+  it("F1 去重：同 turn 图片只 push 一次（不随重复 ID 翻倍）", () => {
+    const imgBranch: MessageEntry[] = [
+      { id: "u9", message: { role: "user", content: [{ type: "text", text: "看图" }, { type: "image", data: "AAAA" }] }, timestamp: 1 } as any,
+      { id: "a9", message: { role: "assistant", content: [{ type: "text", text: "好的" }] }, timestamp: 2 } as any,
+    ];
+    const ctx9 = { ledgers: [{ turnStartEntryId: "u9", turnEndEntryId: "a9", level: 3 } as any], turns: splitIntoTurns(imgBranch) };
+    const r = executeRecallDual(["u9", "a9"], imgBranch, null, 4000, ctx9);
+    expect(r.images).toHaveLength(1);           // 图片块仅一份
+    expect(r.text).toContain("已随 ↩u9 返回");
+  });
 });
 
 function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {

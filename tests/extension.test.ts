@@ -4,7 +4,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import piExtension from "../src/index.js";
-import { LEDGER_CUSTOM_TYPE, type LedgerData } from "../src/ledger.js";
+import { LEDGER_CUSTOM_TYPE, type LedgerData, type LedgerLevel } from "../src/ledger.js";
 import { NoteStore } from "../src/notes.js";
 
 function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
@@ -749,5 +749,97 @@ describe("extension entry wiring", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // ---------- recall 三档语义集成（Task 4：层级上下文接线） ----------
+  // branch 惯例：u1 用户原话 → a1 工具调用 → r1 工具结果 → a2 最终回复（同 turn，startEntryId=u1）
+  describe("recall 接线层级上下文：三档路由集成生效", () => {
+    const mkBranch = (extra: any[] = []) => [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "修一下排序" }] } },
+      { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "npm test" } }] } },
+      { id: "r1", type: "message", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "3 passed" }] } },
+      { id: "a2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "已修复并推送" }] } },
+      ...extra,
+    ];
+    const mkCtx = (branch: any[]) => ({
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    });
+    const withLedger = (branch: any[], level: LedgerLevel, startId = "u1") => [
+      ...branch,
+      { id: "lg1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({ turnStartEntryId: startId, level }) },
+    ];
+
+    it("recall 按 ledger 层级路由：L3 turn 的 ID 返回整段原文（含工具过程）", async () => {
+      const { tools, handlers } = harness();
+      const branch = withLedger(mkBranch(), 3);
+      const fakeCtx: any = mkCtx(branch);
+      await handlers.session_start({}, fakeCtx); // store 重建：ledger 落入缓存
+      const out = await tools.recall.execute("tc1", { ids: ["r1"] }, undefined, undefined, fakeCtx);
+      const text = out.content[0].text;
+      expect(text).toContain("整段原文");        // turn 级而非 entry 级
+      expect(text).toContain("修一下排序");      // 用户原文
+      expect(text).toContain("npm test");        // 工具过程整段可见
+      expect(text).toContain("3 passed");        // 工具结果文本
+      expect(text).toContain("已修复并推送");    // 最终回复
+      expect(text).not.toContain("【r1 的原文】"); // 不再是 entry 级头
+    });
+
+    it("L5 的 ID 拒绝召回：返回终态说明，不泄原文", async () => {
+      const { tools, handlers } = harness();
+      const branch = withLedger(mkBranch(), 5);
+      const fakeCtx: any = mkCtx(branch);
+      await handlers.session_start({}, fakeCtx);
+      const out = await tools.recall.execute("tc1", { ids: ["u1"] }, undefined, undefined, fakeCtx);
+      const text = out.content[0].text;
+      expect(text).toContain("已合并为终态摘要");
+      expect(text).not.toContain("修一下排序");
+      expect(text).not.toContain("3 passed");
+    });
+
+    it("L1/L2 与无 ledger（未摘要 turn）均回退 entry 级不变", async () => {
+      const { tools, handlers } = harness();
+      for (const branch of [withLedger(mkBranch(), 1), withLedger(mkBranch(), 2), mkBranch()]) {
+        const fakeCtx: any = mkCtx(branch);
+        await handlers.session_start({}, fakeCtx);
+        const out = await tools.recall.execute("tc1", { ids: ["a1"] }, undefined, undefined, fakeCtx);
+        const text = out.content[0].text;
+        expect(text).toContain("【a1 的原文】");          // entry 级头
+        expect(text).toContain("[Tool result]: 3 passed"); // 配对 toolResult 连带（既有语义）
+        expect(text).not.toContain("整段原文");
+      }
+    });
+
+    it("错位防御：ledger 的 turnStartEntryId 不在任何 turn 起点上（分支回退残留）→ 回退 entry 级，不误路由相邻 turn", async () => {
+      // 恒等对齐验证：ledgersInBranchOrder 与 splitIntoTurns 同源（同一 branch entries），
+      // 但持久化 ledger 可能指向已不在 branch 的旧起点。此时该 turn 必须按 entry 级召回。
+      const { tools, handlers } = harness();
+      // startId=r1：r1 是 turn 中间条目（turn 真实起点是 u1），任何 turn 的 startEntryId 都不是 r1
+      const branch = withLedger(mkBranch(), 3, "r1");
+      const fakeCtx: any = mkCtx(branch);
+      await handlers.session_start({}, fakeCtx);
+      const out = await tools.recall.execute("tc1", { ids: ["a1"] }, undefined, undefined, fakeCtx);
+      const text = out.content[0].text;
+      expect(text).toContain("【a1 的原文】");           // 回退 entry 级
+      expect(text).toContain("[Tool result]: 3 passed");
+      expect(text).not.toContain("整段原文");            // 不误路由到 turn 级
+      expect(text).not.toContain("修一下排序");          // 不误带出相邻/所在 turn 的其它条目
+    });
+
+    it("F1 集成：同 turn 多 ID 整段原文只返回一次，后续 ID 给提示且图片不重复 push", async () => {
+      const { tools, handlers } = harness();
+      const branch = withLedger([
+        { id: "u9", type: "message", message: { role: "user", content: [{ type: "text", text: "看图修排序" }, { type: "image", data: "AAAA" }] } },
+        { id: "a9", type: "message", message: { role: "assistant", content: [{ type: "text", text: "好的" }] } },
+      ], 3, "u9");
+      const fakeCtx: any = mkCtx(branch);
+      await handlers.session_start({}, fakeCtx);
+      const out = await tools.recall.execute("tc1", { ids: ["a9", "u9"] }, undefined, undefined, fakeCtx);
+      const text = out.content[0].text;
+      expect(text).toContain("已随 ↩a9 返回，不重复输出");
+      expect(text.split("看图修排序").length - 1).toBe(1); // 整段原文仅一份
+      expect(out.content.filter((c: any) => c.type === "image")).toHaveLength(1); // 图片不重复
+    });
   });
 });

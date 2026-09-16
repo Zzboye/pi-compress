@@ -35,6 +35,9 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   const missing: string[] = [];
   const parts: string[] = [];
   const images: RecallImage[] = [];
+  // F1 去重：turnStartEntryId → 首个返回整段原文的 ID。多 ID 命中同一 L3/L4 turn 时，
+  // 后续 ID 只给一行提示，不重复整段原文、不重复 push 图片。
+  const seenTurns = new Map<string, string>();
   // entryId → 所属 turn；turnStartEntryId → ledger 层级（spec §7 三档路由）
   const turnOfEntry = new Map<string, Turn>();
   for (const t of degradeCtx?.turns ?? []) for (const e of t.entries) turnOfEntry.set(e.id, t);
@@ -46,6 +49,13 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
     const turn = degradeCtx ? turnOfEntry.get(id) : undefined;
     const lvl = turn ? levelOfTurn.get(turn.startEntryId) ?? 1 : 1;
     if (turn && lvl >= 3 && lvl <= 4) {
+      const firstId = seenTurns.get(turn.startEntryId);
+      if (firstId !== undefined) {
+        // 同 turn 已随前一个 ID 返回过整段原文：不重复全文/图片（F1）
+        parts.push(`【${id}】该 turn 原文已随 ↩${firstId} 返回，不重复输出。`);
+        continue;
+      }
+      seenTurns.set(turn.startEntryId, id);
       // turn 级：整段原文（恢复被丢的工具过程/两端原文，spec §7）
       let text = serializeForRecall(turn.entries.map((te) => ({ id: te.id, message: te.message as any })));
       if (text.length > maxTokensPerEntry * 4) {
