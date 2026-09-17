@@ -185,6 +185,36 @@ describe("renderActionLedger levels（五级阶梯）", () => {
     expect(line).toBeDefined();
     expect(line!).not.toContain("↩");
   });
+
+  it("跨组 L5 渲染：相邻 L5 描述不同时按组分断，各组显示各自描述（M4）", () => {
+    // 两批降级产生的两个组（描述 A/B 不同）相邻：旧行为聚合为一行只显 group[0] 描述；
+    // 新行为：组身份标记 = merged.description，描述不同即断行，各组渲染各自的范围与描述
+    // （后缀由 mergeDescribe 生成时写入 description，fixture 同形状）
+    const g1a: LedgerData = { ...full, level: 5 as any, merged: { description: "调查修复降级排序 bug（2 条已合并）" } };
+    const g1b: LedgerData = { ...full, turnStartEntryId: "e101", level: 5 as any, merged: { description: "调查修复降级排序 bug（2 条已合并）" } };
+    const g2a: LedgerData = { ...full, turnStartEntryId: "e201", level: 5 as any, merged: { description: "重构 recall 召回路由（2 条已合并）" } };
+    const g2b: LedgerData = { ...full, turnStartEntryId: "e301", level: 5 as any, merged: { description: "重构 recall 召回路由（2 条已合并）" } };
+    const text = textOf(renderActionLedger([g1a, g1b, g2a, g2b]));
+    expect(text).toContain("T1-T2 · 调查修复降级排序 bug（2 条已合并）");
+    expect(text).toContain("T3-T4 · 重构 recall 召回路由（2 条已合并）");
+  });
+
+  it("跨组 L5 渲染：相邻 L5 描述碰巧相同则仍聚为一行（无损）", () => {
+    const g1a: LedgerData = { ...full, level: 5 as any, merged: { description: "同主题（2 条已合并）" } };
+    const g1b: LedgerData = { ...full, turnStartEntryId: "e101", level: 5 as any, merged: { description: "同主题（2 条已合并）" } };
+    const text = textOf(renderActionLedger([g1a, g1b]));
+    expect(text).toContain("T1-T2 · 同主题（2 条已合并）");
+  });
+
+  it("跨组 L5 渲染：L5 组与 L4 条目相邻不互相影响", () => {
+    const l5a: LedgerData = { ...full, level: 5 as any, merged: { description: "描述甲" } };
+    const l5b: LedgerData = { ...full, turnStartEntryId: "e101", level: 5 as any, merged: { description: "描述甲" } };
+    const l4: LedgerData = { ...sample, turnStartEntryId: "e201", level: 4 as any };
+    const l5c: LedgerData = { ...full, turnStartEntryId: "e301", level: 5 as any, merged: { description: "描述乙" } };
+    const text = textOf(renderActionLedger([l5a, l5b, l4, l5c]));
+    expect(text).toContain("T1-T2 · 描述甲");
+    expect(text).toContain("T4 · 描述乙"); // L4 在中间打断聚合，T4 是孤立 L5
+  });
 });
 
 describe("图片占位行", () => {

@@ -132,7 +132,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **L2** 丢动作中的命令，两端原文保留
 - **L3** 丢全部动作行（工具过程），用户原文与最终回复原文保留——纯机械降级，零 LLM 调用
 - **L4** 用户意图（↩ID）+ 最终回复摘要（↩ID）——本地模型生成（compressEnds）
-- **L5** 多 turn 合并一行 `T3-T7 · 描述（N 条已合并）`——本地模型生成（mergeDescribe）；**行尾无 ↩ID，细节不可召回**
+- **L5** 多 turn 合并一行 `T3-T7 · 描述（N 条已合并）`——本地模型生成（mergeDescribe）；同一批降级组描述相同聚为一行，相邻不同批次的组（描述不同）分行各显描述；**行尾无 ↩ID，细节不可召回**
 - **图片**：用户消息中的图片在 L1–L3 渲染占位行 `[图片 ×N: mime1, mime2 ↩entryId]`（不随层级降级）；L4 起不渲染占位行，图片存在感由摘要描述承载。
 
 ```jsonc

@@ -451,10 +451,10 @@ describe("searchLedger", () => {
     expect(r.truncated).toBe(true);
   });
 
-  it("L5 连续组 turnLabel 显示范围（多 ledger L5 相邻时合并为 T3-T4）", () => {
+  it("L5 连续组 turnLabel 显示范围（多 ledger L5 相邻且同描述时合并为 T3-T4）", () => {
     const t4 = mkLedger({
       turnStartEntryId: "t4", level: 5,
-      merged: { description: "继续验证 forceRatio" },
+      merged: { description: "调整 forceRatio 并验证窗口行为" }, // 同批同描述
       summary: { entries: [] },
     });
     const r = searchLedger("forceRatio", [...ledgers, t4], 15);
@@ -464,6 +464,26 @@ describe("searchLedger", () => {
     const mergedHits = r.hits.filter((x) => x.field === "合并描述");
     expect(mergedHits.length).toBe(2);
     expect(mergedHits.every((x) => x.turnLabel === "T3-T4")).toBe(true);
+  });
+
+  it("L5 相邻但描述不同 → 聚合按组分断，各组标各自范围（M4）", () => {
+    // t3(描述X) + t4(描述Y) + t5(描述Y)：同描述的 t4/t5 一组，t3 独立
+    const t4 = mkLedger({
+      turnStartEntryId: "t4", level: 5,
+      merged: { description: "另一批任务也涉及 forceRatio" },
+      summary: { entries: [] },
+    });
+    const t5 = mkLedger({
+      turnStartEntryId: "t5", level: 5,
+      merged: { description: "另一批任务也涉及 forceRatio" },
+      summary: { entries: [] },
+    });
+    const r = searchLedger("forceRatio", [...ledgers, t4, t5], 15);
+    const hits = r.hits.filter((x) => x.field === "合并描述");
+    const t3hit = hits.find((x) => x.turnLabel === "T3");
+    const t45hit = hits.find((x) => x.turnLabel === "T4-T5");
+    expect(t3hit).toBeDefined();
+    expect(t45hit).toBeDefined();
   });
 
   it("无命中返回空 hits 且不 truncated", () => {

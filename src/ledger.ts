@@ -131,9 +131,16 @@ export function renderActionLedger(rawLedgers: LedgerData[]): AgentMessage {
   for (let i = 0; i < ledgers.length; i++) {
     const l = ledgers[i];
     if ((l.level ?? 1) === 5) {
-      // 聚合连续 level=5 条目为一行（终态无任何 ↩IDs，拒绝召回语义）
+      // 聚合连续 level=5 条目为一行（终态无任何 ↩IDs，拒绝召回语义）。
+      // M4 修复：组身份标记 = merged.description（同一批组的描述逐字相同）。
+      // 相邻 L5 描述不同 = 不同降级批次的不同任务，必须分断各行，
+      // 否则后组描述被 group[0] 覆盖而丢失（跨组行数极微，任务边界优先）。
       let end = i;
-      while (end + 1 < ledgers.length && (ledgers[end + 1].level ?? 1) === 5) end++;
+      while (
+        end + 1 < ledgers.length &&
+        (ledgers[end + 1].level ?? 1) === 5 &&
+        ledgers[end + 1].merged?.description === l.merged?.description
+      ) end++;
       const group = ledgers.slice(i, end + 1);
       const desc = group[0].merged?.description ?? "（已合并）";
       const range = group.length > 1 ? `T${i + 1}-T${end + 1}` : `T${i + 1}`;

@@ -205,8 +205,13 @@ export function searchLedger(query: string, ledgers: LedgerData[], maxHits: numb
     if (lvl === 5) {
       // L5 组范围：向后聚合连续 level=5（renderActionLedger 同款边界）。
       // Task 2 阶梯右移：合并组从 L4 变为 L5，聚合边界随之改为 5。
+      // M4 修复：与渲染层同款——描述不同 = 不同降级批次，按组分断。
       let end = i;
-      while (end + 1 < ledgers.length && (ledgers[end + 1].level ?? 1) === 5) end++;
+      while (
+        end + 1 < ledgers.length &&
+        (ledgers[end + 1].level ?? 1) === 5 &&
+        ledgers[end + 1].merged?.description === l.merged?.description
+      ) end++;
       const label = end > i ? `T${i + 1}-T${end + 1}` : `T${i + 1}`;
       for (let j = i; j <= end; j++) {
         const m = ledgers[j];
