@@ -4,7 +4,7 @@ import type { NoteStore } from "./notes.js";
 
 /** recall 召回的图片块：block 可直接作为 pi 工具结果的 image content，sourceId 标注来源 entry */
 export interface RecallImage { block: { type: "image"; data: string; mimeType: string }; sourceId: string }
-export interface RecallResult { text: string; missing: string[]; notesHits: number; images: RecallImage[] }
+export interface RecallResult { text: string; missing: string[]; notesHits: number; images: RecallImage[]; rejected?: number }
 
 /** recall 层级路由上下文：ledgers 按 branch 序（index.ts 的 ledgersInBranchOrder 产出） */
 export interface RecallDegradeCtx { ledgers: LedgerData[]; turns: Turn[] }
@@ -35,6 +35,7 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   const missing: string[] = [];
   const parts: string[] = [];
   const images: RecallImage[] = [];
+  let rejected = 0;
   // F1 去重：turnStartEntryId → 首个返回整段原文的 ID。多 ID 命中同一 L3/L4 turn 时，
   // 后续 ID 只给一行提示，不重复整段原文、不重复 push 图片。
   const seenTurns = new Map<string, string>();
@@ -69,7 +70,9 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
       continue;
     }
     if (turn && lvl === 5) {
-      // L5 终态：拒绝召回（防连环巨条挤爆上下文，spec §7）
+      // L5 终态：拒绝召回（防连环巨条挤爆上下文，spec §7）。
+      // rejected 单独计数（M9）：不计入 hits/missing，统计口径区分「拒发」与「未中」。
+      rejected += 1;
       parts.push(`【${id}】该 turn 已合并为终态摘要（L5），仅保留合并描述，细节不可恢复。`);
       continue;
     }
@@ -103,7 +106,7 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   if (missing.length > 0) {
     parts.push(`以下 ID 不在当前分支中（可能因 /tree 回退）：${missing.join(", ")}。可尝试 recall 相邻 turn 的 ID。`);
   }
-  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits: 0, images };
+  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits: 0, images, rejected };
 }
 
 // ---------- 双源 recall（notes 优先，branch 兜底）----------
@@ -131,13 +134,15 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
     }
     entryIds.push(raw);
   }
+  let rejected = 0;
   if (entryIds.length > 0) {
     const r = executeRecall(entryIds, branch, maxTokensPerEntry, degradeCtx);
     parts.unshift(r.text);
     missing.unshift(...r.missing);
     allImages.push(...r.images);
+    rejected = r.rejected ?? 0;
   }
-  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits, images: allImages };
+  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits, images: allImages, rejected };
 }
 
 // ---------- 关键词检索（searchLedger）----------

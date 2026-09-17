@@ -203,6 +203,28 @@ describe("extension entry wiring", () => {
     expect(out).toContain("未中 1 个");  // gone 未命中
   });
 
+  it("compress-status 统计口径：L5 拒绝计入「L5 拒绝」不计入取回（M9）", async () => {
+    const { tools, handlers, commands } = harness();
+    const notifyCalls: string[] = [];
+    // 复用 recall 路由测试的 withLedger 形状：branch + L5 ledger → session_start 重建 store →
+    // recall 走 L5 拒绝路径，随后 status 应显示「L5 拒绝 1 个」且取回不含该 ID
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "修一下排序" }] } },
+      { id: "lg1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({ turnStartEntryId: "u1", level: 5 as any }) },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    await handlers.session_start({}, fakeCtx);
+    await tools.recall.execute("tc1", { ids: ["u1"] }, undefined, undefined, fakeCtx);
+    await commands["compress-status"].handler("", fakeCtx);
+    const out = notifyCalls.join("\n");
+    expect(out).toContain("L5 拒绝 1 个");
+    expect(out).not.toContain("取回 1 条"); // 旧行为：拒绝被计入取回
+  });
+
   it("compress-status 显示项目记忆行（启用含三表计数与召回数；未启用含未启用）", async () => {
     // ① enabled：三表各预置一条，recall 命中一条记忆 → 状态行含计数与「/ 记忆召回」
     const { tools, commands, handlers } = harness();

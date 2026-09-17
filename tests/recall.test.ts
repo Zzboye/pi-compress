@@ -320,11 +320,13 @@ describe("三档召回语义（L3/L4 turn 级、L5 拒绝）", () => {
     expect(r.text).toContain("3 passed");
   });
 
-  it("L5 的 ID 拒绝召回：返回终态说明，不返回原文", () => {
+  it("L5 的 ID 拒绝召回：返回终态说明，不返回原文，且 rejected 单独计数（M9）", () => {
     const r = executeRecallDual(["u1"], branch, null, 4000, mkCtx(5));
     expect(r.text).toContain("已合并为终态摘要");
     expect(r.text).not.toContain("npm test");
     expect(r.text).not.toContain("修一下排序");
+    expect(r.rejected).toBe(1);       // 拒绝计入 rejected，不落入 missing
+    expect(r.missing).toEqual([]);
   });
 
   it("无 degradeCtx 时行为不变（entry 级），L1/L2 同样 entry 级", () => {

@@ -84,6 +84,8 @@ L5（合并行，无 IDs）:
 | L3/L4 | 两端 ID | **turn 级**：`splitIntoTurns` 定位边界 → `serializeForRecall` 整段返回（用户原话、每个 toolCall→toolResult、最终回复） |
 | L5 | 无可见 ID | 不可达（行尾无 IDs）；防御：若模型持旧上下文中的旧 ID 召回，返回说明文本「已合并为终态摘要，细节不可恢复」 |
 
+> **勘误（M3）**：§4 的 L3 渲染示例（「### T12 · 用户：…」+「最终回复（原文）：…」）与 L5 合并行一样**不含任何 ↩ID**——「可见 ID = 两端 ID」的表述仅指 recall 路由语义（该层 turn 的两端 entry 是 turn 级召回的入口），并非渲染文本中可见。L3/L4 条目的实际发现路径是 `searchLedger` 命中（命中行附带可召回的 entry ID）或模型从降级前的旧上下文记忆 ID。
+
 - turn 级召回受 `recallMaxTokensPerEntry` 预算约束（超长截断，提示分页待办 task-002）
 - entry 级返回原文量约 2k、turn 级约数 k——按需付费，符合 recall 哲学
 - L5 拒绝文案是正向设计：终止模型的召回尝试，防连环巨条挤爆上下文
