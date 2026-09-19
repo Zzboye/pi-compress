@@ -253,19 +253,21 @@ export default function (pi: ExtensionAPI): void {
     if (needSettle) engine.enqueue(last);
     if (fragmentKeys.length > 0) {
       const turnStart = last.startEntryId;
-      // 整 turn 摘要落盘且队列清空后墓碑化片段。幂等守卫：整 turn ledger 不存在（摘要失败/超时）
-      // 时不墓碑——片段仍是唯一索引，数据无损优先，下轮 agent_settled 重试；
+      // 整 turn 摘要落盘且队列清空后墓碑化片段。幂等守卫：整 turn ledger 不存在时不墓碑——
+      // 片段仍是唯一索引，数据无损优先。缺整 turn ledger 的两种情形去向不同：摘要失败进
+      // failed 集合，不自动重试（片段保持原文放行，可由 session_start 补摘再试）；
+      // waitIdle 超时则下轮 agent_settled 重新 waitIdle，即重试收敛。
       // 已 absorbed / 不在 store 的片段跳过（重复 agent_settled 不重复墓碑化）。
       // waitIdle 在 enqueue 之后调用：整 turn FIFO 排在片段后，队列清空 = 全部落盘。
       void engine.waitIdle(WAIT_TIMEOUT_MS).then(() => {
-        if (!store.get(turnStart)) return; // 整 turn 摘要未落盘：不收敛，下轮重试
+        if (!store.get(turnStart)) return; // 整 turn 摘要未落盘：不收敛（失败不自动重试；超时由下轮 waitIdle 重试）
         for (const k of fragmentKeys) {
           const frag = store.get(k);
           if (!frag || frag.absorbed) continue;
           const tombstone = { ...frag, absorbed: true as const };
           store.set(tombstone);
           try { (ctx.sessionManager as unknown as { appendCustomEntry(t: string, d: unknown): void }).appendCustomEntry(LEDGER_CUSTOM_TYPE, tombstone); } catch { /* 同 onLedger：持久化失败不影响内存收敛 */ }
-          store.delete(k); // cache 内移除（墓碑以 appendCustomEntry 落盘，rebuild 跳过 → 不复活）
+          store.delete(k); // cache 内移除（墓碑以 appendCustomEntry 落盘；rebuild 读到墓碑时删除同名条目 → 不复活）
         }
       });
     }

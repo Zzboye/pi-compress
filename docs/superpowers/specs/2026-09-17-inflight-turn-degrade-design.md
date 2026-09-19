@@ -92,7 +92,7 @@ if turnTokens(remaining) > keepRecentTokens:
 墓碑机制（必须）：session 文件不能删条目，`rebuildFromEntries` 会复活已删除的片段——所以删除实现为终态覆盖：
 
 - `LedgerData` 新增可选字段 `absorbed?: true`
-- `rebuildFromEntries` 跳过 absorbed 条目（不出现在 cache）
+- `rebuildFromEntries` 删除同名条目（append-only 文件中墓碑压制先前同名条目，不出现在 cache）
 - 渲染/装配侧防御性过滤（cache 中本不会有，双保险）
 - 被墓碑的片段已无增量信息：整 turn 条目的 quotes 覆盖全部原文，且最终回复（结论载体）进了 ledger
 
@@ -136,7 +136,7 @@ if turnTokens(remaining) > keepRecentTokens:
 |---|---|
 | `src/util.ts` | 片段切分函数（伪 Turn 构造）+ 覆盖范围推导 |
 | `src/ledger.ts` | `LedgerData.absorbed` 字段 + normalize/isValid + 渲染过滤 |
-| `src/store.ts` | rebuild 跳过 absorbed |
+| `src/store.ts` | rebuild 删除 absorbed 同名条目 |
 | `src/index.ts` | context 事件：切分检查 + 裁剪视图 + 入队；agent_settled：收敛墓碑 |
 | 测试 | 上述 6 组 |
 | README | 已知限制「单 turn 超大整体保留」条目改写 |

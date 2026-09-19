@@ -45,7 +45,7 @@ describe("absorbed 墓碑", () => {
     summary: { entries: [] },
   });
 
-  it("rebuild 跳过 absorbed 条目（墓碑不复活）", () => {
+  it("rebuild 删除同名条目（墓碑压制 append-only 文件中先前同名条目，不复活）", () => {
     const store = new LedgerStore();
     store.set(frag("f1"));
     // 模拟墓碑化后的持久化条目

@@ -11,6 +11,7 @@
 - **结论保新鲜**：最终回复由系统机械逐字保留在日志头部（primacy），不经摘要模型转述
 - **近期保时序**：默认最近 20k tokens 的 turn 原文保留在窗口尾部（recency）
 - **细节按需取回**：窗外的工具调用、用户原话、最终回复都落盘为动作日志，LLM 传 `↩entryId` 即可召回逐字原文——**零模型调用**；不知道该召回哪个 ID 时，recall 还支持 `query` 关键词检索（对 LedgerData 全量字段做大小写不敏感子串匹配，**不受降级层级影响**——L3 起渲染已逐步压缩（L4/L5 更甚），但检索命中的是底层逐字数据），返回命中索引后再按 ID 取回
+- **超大 turn 边答边压**：进行中 turn 的原文超过 `keepRecentTokens` 时，溢出部分（最旧的完整工具调用对）自动切成 ledger 条目提前进入摘要管线与降级瀑布（片段最多降到 L4、豁免 L5 合并；turn 结束由整 turn 摘要吸收后墓碑化收敛），不必等 turn 结束才开始压缩；溢出切分不拆散 toolCall→toolResult 对，用户消息永不切出
 摘要模型只负责整理「思考与工具调用 → 动作摘要」，且模型生成的自由文本字段为零：思考内容直接丢弃（过程噪声），工具调用的 target/路径逐字保留，用户原话与最终回复由系统机械提取。
 
 ## 工作原理
@@ -105,7 +106,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 | `summarizer` | `undefined` | — | 摘要后端。`undefined` = 插件只观察不压缩。`{provider,model}` 用 pi 注册表；`{baseUrl,model[,apiKey]}` 用 OpenAI 兼容直连 |
 | `summarizerFallback` | `undefined` | — | 备用摘要后端，形态与 `summarizer` 相同。主后端报**上下文溢出类错误**（HTTP 400/413、exceeds context 等，即 turn 太大主模型装不下）时**立即切换**（不烧退避重试）；其他错误重试耗尽后也转备用。备用也失败才标记 unsummarized（原文照发）。**选型注意：必须选大窗口且可关闭思考的模型**——强制思考型模型（如 ark 上的 glm-5.3-flash）的思考会吃满 `maxTokens` 输出预算导致 JSON 恒定截断；deepseek 系需在 `models.json` 给模型加 `"compat": {"thinkingFormat": "deepseek"}` 才会随请求发送 `thinking: {type:"disabled"}` |
 | `verbatimCheck` | `true` | bool | 逐字校验：摘要条目里的路径/命令必须在对话原文中出现，否则剔除（防小模型编造） |
-| `keepRecentTokens` | `20000` | 1000–1000000 | 近期窗口大小（tokens），窗口内 turn 原文保留。**计量口径**：CJK 感知估算（中文/日文/韩文字符 ≈ 1 tok/字，其余 ≈ 1 tok/4 字符，见 `util.countTokens`）；assistant 消息剥离 thinking 块后计（窗口发给 LLM 时同样剥离，纯 thinking 消息整条丢弃）——思考是过程噪声，不挤占有效输出预算 |
+| `keepRecentTokens` | `20000` | 1000–1000000 | 近期窗口大小（tokens），窗口内 turn 原文保留。**计量口径**：CJK 感知估算（中文/日文/韩文字符 ≈ 1 tok/字，其余 ≈ 1 tok/4 字符，见 `util.countTokens`）；assistant 消息剥离 thinking 块后计（窗口发给 LLM 时同样剥离，纯 thinking 消息整条丢弃）——思考是过程噪声，不挤占有效输出预算。**也是进行中 turn 的溢出切分阈值**：单个 turn 原文超过该值时，溢出部分切成 ledger 条目提前摘要与降级（见已知限制） |
 | `forceRatio` | `0.76` | 0.1–0.99 | 上下文用量超过此比例触发强制点（等待队列清空后重组） |
 | `retry.maxAttempts` | `3` | 1–100 | 单 turn 摘要失败重试次数 |
 | `retry.backoffMs` | `2000` | 100–600000 | 指数退避基数（第 n 次等待 `backoffMs * 2^(n-1)`） |
@@ -303,7 +304,7 @@ npm test        # vitest 单测（tests/）
 - **动作日志降级（五级分层）依赖本地模型**：L3→L4 的意图/outcome 摘要与 L4→L5 的合并描述由 `summarizer` 现场生成，降级触发瞬间可能增加一次后台模型调用；L1→L2（去命令）与 L2→L3（丢动作行）为纯规则，无模型成本。
 - **补摘仅在 session_start 触发**：历史缺口在会话恢复时补齐；会话中途关闭摘要器再开启需重启会话才会补摘。补摘受 `backfillLimit` 上限约束，超出部分（更旧的 turn）保持原文放行。
 - **RPC/print 模式未特殊处理**：插件在 `tui` 模式下完整工作；`rpc`/`json`/`print` 模式下事件仍触发，但 `ctx.ui.notify`/`setStatus` 可能无可见输出。
-- **单 turn 超大**：单个 turn 超过 `keepRecentTokens` 时，按设计仍整体保留在窗口内（不拆分），会导致窗口临时超过预算，直到下一轮 pi 原生压缩兜底。
+- **进行中超大 turn**：原文超过 `keepRecentTokens` 后，溢出部分（最旧的完整工具调用对）自动切成 ledger 条目提前进入摘要管线与降级瀑布（片段豁免 L5 合并、最多降到 L4；turn 结束由整 turn 摘要吸收后墓碑化收敛）；低于阈值时整体保留，行为不变。溢出切分不拆散 toolCall→toolResult 对，用户消息永不切出；新切片段当轮仍原文放行（落盘后下一轮由 ledger 行接管），摘要失败的片段保持原文放行，数据无损
 - **pi 原生压缩感知**：context 装配与 dump 用 pi 的 `buildContextEntries` 裁剪（firstKeptEntryId 之前的旧历史不回归），pi 原生压缩摘要（含插件经 `session_before_compact` 提交的文本）以 user 消息恢复在最前；pre-compaction 旧历史不再可见原文，但 recall/search 仍走全量 branch，↩ID 照常可召回。
 - **逐字校验依赖路径正则**：`verbatimCheck` 用 `/[\w./\\-]+\.\w{1,4}/g` 提取疑似路径，对无扩展名的命令/参数不做校验。
 - **摘要只见 toolResult 的头+尾**：超过 2000 字符的 toolResult 在摘要 prompt 中按「前 1400 + 后 500 + 中段省略标记」采样；中段内容对摘要模型不可见（recall 可取回：单条 `recallMaxTokensPerEntry`（默认 4000 token）内逐字全量，超出部分截断）。
