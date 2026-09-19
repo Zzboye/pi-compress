@@ -7,10 +7,10 @@
     {
       "id": "task-001",
       "table": "tasks",
-      "text": "Codex 外部审查发现三个 P1 真实 bug，均已验证属实并修复",
+      "text": "Codex 外部审查四个 P1 + 一个 P3 全部修复完成：降级恢复、动作 id 匹配、recall 全量序列化、compaction 感知装配（8f5d725）+ P3 计数重写（89ebfca）",
       "detail": "用 Codex 审查 pi-compress 三次报 P1 均为真 bug：①降级后恢复代码位于 context 处理器 degraded 早退之后永不可达（120s 超时后整个会话插件停摆）——修复 commit 2cb8864；②parseLedgerOutput 只按 target 建键去重，同 turn 先 read 后 write 同一文件会错配成一条混合记录——修复 commit 433ebcf（prompt 清单带 id=N 序号，解析按 id 匹配，无 id 按 target 轮转兼容）；③executeRecall 走 pi serializeConversation，toolResult 被纯头部截断到 2000 字符（实测 20000 字符只回 2100），README「逐字可取回」未兑现——修复 commit 8c13c8e（新增 serializeForRecall 全量序列化器 + recallMaxTokensPerEntry 配置项，默认 4000）。经验：机械键与解析键口径必须一致；信任链上每层都要实测（pi 库内部行为不能只看文档）；外部审查（Codex）值得纳入流程。三个 commit 均在本地 main，因 GitHub connection reset 尚未推送。",
       "date": "2026-09-15",
-      "updatedAt": "2026-09-15T17:08:40.479Z",
+      "updatedAt": "2026-09-19T10:12:10.972Z",
       "source": "会话：Codex 审查 pi-compress 反馈验证",
       "locked": false
     },
@@ -28,11 +28,11 @@
     {
       "id": "task-003",
       "table": "tasks",
-      "text": "图片透传观察 + 全局记忆设计 + 四项锦上添花",
-      "detail": "来自 T55/T69 的遗留清单中尚未记录的项。①图片透传观察：recall 真图代码闭环已就绪（含同图去重），pi 的 downgradeUnsupportedImages 会自动为不支持 vision 的模型降级占位符（无拒收风险）；验证方法=LM Studio 服务端日志看请求体是否含 image 块，或用 vision 模型实测 recall 是否真能\"看到\"图。②全局记忆（正餐）：三个设计点未定——a) 原因文件：每条全局记忆在单独文件写清\"为什么记、有什么用\"，原因可 recall；b) 提炼时机：从多会话的项目记忆提炼，session_start 自动增量/手动命令/攒批（T20 给过 A-D 选项未定）；c) /compress-remember global 分支目前为预留，且有 global 正则误匹配边界的已知小瑕疵（Task 5 遗留 Minor）。③锦上添花（非承诺）：notes 注入块在头部击穿 prompt cache 前缀——当时定的是 bench 量化后再考虑移到尾部，未量化；/compress-status 显示「配置值→生效值」不一致（钳制透明化，一行）；bench 加摘要保真度 LLM-judge 评测；README \"~1200 tok/张\" 口径提为导出常量。",
-      "status": "待办",
+      "text": "进行中超大 turn 溢出摘要实现完成（feat/inflight-turn-degrade，11 commits 至 21d102c），301 passed，final review clean，待用户选合并方式",
+      "detail": "SDD 8 任务全部完成 + 终审 2 Important 修复。关键裁定：①spec 优先于 brief 测试（Task 3 brief 断言与 spec 矛盾，翻转——新切片段本轮必须原文放行）；②collectFragmentKeys/Entries 落 store.ts（非计划的 index.ts）；③rebuild 对 absorbed 从「跳过」改「删除同名条目」（append-only 文件墓碑压制）；④终审 I-1：墓碑守卫改为 turnEndEntryId !== last.endEntryId 防陈旧整 turn ledger 穿透；⑤终审 I-2：searchLedger 与 session_before_compact 补 collectFragmentEntries。遗留 deferred minors 见 ledger（已随工作区删除，要点：豁免片段计入 reserve 计量保守方向、README:307 措辞、偶发时序敏感测试、意图（未知）占位）。分支未合并 main。",
+      "status": "进行中",
       "date": "2026-09-15",
-      "updatedAt": "2026-09-15T18:04:37.726Z",
+      "updatedAt": "2026-09-19T16:26:16.740Z",
       "source": "T55/T69 遗留清单",
       "locked": false
     },
