@@ -203,8 +203,10 @@ export default function (pi: ExtensionAPI): void {
 
     const cache = new Map<string, LedgerData>();
     for (const k of store.keys()) { const v = store.get(k); if (v && !v.absorbed) cache.set(k, v); }
-    // 进行中超大 turn：溢出片段提前入摘要管线（spec §4.1）；新切片本轮不裁剪进 ledger（无 ledger，
-    // trimmedBranch 已移除片段条目，下一轮 context 事件时摘要落盘、片段由 ledger 代表）
+    // 进行中超大 turn：溢出片段提前入摘要管线（spec §4.1）；新切片段本轮**原文放行**——
+    // trimmedBranch 只裁剪已落盘片段覆盖的前缀，片段条目仍在装配中；片段落盘后下一轮
+    // context 事件由覆盖推导接管（片段由 ledger 代表、前缀被裁剪），摘要失败则片段永远
+    // 原文放行（spec §5 失败语义）
     const plan = planInflightTrim(entries, cache, config.keepRecentTokens);
     if (plan.fragment && engine && !engine.failed().has(plan.fragment.startEntryId) && !store.get(plan.fragment.startEntryId)) {
       engine.enqueue(plan.fragment);

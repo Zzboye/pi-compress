@@ -75,9 +75,9 @@ function messageText(m: AgentMessage): string {
 
 /** 与真实装配同一次 turn 划分（基于 trimmedBranch，与 assembleContext 同源）：
  *  窗外有摘要 → replaced（附 ledger 摘要），其余按窗口归属标注。
- *  已知瞬态：fragment≠null（新切片段尚未落盘）时，片段条目已被 trimmedBranch 移除、
- *  从 dump messages 中消失，但暂无 ledger 行替代（extraLedgers 为空）——该 turn 仍按
- *  剩余条目标注 lead，转储中片段原文不可见；caller 落盘入队后此瞬态消除。 */
+ *  已知瞬态：fragment≠null（新切片段尚未落盘）时，片段条目仍在 trimmedBranch 中（原文
+ *  放行，spec §2），转储中片段原文可见且暂无 ledger 行替代；落盘后下一轮覆盖推导接管
+ *  （前缀被裁剪、片段行渲染），摘要失败则永远原文放行（spec §5）。 */
 function dumpTurns(turns: Turn[], window: Turn[], cache: Map<string, LedgerData>): DumpTurn[] {
   const windowStartIds = new Set(window.map((t) => t.startEntryId));
   return turns.map((t) => {

@@ -7,6 +7,7 @@ import piExtension from "../src/index.js";
 import { assembleContext } from "../src/assembler.js";
 import { compactionAwareEntries } from "../src/util.js";
 import { LEDGER_CUSTOM_TYPE, type LedgerData, type LedgerLevel } from "../src/ledger.js";
+import { LedgerStore } from "../src/store.js";
 import { NoteStore } from "../src/notes.js";
 
 function mkLedger(partial: Partial<LedgerData> & { turnStartEntryId: string }): LedgerData {
@@ -1000,11 +1001,13 @@ describe("extension entry wiring", () => {
         },
       };
       await handlers.session_start({}, fakeCtx);
-      // 第一轮 context：切分入队；片段条目被裁剪视图移除（下一轮由摘要 ledger 代表）
+      // 第一轮 context：切分入队；新片段本轮原文放行（trimmedBranch 只裁剪已落盘覆盖前缀，
+      // spec §2 安全窗口），片段未落盘 → extraLedgers 为空、不渲染 ledger 头
       const first = await handlers.context({}, fakeCtx);
       const firstJoined = first!.messages!.map((m: any) => (m.content ?? []).map((c: any) => c.text ?? "").join("")).join("\n");
       expect(firstJoined).toContain("修一下排序");
-      expect(firstJoined).not.toContain("果果果果"); // 巨型 toolResult 本轮已不在装配里
+      expect(firstJoined).toContain("果果果果");   // 新切片段条目本轮原文在场（fragment≠null 且未落盘）
+      expect(firstJoined).not.toContain("<action-ledger>"); // extraLedgers 为空：新片段行不渲染
       // captured backend 收到片段摘要请求（prompt 含第一条命令文本）
       const deadline = Date.now() + 4000;
       while (Date.now() < deadline && !prompts.some((p) => p.includes("npm test"))) {
@@ -1016,7 +1019,7 @@ describe("extension entry wiring", () => {
         await new Promise((r) => setTimeout(r, 25));
       }
       expect(branch.some((e) => e.type === "custom")).toBe(true);
-      // 第二轮 context：<action-ledger> 含片段行，巨型原文不在，user 消息仍在
+      // 第二轮 context：片段已落盘 → <action-ledger> 含片段行，覆盖推导裁剪前缀 → 原文消失，user 消息仍在
       const second = await handlers.context({}, fakeCtx);
       const joined = second!.messages!.map((m: any) => (m.content ?? []).map((c: any) => c.text ?? "").join("")).join("\n");
       expect(joined).toContain("<action-ledger>");
@@ -1053,9 +1056,13 @@ describe("extension entry wiring", () => {
       };
       await handlers.session_start({}, fakeCtx);
       const actual = await handlers.context({}, fakeCtx);
-      // 对照旧装配路径（无切分）：同 entries/cache/keepRecentTokens 直接组装，逐字节一致
+      // 对照旧装配路径（无切分）：cache 与 handler 同构（经 store 重建路径 + 同款 !absorbed 过滤），
+      // 同 entries/cache/keepRecentTokens 直接组装，逐字节一致
       const { entries } = compactionAwareEntries(branch);
-      const cache = new Map([[ledger.turnStartEntryId, ledger]]);
+      const cacheStore = new LedgerStore();
+      cacheStore.rebuildFromEntries(branch as any);
+      const cache = new Map<string, LedgerData>();
+      for (const k of cacheStore.keys()) { const v = cacheStore.get(k); if (v && !v.absorbed) cache.set(k, v); }
       const { messages: expected } = assembleContext(entries, cache, 1000);
       const norm = (ms: any[]) => ms.map((m: any) => JSON.stringify({ ...m, timestamp: 0 }));
       expect(norm(actual!.messages!)).toEqual(norm(expected));

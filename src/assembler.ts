@@ -26,8 +26,11 @@ export function findWindowTurns(turns: Turn[], keepRecentTokens: number): Turn[]
  *  branch = 裁剪视图（去掉 covered 前缀条目，user 消息保留）；
  *  extraLedgers = 片段 ledger（branch 顺序追加在队尾）；
  *  fragment = 未覆盖部分仍超 keepRecentTokens 时切出的新片段伪 Turn（否则 null）。
- *  注意：trimmedBranch 同时移除 fragment 切出条目——caller 落盘入队后，片段由其摘要
- *  ledger 代表，不得假设「只移除覆盖前缀」。
+ *  fragment = 未覆盖部分仍超 keepRecentTokens 时切出的新片段伪 Turn（否则 null）。
+ *  注意：trimmedBranch 只裁剪已落盘片段覆盖的前缀，**不移除**新 fragment 切出的条目——
+ *  新片段本轮原文放行（spec §2 安全窗口）；片段落盘后下一轮覆盖推导自然接管（前缀裁剪
+ *  + extraLedgers 渲染），摘要失败则片段永远原文放行（spec §5 失败语义）。fragment
+ *  返回值仅供 caller 入队。
  *  切分规则：从 user 之后按完整 toolCall→toolResult 对累计最旧若干条，直到覆盖
  *  overflow = remainingTokens - keepRecentTokens；片段不得结束在带 toolCall 的 assistant 上。 */
 export function planInflightTrim(
@@ -95,9 +98,6 @@ export function planInflightTrim(
     entries: remaining.slice(i0, i),
     isFragment: true,
   };
-  // 裁剪视图同步移除片段条目（片段改由其摘要 ledger 代表，caller 负责入队）
-  const fragIds = new Set(fragment.entries.map((e) => e.id));
-  trimmedBranch = trimmedBranch.filter((e) => !fragIds.has(e.id));
   return { trimmedBranch, extraLedgers: frags, fragment };
 }
 

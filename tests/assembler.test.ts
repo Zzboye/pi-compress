@@ -211,9 +211,11 @@ describe("planInflightTrim", () => {
     expect(fragment!.isFragment).toBe(true);
     const lastMsg = fragment!.entries[fragment!.entries.length - 1].message;
     expect(lastMsg.role).toBe("toolResult");          // 对边界
-    // user 消息仍在裁剪视图中，片段条目已移除
+    // user 消息与新片段条目都在裁剪视图中：trimmedBranch 只裁剪已落盘覆盖前缀，
+    // 新切片段本轮原文放行（落盘后由覆盖推导接管）
     expect(trimmedBranch.some((e) => e.id === "u")).toBe(true);
-    expect(trimmedBranch.some((e) => e.id === fragment!.startEntryId)).toBe(false);
+    expect(trimmedBranch.some((e) => e.id === fragment!.startEntryId)).toBe(true);
+    expect(trimmedBranch).toEqual(branch); // 未落盘片段时不裁剪任何条目
   });
 
   it("已有片段（cache 中）：裁剪视图去掉已覆盖前缀，extraLedgers 按 branch 顺序输出", () => {
