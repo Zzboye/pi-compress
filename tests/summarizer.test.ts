@@ -124,6 +124,32 @@ describe("SummarizerEngine", () => {
     expect(engine.pending()).toBeLessThanOrEqual(1);
   });
 
+  describe("fragment turn (isFragment)", () => {
+    it("片段 turn：finalReply 不提取（undefined），userMessage 保持 undefined", async () => {
+      const { validOutput } = turnFixture();
+      const entries: MessageEntry[] = [
+        { id: "a1", message: { role: "assistant", content: [
+          { type: "text", text: "中间叙述" },
+          { type: "toolCall", toolCallId: "tc1", name: "read", arguments: { path: "src/hooks.ts" } } as any,
+        ] } as AgentMessage },
+        { id: "a2", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "文件内容…" }] } as AgentMessage },
+        { id: "a3", message: { role: "assistant", content: [{ type: "text", text: "中间结论性叙述" }] } as AgentMessage },
+      ];
+      const fragTurn: Turn = { startEntryId: "a1", endEntryId: "a3", isFragment: true, entries };
+      const onLedger = vi.fn();
+      const backend = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const engine = new SummarizerEngine(backend, { retry: { maxAttempts: 3, backoffMs: 1 }, verbatimCheck: true } as any, onLedger, vi.fn());
+      engine.enqueue(fragTurn);
+      await engine.waitIdle(2000);
+      expect(onLedger).toHaveBeenCalledTimes(1);
+      const ledger = onLedger.mock.calls[0][0];
+      expect(ledger.turnStartEntryId).toBe("a1");
+      expect(ledger.userMessage).toBeUndefined();
+      expect(ledger.finalReply).toBeUndefined();
+      expect(ledger.summary.entries.length).toBeGreaterThan(0); // 动作照常提取
+    });
+  });
+
   describe("fallback backend", () => {
     it("uses fallback after primary exhausts retries, then succeeds", async () => {
       const { turn, validOutput } = turnFixture();

@@ -6,7 +6,7 @@ import type { LedgerQuote } from "./ledger.js";
 
 export interface MessageEntry { id: string; message: AgentMessage }
 
-export interface Turn { startEntryId: string; endEntryId: string; entries: MessageEntry[] }
+export interface Turn { startEntryId: string; endEntryId: string; entries: MessageEntry[]; /** 溢出片段伪 turn：无 userMessage/finalReply 语义 */ isFragment?: boolean }
 
 /**
  * pi 原生 compaction 感知的装配数据源（Codex P1 修复）：

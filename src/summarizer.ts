@@ -72,7 +72,7 @@ export class SummarizerEngine {
     const summarize = async (backend: SummarizerBackend): Promise<void> => {
       const actions = extractToolActions(turn, this.config.targetMaxChars);
       const userMessage = extractUserMessage(turn);   // 机械提取，不依赖后端，无需重试语义
-      const finalReply = extractFinalReply(turn);
+      const finalReply = turn.isFragment ? undefined : extractFinalReply(turn);
       const turnText = serializeTurn(turn);
       const prompt = buildSummarizePrompt(turnText, actions);
       const raw = await backend.complete(prompt);
