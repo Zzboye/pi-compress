@@ -73,7 +73,11 @@ function messageText(m: AgentMessage): string {
   return parts.join("\n");
 }
 
-/** 与真实装配同一次 turn 划分：窗外有摘要 → replaced（附 ledger 摘要），其余按窗口归属标注 */
+/** 与真实装配同一次 turn 划分（基于 trimmedBranch，与 assembleContext 同源）：
+ *  窗外有摘要 → replaced（附 ledger 摘要），其余按窗口归属标注。
+ *  已知瞬态：fragment≠null（新切片段尚未落盘）时，片段条目已被 trimmedBranch 移除、
+ *  从 dump messages 中消失，但暂无 ledger 行替代（extraLedgers 为空）——该 turn 仍按
+ *  剩余条目标注 lead，转储中片段原文不可见；caller 落盘入队后此瞬态消除。 */
 function dumpTurns(turns: Turn[], window: Turn[], cache: Map<string, LedgerData>): DumpTurn[] {
   const windowStartIds = new Set(window.map((t) => t.startEntryId));
   return turns.map((t) => {
@@ -120,7 +124,9 @@ export function dumpContext(
   // 注入口径与 context 事件一致（applyNotesInjection 内部判定 enabled/notesStore/空表）：
   // 缺此步会导致 dump 缺首条项目记忆块、消息数比真实请求少 1（17.md 实测暴露）
   applyNotesInjection(messages, notesStore ?? null, config);
-  const turns = splitIntoTurns(branch);
+  // turns 表与 messages 同源：与 assembleContext 一样基于 trimmedBranch 划分（inflight 场景下
+  // 原始 branch 会把已折叠进片段 ledger 的条目算回 turn，导致表标 replaced 而原文仍在 messages）
+  const turns = splitIntoTurns(plan.trimmedBranch);
   const window = findWindowTurns(turns, config.keepRecentTokens);
   return {
     generatedAt: now.toISOString(),

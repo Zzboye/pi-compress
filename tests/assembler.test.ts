@@ -179,7 +179,7 @@ describe("assembleContext", () => {
   });
 
   it("assembleContext：extraLedgers 渲染进日志头且原文侧不含片段内容", () => {
-    const branch = mkInflight(); // Task 3 的 helper（若不在同一 describe 作用域，复制一份或提到文件顶层）
+    const branch = mkInflight(); // fixture：user + 4 对 toolCall→toolResult
     const cache = new Map<string, LedgerData>();
     const { trimmedBranch, extraLedgers, fragment } = planInflightTrim(branch, cache, 200);
     // 模拟片段已摘要落盘

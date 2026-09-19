@@ -103,6 +103,37 @@ describe("dumpContext", () => {
     expect(all).not.toContain("x".repeat(2000));
     expect(all).toContain("任务");            // user 消息保留
   });
+
+  it("turns 表与 messages 同源（trimmedBranch）：两 turn 场景 lead 标注与消息实际内容一致", () => {
+    const big = "z".repeat(4000); // ~1k tok：turn1 在窗外
+    const branch: MessageEntry[] = [
+      msg("a", "user", big), msg("b", "assistant", big), // turn1：窗外有摘要 → replaced
+      msg("u2", "user", "任务"),
+    ];
+    for (let i = 1; i <= 4; i++) {
+      branch.push({ id: `a${i}`, message: { role: "assistant", content: [{ type: "toolCall", id: `c${i}`, name: "bash", arguments: { command: `cmd${i}` } }] } as any });
+      branch.push({ id: `r${i}`, message: { role: "toolResult", toolCallId: `c${i}`, content: [{ type: "text", text: "x".repeat(2000) }] } as any });
+    }
+    // turn1 ledger（窗外 replaced）+ 片段 ledger（覆盖 turn2 的 a1..r2，已落盘）
+    const cache = new Map<string, LedgerData>([
+      ["a", ledgerFor({ startEntryId: "a", endEntryId: "b" })],
+      ["a1", { turnStartEntryId: "a1", turnEndEntryId: "r2", summary: { userIntent: "跑命令", outcome: "完成", entries: [] } }],
+    ]);
+    // keep=1500：剩余部分（u2+a3..r4 ≈1k tok）不再切新片段；窗口只装 turn2 → turn1 replaced
+    const dump = dumpContext(branch, cache, { ...DEFAULT_CONFIG, keepRecentTokens: 1500 });
+    // turns 表（基于 trimmedBranch）与 messages 同源：replaced turn 的原文不在 messages，
+    // lead turn 的裁剪后条目在 messages——不再出现「标 replaced 却原文可见」的矛盾
+    expect(dump.turns.map((t) => t.lead)).toEqual(["replaced", "lead"]);
+    expect(dump.turns[0].ledger?.userIntent).toBe("旧问题意图");
+    expect(dump.stats).toEqual({ windowTurns: 1, replacedTurns: 1, passthroughTurns: 0 });
+    const all = dump.messages.map((m) => m.text).join("\n");
+    expect(all).not.toContain(big);    // replaced turn 原文不在 messages
+    expect(all).not.toContain("cmd1"); // 已覆盖片段前缀不在 messages
+    expect(all).not.toContain("cmd2");
+    expect(all).toContain("cmd3");     // lead turn 未覆盖条目在 messages
+    expect(all).toContain("跑命令");    // 片段行在日志头（extraLedgers）
+    expect(all).toContain("任务");      // user 消息保留
+  });
 });
 
 describe("renderMarkdown / writeContextDump", () => {
