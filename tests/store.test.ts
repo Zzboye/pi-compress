@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { LedgerStore } from "../src/store.js";
 import { LEDGER_CUSTOM_TYPE, type LedgerData } from "../src/ledger.js";
+import type { SessionEntryLike } from "../src/store.js";
 
 const led: LedgerData = {
   turnStartEntryId: "a", turnEndEntryId: "b",
@@ -35,6 +36,34 @@ describe("LedgerStore", () => {
       { id: "x2", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: led2 },
     ]);
     expect(s.get("a")?.summary.outcome).toBe("o2");
+  });
+});
+
+describe("absorbed 墓碑", () => {
+  const frag = (id: string): LedgerData => ({
+    turnStartEntryId: id, turnEndEntryId: id,
+    summary: { entries: [] },
+  });
+
+  it("rebuild 跳过 absorbed 条目（墓碑不复活）", () => {
+    const store = new LedgerStore();
+    store.set(frag("f1"));
+    // 模拟墓碑化后的持久化条目
+    const entries: SessionEntryLike[] = [
+      { id: "e1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: { ...frag("f1"), absorbed: true } },
+      { id: "e2", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: frag("f2") },
+    ];
+    store.rebuildFromEntries(entries);
+    expect(store.get("f1")).toBeUndefined();
+    expect(store.get("f2")).toBeDefined();
+  });
+
+  it("delete 从缓存移除", () => {
+    const store = new LedgerStore();
+    store.set(frag("f1"));
+    store.delete("f1");
+    expect(store.get("f1")).toBeUndefined();
+    expect(store.size()).toBe(0);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderActionLedger, renderTurnText, type LedgerData } from "../src/ledger.js";
+import { renderActionLedger, renderTurnText, normalizeLedgerData, type LedgerData } from "../src/ledger.js";
 
 function textOf(msg: any): string {
   return msg.content.map((c: any) => c.text ?? "").join("");
@@ -289,5 +289,12 @@ describe("L5 聚合行计数重写（Codex P3）", () => {
     // 3 条同描述聚合 → 计数仍是 3，无需变
     const agg = textOf(renderActionLedger([g("e001"), g("e101"), g("e201")]));
     expect(agg).toContain("T1-T3 · 调试降级（3 条已合并）");
+  });
+});
+
+describe("normalizeLedgerData absorbed 透传", () => {
+  it("normalizeLedgerData 透传 absorbed", () => {
+    const d = normalizeLedgerData({ turnStartEntryId: "f1", turnEndEntryId: "f1", summary: { entries: [] }, absorbed: true });
+    expect(d.absorbed).toBe(true);
   });
 });
