@@ -21,6 +21,84 @@ export function findWindowTurns(turns: Turn[], keepRecentTokens: number): Turn[]
   return window;
 }
 
+/** 进行中 turn 的溢出处理计划（纯函数，无副作用）：
+ *  covered = store（cache）中属于最后 turn 且 key≠turn.startEntryId 的片段所覆盖的前缀；
+ *  branch = 裁剪视图（去掉 covered 前缀条目，user 消息保留）；
+ *  extraLedgers = 片段 ledger（branch 顺序追加在队尾）；
+ *  fragment = 未覆盖部分仍超 keepRecentTokens 时切出的新片段伪 Turn（否则 null）。
+ *  切分规则：从 user 之后按完整 toolCall→toolResult 对累计最旧若干条，直到覆盖
+ *  overflow = remainingTokens - keepRecentTokens；片段不得结束在带 toolCall 的 assistant 上。 */
+export function planInflightTrim(
+  branch: MessageEntry[],
+  cache: Map<string, LedgerData>,
+  keepRecentTokens: number,
+): { trimmedBranch: MessageEntry[]; extraLedgers: LedgerData[]; fragment: Turn | null } {
+  const turns = splitIntoTurns(branch);
+  if (turns.length === 0) return { trimmedBranch: branch, extraLedgers: [], fragment: null };
+  const last = turns[turns.length - 1];
+  const idxOf = new Map(last.entries.map((e, i) => [e.id, i] as const));
+
+  // 覆盖推导：cache 中 key 命中 last turn 且非 turn 起点的条目是已落盘片段；
+  // absorbed 条目理论不在 cache（rebuild 跳过），若出现则跳过不计入覆盖（防御）
+  let coveredIdx = -1;
+  const frags: LedgerData[] = [];
+  for (const [key, v] of cache) {
+    if (v.absorbed) continue;
+    if (key === last.startEntryId) continue;
+    if (!idxOf.has(key)) continue;
+    frags.push(v);
+    const endIdx = idxOf.get(v.turnEndEntryId);
+    if (endIdx !== undefined && endIdx > coveredIdx) coveredIdx = endIdx;
+  }
+  frags.sort((a, b) => (idxOf.get(a.turnStartEntryId) ?? 0) - (idxOf.get(b.turnStartEntryId) ?? 0));
+
+  // 裁剪：去掉已覆盖前缀（保留 entries[0] 即 user 消息），用 id 集合过滤保持其余条目原顺序
+  let trimmedBranch = branch;
+  if (coveredIdx >= 1) {
+    const removed = new Set(last.entries.slice(1, coveredIdx + 1).map((e) => e.id));
+    trimmedBranch = branch.filter((e) => !removed.has(e.id));
+  }
+
+  // 溢出切分：只对未覆盖部分计量（coveredIdx=-1 时 remaining[0] 为 user，否则 user 已保留在 trimmedBranch）
+  const remaining = last.entries.slice(coveredIdx + 1);
+  let remainingTokens = 0;
+  for (const e of remaining) remainingTokens += countTokens(e.message, { skipThinking: true });
+  if (remainingTokens <= keepRecentTokens) return { trimmedBranch, extraLedgers: frags, fragment: null };
+
+  const overflow = remainingTokens - keepRecentTokens;
+  const i0 = remaining[0].message.role === "user" ? 1 : 0; // 片段从 user 之后开始
+  let i = i0;
+  let acc = 0;
+  while (i < remaining.length) {
+    acc += countTokens(remaining[i].message, { skipThinking: true });
+    i++;
+    if (acc >= overflow) break;
+  }
+  if (i === i0) return { trimmedBranch, extraLedgers: frags, fragment: null }; // 仅剩 user：无可切条目
+
+  // 对边界修正：不结束在带 toolCall 的 assistant 上——继续向后吃直到吃进一条 toolResult；
+  // 已到末尾则吃到最后一条为止
+  const endsOnToolCall = (e: MessageEntry) =>
+    e.message.role === "assistant" && (e.message.content as any[]).some((b) => b?.type === "toolCall");
+  while (i < remaining.length && endsOnToolCall(remaining[i - 1])) {
+    const role = remaining[i].message.role;
+    acc += countTokens(remaining[i].message, { skipThinking: true });
+    i++;
+    if (role === "toolResult") break;
+  }
+
+  const fragment: Turn = {
+    startEntryId: remaining[i0].id,
+    endEntryId: remaining[i - 1].id,
+    entries: remaining.slice(i0, i),
+    isFragment: true,
+  };
+  // 裁剪视图同步移除片段条目（片段改由其摘要 ledger 代表，caller 负责入队）
+  const fragIds = new Set(fragment.entries.map((e) => e.id));
+  trimmedBranch = trimmedBranch.filter((e) => !fragIds.has(e.id));
+  return { trimmedBranch, extraLedgers: frags, fragment };
+}
+
 export interface AssembleStats { windowTurns: number; replacedTurns: number; passthroughTurns: number }
 
 /** 装配上下文：窗口外有摘要的 turn 用 ledger 头代表，无摘要的 turn 原文照发，窗口内 turn 原文追加。 */

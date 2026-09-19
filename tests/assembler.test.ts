@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { splitIntoTurns, type MessageEntry } from "../src/util.js";
-import { findWindowTurns, assembleContext } from "../src/assembler.js";
+import { findWindowTurns, assembleContext, planInflightTrim } from "../src/assembler.js";
 import type { AgentMessage } from "../src/types.js";
 import type { LedgerData } from "../src/ledger.js";
 
@@ -166,5 +166,62 @@ describe("assembleContext", () => {
     const head = ((messages[0] as any).content as any[]).map((c) => c.text ?? "").join("");
     expect(head).toContain("<action-ledger>");
     expect(stats.replacedTurns).toBe(1);
+  });
+});
+
+describe("planInflightTrim", () => {
+  // fixture：user + 4 对 toolCall→toolResult（每条 toolResult 用长文本撑 token）
+  const mkInflight = () => {
+    const entries: MessageEntry[] = [{ id: "u", message: { role: "user", content: [{ type: "text", text: "任务" }] } as any }];
+    for (let i = 1; i <= 4; i++) {
+      entries.push({ id: `a${i}`, message: { role: "assistant", content: [{ type: "toolCall", id: `c${i}`, name: "bash", arguments: { command: `cmd${i}` } }] } as any });
+      entries.push({ id: `r${i}`, message: { role: "toolResult", toolCallId: `c${i}`, content: [{ type: "text", text: "x".repeat(2000) }] } as any });
+    }
+    return entries;
+  };
+
+  it("未超阈值：零变化（branch 原样、无 extraLedgers、fragment null）", () => {
+    const branch = mkInflight();
+    const out = planInflightTrim(branch, new Map(), 1_000_000);
+    expect(out.trimmedBranch).toEqual(branch);
+    expect(out.extraLedgers).toEqual([]);
+    expect(out.fragment).toBeNull();
+  });
+
+  it("超阈值：切出片段含完整对（不结束在 toolCall 上），user 保留在 trimmedBranch", () => {
+    const branch = mkInflight();
+    const { trimmedBranch, fragment } = planInflightTrim(branch, new Map(), 200);
+    expect(fragment).not.toBeNull();
+    expect(fragment!.startEntryId).toBe("a1");       // 从 user 之后开始
+    expect(fragment!.isFragment).toBe(true);
+    const lastMsg = fragment!.entries[fragment!.entries.length - 1].message;
+    expect(lastMsg.role).toBe("toolResult");          // 对边界
+    // user 消息仍在裁剪视图中，片段条目已移除
+    expect(trimmedBranch.some((e) => e.id === "u")).toBe(true);
+    expect(trimmedBranch.some((e) => e.id === fragment!.startEntryId)).toBe(false);
+  });
+
+  it("已有片段（cache 中）：裁剪视图去掉已覆盖前缀，extraLedgers 按 branch 顺序输出", () => {
+    const branch = mkInflight();
+    // 手工构造覆盖 a1..r2 的片段 ledger
+    const fragLedger: LedgerData = {
+      turnStartEntryId: "a1", turnEndEntryId: "r2", summary: { entries: [] },
+    };
+    const cache = new Map([["a1", fragLedger]]);
+    const { trimmedBranch, extraLedgers, fragment } = planInflightTrim(branch, cache, 200);
+    expect(extraLedgers).toEqual([fragLedger]);
+    expect(trimmedBranch.some((e) => e.id === "a1")).toBe(false);
+    expect(trimmedBranch.some((e) => e.id === "r2")).toBe(false);
+    expect(trimmedBranch.some((e) => e.id === "u")).toBe(true);
+    // 剩余仍超阈值 → 继续切下一片段（F2，冻结语义：起点在已覆盖之后）
+    expect(fragment).not.toBeNull();
+    expect(fragment!.startEntryId).toBe("a3");
+  });
+
+  it("turn 结束后的普通多 turn 会话：最后 turn 是已完成的短 turn，零变化", () => {
+    const branch = [...mkInflight(), { id: "u2", message: { role: "user", content: [{ type: "text", text: "下一问" }] } as any }];
+    const out = planInflightTrim(branch, new Map(), 1_000_000);
+    expect(out.fragment).toBeNull();
+    expect(out.trimmedBranch).toEqual(branch);
   });
 });
