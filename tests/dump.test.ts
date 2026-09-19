@@ -5,6 +5,7 @@ import path from "node:path";
 import { splitIntoTurns, type MessageEntry } from "../src/util.js";
 import { dumpContext, renderMarkdown, writeContextDump, defaultDumpBase } from "../src/dump.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
+import { NoteStore } from "../src/notes.js";
 import type { AgentMessage } from "../src/types.js";
 import type { LedgerData } from "../src/ledger.js";
 
@@ -124,3 +125,42 @@ describe("renderMarkdown / writeContextDump", () => {
 
 // splitIntoTurns 仍被 dump 间接使用，防止 tree-shaking 误删导致类型漂移
 void splitIntoTurns;
+
+describe("dumpContext 与 context 事件口径一致（notes 注入）", () => {
+  it("传 notesStore 时 dump 首条消息为项目记忆块（unshift 到 ledger 头之前）", () => {
+    const branch = [msg("a", "user", "q"), msg("b", "assistant", "a")];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-dump-notes-"));
+    const store = new NoteStore(path.join(dir, "notes.json"));
+    store.append("tasks", { text: "测试任务：验证 dump 注入", detail: "详情" });
+    try {
+      const dump = dumpContext(branch, new Map(), { ...DEFAULT_CONFIG, projectNotes: { enabled: true, path: "x.json", maxTokens: 0 } }, new Date(), store);
+      expect(dump.messages.length).toBe(3); // notes + 窗口原文×2
+      const first = dump.messages[0].text;
+      expect(first).toContain("【项目记忆】");
+      expect(first).toContain("测试任务");
+      expect(dump.messages[1].text).toContain("q"); // 窗口原文跟在 notes 后
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("enabled=false 时 dump 不注入（口径与 context 事件一致）", () => {
+    const branch = [msg("a", "user", "q"), msg("b", "assistant", "a")];
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-dump-notes-"));
+    const store = new NoteStore(path.join(dir, "notes.json"));
+    store.append("tasks", { text: "不应出现的任务", detail: "" });
+    try {
+      const dump = dumpContext(branch, new Map(), { ...DEFAULT_CONFIG, projectNotes: { enabled: false, path: "x.json", maxTokens: 0 } }, new Date(), store);
+      expect(dump.messages.length).toBe(2);
+      expect(dump.messages.some((m) => m.text.includes("不应出现的任务"))).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("不传 notesStore（缺省参数）行为不变", () => {
+    const branch = [msg("a", "user", "q"), msg("b", "assistant", "a")];
+    const dump = dumpContext(branch, new Map(), { ...DEFAULT_CONFIG, projectNotes: { enabled: true, path: "x.json", maxTokens: 0 } });
+    expect(dump.messages.length).toBe(2);
+  });
+});

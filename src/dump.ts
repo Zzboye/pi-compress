@@ -9,6 +9,8 @@ import { countTokens, splitIntoTurns, type MessageEntry, type Turn } from "./uti
 import type { ContextCompressConfig } from "./config.js";
 import { assembleContext, findWindowTurns, turnTokens, type AssembleStats } from "./assembler.js";
 import type { LedgerData } from "./ledger.js";
+import { applyNotesInjection } from "./index.js";
+import type { NoteStore } from "./notes.js";
 import type { AgentMessage } from "./types.js";
 
 export interface DumpMessage {
@@ -91,14 +93,18 @@ function dumpTurns(turns: Turn[], window: Turn[], cache: Map<string, LedgerData>
   });
 }
 
-/** 单一真相：dump 与 context 事件调用完全相同的 assembleContext + findWindowTurns */
+/** 单一真相：dump 与 context 事件调用完全相同的 assembleContext + findWindowTurns + applyNotesInjection */
 export function dumpContext(
   branch: MessageEntry[],
   cache: Map<string, LedgerData>,
   config: ContextCompressConfig,
   now: Date = new Date(),
+  notesStore?: NoteStore | null,
 ): ContextDump {
   const { messages, stats } = assembleContext(branch, cache, config.keepRecentTokens);
+  // 注入口径与 context 事件一致（applyNotesInjection 内部判定 enabled/notesStore/空表）：
+  // 缺此步会导致 dump 缺首条项目记忆块、消息数比真实请求少 1（17.md 实测暴露）
+  applyNotesInjection(messages, notesStore ?? null, config);
   const turns = splitIntoTurns(branch);
   const window = findWindowTurns(turns, config.keepRecentTokens);
   return {

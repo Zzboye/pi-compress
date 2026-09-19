@@ -397,7 +397,7 @@ export default function (pi: ExtensionAPI): void {
       }
       const cache = new Map<string, LedgerData>();
       for (const k of store.keys()) { const v = store.get(k); if (v) cache.set(k, v); }
-      const dump = dumpContext(branch, cache, config);
+      const dump = dumpContext(branch, cache, config, new Date(), notesStore);
       const base = args.trim() ? args.trim() : defaultDumpBase(ctx.cwd);
       const [mdPath, jsonPath] = writeContextDump(dump, base);
       const d = dump.stats;

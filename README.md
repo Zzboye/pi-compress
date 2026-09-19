@@ -265,7 +265,7 @@ D:\Pi\pi-compress\e2e\reports\1788865118781-context-dump.md
 D:\Pi\pi-compress\e2e\reports\1788865118781-context-dump.json
 ```
 
-- **单一真相**：复用 context 事件同款 `assembleContext`，所见即本轮真实装配结果（含 ledger 头、thinking 剥离、窗外原文照发）。
+- **单一真相**：复用 context 事件同款 `assembleContext` + `applyNotesInjection`，所见即本轮真实装配结果（含项目记忆块、ledger 头、thinking 剥离、窗外原文照发）。
 - **Markdown**：人读审阅稿——配置元信息、装配统计、turn 归属表（lead / replaced / passthrough）、messages 原文全文。
 - **JSON**：机器可复现的结构化数据（逐条体积、turn 归属、ledger 摘要），供后续对比脚本使用。
 - **输出路径**：缺省写 `<cwd>/e2e/reports/<时间戳>-context-dump.{md,json}`，参数可指定基路径（自动补 .md/.json 两个扩展名）。
