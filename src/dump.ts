@@ -93,15 +93,28 @@ function dumpTurns(turns: Turn[], window: Turn[], cache: Map<string, LedgerData>
   });
 }
 
-/** 单一真相：dump 与 context 事件调用完全相同的 assembleContext + findWindowTurns + applyNotesInjection */
+/** pi compactionSummary→user 的包裹文案（core/messages.js 未从主包导出，内联同款；漂移只影响观感） */
+const COMPACTION_WRAP = (summary: string) =>
+  `The conversation history before this point was compacted into the following summary:\n\n<summary>\n${summary}\n</summary>`;
+
+/** 单一真相：dump 与 context 事件调用完全相同的 assembleContext + findWindowTurns + applyNotesInjection + compaction 摘要恢复 */
 export function dumpContext(
   branch: MessageEntry[],
   cache: Map<string, LedgerData>,
   config: ContextCompressConfig,
   now: Date = new Date(),
   notesStore?: NoteStore | null,
+  compaction?: { summary: string; tokensBefore: number } | null,
 ): ContextDump {
   const { messages, stats } = assembleContext(branch, cache, config.keepRecentTokens);
+  if (compaction) {
+    // compaction 口径与 context 事件一致（缺此步 dump 会缺首条压缩摘要消息）
+    messages.unshift({
+      role: "user",
+      content: [{ type: "text", text: COMPACTION_WRAP(compaction.summary) }],
+      timestamp: now.getTime(),
+    } as any);
+  }
   // 注入口径与 context 事件一致（applyNotesInjection 内部判定 enabled/notesStore/空表）：
   // 缺此步会导致 dump 缺首条项目记忆块、消息数比真实请求少 1（17.md 实测暴露）
   applyNotesInjection(messages, notesStore ?? null, config);

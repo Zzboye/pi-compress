@@ -448,11 +448,11 @@ describe("extension entry wiring", () => {
         const { handlers } = harness();
         const ledger = mkLedger({ turnStartEntryId: "u1", level: 1, summary: { entries: [] } });
         const branch = [
-          { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "问".repeat(1200) }] } },
-          { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
-          { id: "c1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: ledger },
-          { id: "u2", type: "message", message: { role: "user", content: [{ type: "text", text: "第二问" }] } },
-          { id: "a2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第二答" }] } },
+          { id: "u1", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "问".repeat(1200) }] } },
+          { id: "a1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+          { id: "c1", parentId: "a1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: ledger },
+          { id: "u2", parentId: "c1", type: "message", message: { role: "user", content: [{ type: "text", text: "第二问" }] } },
+          { id: "a2", parentId: "u2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第二答" }] } },
         ];
         const fakeCtx: any = {
           cwd: dir,
@@ -495,6 +495,7 @@ describe("extension entry wiring", () => {
     const fakeCtx: any = {
       cwd: dir,
       ui: { notify: () => {}, setStatus: () => {} },
+      getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
       sessionManager: { getBranch: () => [] },
     };
     try {
@@ -536,6 +537,7 @@ describe("extension entry wiring", () => {
     const fakeCtx: any = {
       cwd: dir,
       ui: { notify: () => {}, setStatus: () => {} },
+      getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
       sessionManager: { getBranch: () => [] },
     };
     try {
@@ -553,6 +555,7 @@ describe("extension entry wiring", () => {
     const h1 = harness();
     const r = await h1.tools.notes.execute("tc", { action: "append", table: "prefs", text: "X" }, undefined, undefined, {
       ui: { notify: () => {}, setStatus: () => {} },
+      getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
       sessionManager: { getBranch: () => [] },
     });
     expect(r.content[0].text).toContain("未启用");
@@ -607,6 +610,7 @@ describe("extension entry wiring", () => {
     const fakeCtx: any = {
       cwd: dir,
       ui: { notify: () => {}, setStatus: () => {} },
+      getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
       sessionManager: { getBranch: () => [] },
     };
     try {
@@ -864,4 +868,91 @@ describe("extension entry wiring", () => {
       expect(out.content.filter((c: any) => c.type === "image")).toHaveLength(1); // 图片不重复
     });
   });
+  // ---------- pi 原生压缩感知：context/dump 装配数据源与 compaction 摘要恢复 ----------
+  describe("pi 原生 compaction 感知（Codex P1：原生压缩结果被覆盖）", () => {
+    const mkCompactedBranch = () => {
+      // 模拟 pi 原生压缩后的分支：旧历史（u1/a1，无 ledger）→ compaction entry → 保留条目（u2/a2）
+      // parentId 链必需：buildContextEntries 从叶子沿 parentId 回溯重建路径
+      return [
+        { id: "u1", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "被压缩掉的旧历史提问".repeat(20) }] } },
+        { id: "a1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "被压缩掉的旧历史回答".repeat(20) }] } },
+        { id: "c1", parentId: "a1", type: "compaction", summary: "旧历史摘要：用户问过排序问题并已解决", firstKeptEntryId: "u2", tokensBefore: 5000 },
+        { id: "u2", parentId: "c1", type: "message", message: { role: "user", content: [{ type: "text", text: "压缩后的新提问" }] } },
+        { id: "a2", parentId: "u2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "压缩后的新回答" }] } },
+      ] as any[];
+    };
+
+    it("context 事件：压缩掉的旧历史不回归，compaction 摘要以 user 消息恢复在最前", async () => {
+      const { handlers } = harness();
+      const notifyCalls: string[] = [];
+      const fakeCtx: any = {
+        cwd: "/nonexistent-pi-compress-test",
+        ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+        getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
+        sessionManager: { getBranch: () => mkCompactedBranch() },
+      };
+      await handlers.session_start({}, fakeCtx);
+      const result = await handlers.context({}, fakeCtx);
+      const messages = result!.messages!;
+      const texts = messages.map((m: any) => (m.content ?? []).map((c: any) => c.text ?? "").join(""));
+      const joined = texts.join("\n---\n");
+      // 旧历史原文不得回归
+      expect(joined).not.toContain("被压缩掉的旧历史提问");
+      expect(joined).not.toContain("被压缩掉的旧历史回答");
+      // compaction 摘要恢复在最前（pi 同款包裹文案；notes 空态提示可能占 texts[0]）
+      const compactionText = texts.find((t: string) => t.includes("compacted into the following summary"));
+      expect(compactionText).toBeTruthy();
+      expect(compactionText).toContain("旧历史摘要：用户问过排序问题并已解决");
+      // 保留条目照常在
+      expect(joined).toContain("压缩后的新提问");
+    });
+
+    it("compress-dump 与 context 事件同口径（含 compaction）", async () => {
+      const { handlers, commands } = harness();
+      const notifyCalls: string[] = [];
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-compaction-"));
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+        getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
+        sessionManager: { getBranch: () => mkCompactedBranch() },
+      };
+      try {
+        fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, ".pi", "settings.json"),
+          JSON.stringify({ contextCompress: { summarizer: { provider: "FakeProv", model: "fake-model" } } }),
+        );
+        await handlers.session_start({}, fakeCtx);
+        await commands["compress-dump"].handler("", fakeCtx);
+        const jsonPath = path.join(dir, "e2e", "reports");
+        const files = fs.readdirSync(jsonPath).filter((f) => f.endsWith(".json"));
+        const dump = JSON.parse(fs.readFileSync(path.join(jsonPath, files[0]), "utf8"));
+        const joined = dump.messages.map((m: any) => m.text).join("\n");
+        expect(joined).not.toContain("被压缩掉的旧历史提问");
+        expect(joined).toContain("旧历史摘要：用户问过排序问题并已解决");
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("无 compaction 的普通会话：行为不变（回归防护）", async () => {
+      const { handlers } = harness();
+      const fakeCtx: any = {
+        cwd: "/nonexistent-pi-compress-test",
+        ui: { notify: () => {}, setStatus: () => {} },
+        getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
+        sessionManager: { getBranch: () => [
+          { id: "u1", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "普通提问" }] } },
+          { id: "a1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "普通回答" }] } },
+        ] },
+      };
+      await handlers.session_start({}, fakeCtx);
+      const result = await handlers.context({}, fakeCtx);
+      const joined = result!.messages!.map((m: any) => (m.content ?? []).map((c: any) => c.text ?? "").join("")).join("\n");
+      expect(joined).toContain("普通提问");
+      expect(joined).not.toContain("compacted into the following summary");
+    });
+  });
 });
+

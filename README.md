@@ -265,7 +265,7 @@ D:\Pi\pi-compress\e2e\reports\1788865118781-context-dump.md
 D:\Pi\pi-compress\e2e\reports\1788865118781-context-dump.json
 ```
 
-- **单一真相**：复用 context 事件同款 `assembleContext` + `applyNotesInjection`，所见即本轮真实装配结果（含项目记忆块、ledger 头、thinking 剥离、窗外原文照发）。
+- **单一真相**：复用 context 事件同款 `compactionAwareEntries` + `assembleContext` + `applyNotesInjection`，所见即本轮真实装配结果（含 pi 原生压缩摘要恢复、项目记忆块、ledger 头、thinking 剥离、窗外原文照发）。
 - **Markdown**：人读审阅稿——配置元信息、装配统计、turn 归属表（lead / replaced / passthrough）、messages 原文全文。
 - **JSON**：机器可复现的结构化数据（逐条体积、turn 归属、ledger 摘要），供后续对比脚本使用。
 - **输出路径**：缺省写 `<cwd>/e2e/reports/<时间戳>-context-dump.{md,json}`，参数可指定基路径（自动补 .md/.json 两个扩展名）。
@@ -304,6 +304,7 @@ npm test        # vitest 单测（tests/）
 - **补摘仅在 session_start 触发**：历史缺口在会话恢复时补齐；会话中途关闭摘要器再开启需重启会话才会补摘。补摘受 `backfillLimit` 上限约束，超出部分（更旧的 turn）保持原文放行。
 - **RPC/print 模式未特殊处理**：插件在 `tui` 模式下完整工作；`rpc`/`json`/`print` 模式下事件仍触发，但 `ctx.ui.notify`/`setStatus` 可能无可见输出。
 - **单 turn 超大**：单个 turn 超过 `keepRecentTokens` 时，按设计仍整体保留在窗口内（不拆分），会导致窗口临时超过预算，直到下一轮 pi 原生压缩兜底。
+- **pi 原生压缩感知**：context 装配与 dump 用 pi 的 `buildContextEntries` 裁剪（firstKeptEntryId 之前的旧历史不回归），pi 原生压缩摘要（含插件经 `session_before_compact` 提交的文本）以 user 消息恢复在最前；pre-compaction 旧历史不再可见原文，但 recall/search 仍走全量 branch，↩ID 照常可召回。
 - **逐字校验依赖路径正则**：`verbatimCheck` 用 `/[\w./\\-]+\.\w{1,4}/g` 提取疑似路径，对无扩展名的命令/参数不做校验。
 - **摘要只见 toolResult 的头+尾**：超过 2000 字符的 toolResult 在摘要 prompt 中按「前 1400 + 后 500 + 中段省略标记」采样；中段内容对摘要模型不可见（recall 可取回：单条 `recallMaxTokensPerEntry`（默认 4000 token）内逐字全量，超出部分截断）。
 

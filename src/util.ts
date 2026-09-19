@@ -1,11 +1,41 @@
 import type { AgentMessage } from "./types.js";
-import { serializeConversation, convertToLlm } from "@earendil-works/pi-coding-agent";
+import { serializeConversation, convertToLlm, buildContextEntries } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry, CompactionEntry } from "@earendil-works/pi-coding-agent";
 import type { ToolActionInfo } from "./prompts.js";
 import type { LedgerQuote } from "./ledger.js";
 
 export interface MessageEntry { id: string; message: AgentMessage }
 
 export interface Turn { startEntryId: string; endEntryId: string; entries: MessageEntry[] }
+
+/**
+ * pi 原生 compaction 感知的装配数据源（Codex P1 修复）：
+ * pi 原生压缩后 branch 里的 compaction entry 标记「firstKeptEntryId 之前的旧历史已由 summary 代表」。
+ * 直接用 getBranch() 全量分支装配会让被压缩掉的旧历史原文回归（无 ledger 的部分 passthrough）、
+ * 摘要被丢弃——重建压缩-膨胀循环。此函数用 pi 的 buildContextEntries 做同样的裁剪
+ * （compaction entry + firstKeptEntryId 起的保留条目），并提取 compaction 摘要供上层恢复为消息。
+ * 无 compaction 时行为与 getBranch 完全一致。
+ */
+export interface CompactionAwareResult {
+  entries: MessageEntry[];
+  /** pi 原生压缩摘要（含插件经 session_before_compact 提交的文本）；无 compaction 时为 null */
+  compaction: { summary: string; tokensBefore: number } | null;
+}
+
+export function compactionAwareEntries(branch: SessionEntry[]): CompactionAwareResult {
+  const entries = buildContextEntries(branch);
+  let compaction: CompactionAwareResult["compaction"] = null;
+  for (const e of entries) {
+    if (e.type === "compaction") {
+      const c = e as CompactionEntry;
+      compaction = { summary: c.summary, tokensBefore: c.tokensBefore };
+    }
+  }
+  const messages = entries
+    .filter((e): e is Extract<SessionEntry, { type: "message" }> => e.type === "message")
+    .map((e) => ({ id: e.id, message: e.message }));
+  return { entries: messages, compaction };
+}
 
 // ============================================================================
 // Token 计量（CJK 感知启发式）

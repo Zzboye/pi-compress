@@ -22,7 +22,7 @@ import {
 import { executeRecallDual, searchLedger, formatSearchResult, type RecallImage } from "./recall.js";
 import { dumpContext, writeContextDump, defaultDumpBase } from "./dump.js";
 import { enforceForcePoint } from "./forcepoint.js";
-import { countTokens, splitIntoTurns, type MessageEntry } from "./util.js";
+import { compactionAwareEntries, countTokens, splitIntoTurns, type MessageEntry } from "./util.js";
 import { computeBackfillTurns } from "./backfill.js";
 import { DegradeEngine } from "./degrade.js";
 import { renderActionLedger, LEDGER_CUSTOM_TYPE, type LedgerData } from "./ledger.js";
@@ -180,8 +180,10 @@ export default function (pi: ExtensionAPI): void {
       degraded = false;
       ctx.ui.notify("context-compress: 摘要队列已清空，恢复正常重组", "info");
     }
-    const branch = ctx.sessionManager.getBranch();
-    const entries = toMessageEntries(branch);
+    // 装配数据源：compaction 感知（见 util.compactionAwareEntries）——pi 原生压缩后的
+    // firstKeptEntryId 之前旧历史不回归，摘要以 user 消息恢复在最前（统一规则：
+    // pi 生成的摘要恢复信息；插件提交的 ledger 文本本身带 ↩ID，pre-compaction 内容照常可 recall）
+    const { entries, compaction } = compactionAwareEntries(ctx.sessionManager.getBranch());
     if (entries.length === 0) return;
 
     const usage = ctx.getContextUsage();
@@ -202,6 +204,15 @@ export default function (pi: ExtensionAPI): void {
     const cache = new Map<string, LedgerData>();
     for (const k of store.keys()) { const v = store.get(k); if (v) cache.set(k, v); }
     const { messages, stats } = assembleContext(entries, cache, config.keepRecentTokens);
+    if (compaction) {
+      // pi 原生压缩摘要恢复：包裹文案与 pi 的 compactionSummary→user 转换同款
+      // （core/messages.js COMPACTION_SUMMARY_PREFIX/SUFFIX，未从主包导出故内联；漂移只影响观感）
+      messages.unshift({
+        role: "user",
+        content: [{ type: "text", text: `The conversation history before this point was compacted into the following summary:\n\n<summary>\n${compaction.summary}\n</summary>` }],
+        timestamp: Date.now(),
+      } as AgentMessage);
+    }
     applyNotesInjection(messages, notesStore, config); // 项目记忆块插在 ledger 头之前
     lastStats = stats;
     const estimated = messages.reduce((s, m) => s + countTokens(m as any, { skipThinking: true }), 0);
@@ -390,14 +401,15 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify("context-compress: 未配置（无 contextCompress.summarizer），无从转储装配口径", "warning");
         return;
       }
-      const branch = toMessageEntries(ctx.sessionManager.getBranch());
+      // 与 context 事件同口径：compaction 感知裁剪 + 摘要恢复
+      const { entries: branch, compaction } = compactionAwareEntries(ctx.sessionManager.getBranch());
       if (branch.length === 0) {
         ctx.ui.notify("context-compress: 会话为空，无上下文可转储", "warning");
         return;
       }
       const cache = new Map<string, LedgerData>();
       for (const k of store.keys()) { const v = store.get(k); if (v) cache.set(k, v); }
-      const dump = dumpContext(branch, cache, config, new Date(), notesStore);
+      const dump = dumpContext(branch, cache, config, new Date(), notesStore, compaction);
       const base = args.trim() ? args.trim() : defaultDumpBase(ctx.cwd);
       const [mdPath, jsonPath] = writeContextDump(dump, base);
       const d = dump.stats;
