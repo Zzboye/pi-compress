@@ -26,6 +26,8 @@ export function findWindowTurns(turns: Turn[], keepRecentTokens: number): Turn[]
  *  branch = 裁剪视图（去掉 covered 前缀条目，user 消息保留）；
  *  extraLedgers = 片段 ledger（branch 顺序追加在队尾）；
  *  fragment = 未覆盖部分仍超 keepRecentTokens 时切出的新片段伪 Turn（否则 null）。
+ *  注意：trimmedBranch 同时移除 fragment 切出条目——caller 落盘入队后，片段由其摘要
+ *  ledger 代表，不得假设「只移除覆盖前缀」。
  *  切分规则：从 user 之后按完整 toolCall→toolResult 对累计最旧若干条，直到覆盖
  *  overflow = remainingTokens - keepRecentTokens；片段不得结束在带 toolCall 的 assistant 上。 */
 export function planInflightTrim(
@@ -101,11 +103,14 @@ export function planInflightTrim(
 
 export interface AssembleStats { windowTurns: number; replacedTurns: number; passthroughTurns: number }
 
-/** 装配上下文：窗口外有摘要的 turn 用 ledger 头代表，无摘要的 turn 原文照发，窗口内 turn 原文追加。 */
+/** 装配上下文：窗口外有摘要的 turn 用 ledger 头代表，无摘要的 turn 原文照发，窗口内 turn 原文追加。
+ *  extraLedgers（进行中 turn 的片段 ledger）追加在日志头 ledgers 数组末尾——片段属于最后
+ *  turn，branch 顺序天然在最后；缺省 [] 时行为与旧签名逐字节一致。 */
 export function assembleContext(
   branch: MessageEntry[],
   cache: Map<string, LedgerData>,
   keepRecentTokens: number,
+  extraLedgers: LedgerData[] = [],
 ): { messages: AgentMessage[]; stats: AssembleStats } {
   const turns = splitIntoTurns(branch);
   const window = findWindowTurns(turns, keepRecentTokens);
@@ -130,7 +135,7 @@ export function assembleContext(
     turns.filter((t) => !windowStartIds.has(t.startEntryId) && !cache.has(t.startEntryId)).flatMap((t) => t.entries.map((e) => e.id)),
   );
 
-  if (ledgers.length > 0) messages.push(renderActionLedger(ledgers));
+  if (ledgers.length > 0 || extraLedgers.length > 0) messages.push(renderActionLedger([...ledgers, ...extraLedgers]));
   const strippedBranch = stripThinking(branch); // passthrough 与窗口统一剥离 thinking（见 stripThinking）
   for (const e of strippedBranch) {
     if (passthroughIds.has(e.id)) messages.push(e.message);

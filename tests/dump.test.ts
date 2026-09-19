@@ -84,6 +84,25 @@ describe("dumpContext", () => {
     expect(dump.config.keepRecentTokens).toBe(DEFAULT_CONFIG.keepRecentTokens);
     expect(dump.generatedAt).toBeTruthy();
   });
+
+  it("dump：进行中超大 turn 与 context 同口径——片段行可见、原文侧裁剪", () => {
+    // 构造 branch：单个进行中超大 turn（user + 4 对 toolCall→toolResult，同 assembler 用例 fixture）
+    const branch: MessageEntry[] = [msg("u", "user", "任务")];
+    for (let i = 1; i <= 4; i++) {
+      branch.push({ id: `a${i}`, message: { role: "assistant", content: [{ type: "toolCall", id: `c${i}`, name: "bash", arguments: { command: `cmd${i}` } }] } as any });
+      branch.push({ id: `r${i}`, message: { role: "toolResult", toolCallId: `c${i}`, content: [{ type: "text", text: "x".repeat(2000) }] } as any });
+    }
+    // cache（含片段 ledger）：片段 a1..r4 已摘要落盘，口径与 assembler 用例一致
+    const fragLedger: LedgerData = { turnStartEntryId: "a1", turnEndEntryId: "r4", summary: { userIntent: "跑命令", outcome: "完成", entries: [] } };
+    const cache = new Map([["a1", fragLedger]]);
+    const dump = dumpContext(branch, cache, { ...DEFAULT_CONFIG, keepRecentTokens: 200 });
+    const all = dump.messages.map((m) => m.text).join("\n");
+    expect(all).toContain("<action-ledger>");
+    expect(all).toContain("跑命令");          // 片段行在日志头
+    expect(all).not.toContain("cmd1");        // 片段条目不在消息原文里
+    expect(all).not.toContain("x".repeat(2000));
+    expect(all).toContain("任务");            // user 消息保留
+  });
 });
 
 describe("renderMarkdown / writeContextDump", () => {

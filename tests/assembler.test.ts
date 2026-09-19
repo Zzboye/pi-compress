@@ -8,6 +8,16 @@ function msg(id: string, role: "user" | "assistant" | "toolResult", text: string
   return { id, message: { role, content: [{ type: "text", text }] } as AgentMessage };
 }
 
+// fixture：user + 4 对 toolCall→toolResult（每条 toolResult 用长文本撑 token）——planInflightTrim 与 assembleContext 共用
+const mkInflight = () => {
+  const entries: MessageEntry[] = [{ id: "u", message: { role: "user", content: [{ type: "text", text: "任务" }] } as any }];
+  for (let i = 1; i <= 4; i++) {
+    entries.push({ id: `a${i}`, message: { role: "assistant", content: [{ type: "toolCall", id: `c${i}`, name: "bash", arguments: { command: `cmd${i}` } }] } as any });
+    entries.push({ id: `r${i}`, message: { role: "toolResult", toolCallId: `c${i}`, content: [{ type: "text", text: "x".repeat(2000) }] } as any });
+  }
+  return entries;
+};
+
 // CJK 感知口径（util.countTokens）：中文 1 tok/char、ASCII 1 tok/4 chars。用长度控制 token 量级
 describe("splitIntoTurns", () => {
   it("splits at user messages", () => {
@@ -167,19 +177,24 @@ describe("assembleContext", () => {
     expect(head).toContain("<action-ledger>");
     expect(stats.replacedTurns).toBe(1);
   });
+
+  it("assembleContext：extraLedgers 渲染进日志头且原文侧不含片段内容", () => {
+    const branch = mkInflight(); // Task 3 的 helper（若不在同一 describe 作用域，复制一份或提到文件顶层）
+    const cache = new Map<string, LedgerData>();
+    const { trimmedBranch, extraLedgers, fragment } = planInflightTrim(branch, cache, 200);
+    // 模拟片段已摘要落盘
+    const fragLedger: LedgerData = { turnStartEntryId: fragment!.startEntryId, turnEndEntryId: fragment!.endEntryId, summary: { userIntent: "跑命令", outcome: "完成", entries: [] } };
+    // 重新裁剪（此时片段在 cache 中）
+    const plan2 = planInflightTrim(branch, new Map([[fragment!.startEntryId, fragLedger]]), 200);
+    const { messages } = assembleContext(plan2.trimmedBranch, new Map([[fragment!.startEntryId, fragLedger]]), 200, plan2.extraLedgers);
+    const ledgerMsg = messages.find((m) => Array.isArray((m as any).content) && ((m as any).content as any[]).some((c) => c.type === "text" && (c.text as string).includes("<action-ledger>")));
+    expect(ledgerMsg).toBeDefined();
+    const text = ((ledgerMsg as any).content as any[]).map((c) => c.text ?? "").join("");
+    expect(text).toContain("跑命令"); // 片段行在日志头
+  });
 });
 
 describe("planInflightTrim", () => {
-  // fixture：user + 4 对 toolCall→toolResult（每条 toolResult 用长文本撑 token）
-  const mkInflight = () => {
-    const entries: MessageEntry[] = [{ id: "u", message: { role: "user", content: [{ type: "text", text: "任务" }] } as any }];
-    for (let i = 1; i <= 4; i++) {
-      entries.push({ id: `a${i}`, message: { role: "assistant", content: [{ type: "toolCall", id: `c${i}`, name: "bash", arguments: { command: `cmd${i}` } }] } as any });
-      entries.push({ id: `r${i}`, message: { role: "toolResult", toolCallId: `c${i}`, content: [{ type: "text", text: "x".repeat(2000) }] } as any });
-    }
-    return entries;
-  };
-
   it("未超阈值：零变化（branch 原样、无 extraLedgers、fragment null）", () => {
     const branch = mkInflight();
     const out = planInflightTrim(branch, new Map(), 1_000_000);

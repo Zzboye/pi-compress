@@ -7,7 +7,7 @@ import fs from "node:fs";
 import { join } from "node:path";
 import { countTokens, splitIntoTurns, type MessageEntry, type Turn } from "./util.js";
 import type { ContextCompressConfig } from "./config.js";
-import { assembleContext, findWindowTurns, turnTokens, type AssembleStats } from "./assembler.js";
+import { assembleContext, findWindowTurns, planInflightTrim, turnTokens, type AssembleStats } from "./assembler.js";
 import type { LedgerData } from "./ledger.js";
 import { applyNotesInjection } from "./index.js";
 import type { NoteStore } from "./notes.js";
@@ -106,7 +106,9 @@ export function dumpContext(
   notesStore?: NoteStore | null,
   compaction?: { summary: string; tokensBefore: number } | null,
 ): ContextDump {
-  const { messages, stats } = assembleContext(branch, cache, config.keepRecentTokens);
+  const plan = planInflightTrim(branch, cache, config.keepRecentTokens);
+  // dump 是只读视图：不 enqueue fragment（那是 context 事件的副作用），只做同口径裁剪与渲染
+  const { messages, stats } = assembleContext(plan.trimmedBranch, cache, config.keepRecentTokens, plan.extraLedgers);
   if (compaction) {
     // compaction 口径与 context 事件一致（缺此步 dump 会缺首条压缩摘要消息）
     messages.unshift({
