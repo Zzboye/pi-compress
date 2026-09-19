@@ -50,11 +50,11 @@
     {
       "id": "task-005",
       "table": "tasks",
-      "text": "五级阶梯遗留 Minor 清单：M4 已修（ff9809e）；M3+M9 已修（b42b03a，本地待推送）；M5 已实证存在但触发极苛刻（双跳+压缩失败+巨L4），维持观察到再修；M7 挂 task-002；M6/M8 纯卫生顺手做",
-      "detail": "M5 探针实证（2026-09-17，T102 会话）：**真实存在，但触发条件比描述的更苛刻**。构造出的触发场景：同一遍瀑布内双跳——L3 的条目 a 被选 toLevel=4 后，L4 层快照中它与既有巨 L4 条目一起再超线 → a 获得第二个 step toLevel=5。执行序：compressEnds(a) 失败回滚 a=3（warning「保持 L3」），但后续 L4→L5 组循环只看 plan.steps 的 toLevel=5 集合（plan 是静态推演，不知道运行时回滚）→ a 仍被 mergeDescribe 且置 L5。后果验证：mergeDescribe 输入含 a 的 L3 渲染=全量原文（>6k chars 撑大 prompt），数据无损（userIntent/outcome 虽失败但 merged.description 有），层级语义失真（L3 条目带着原文进了 L5 终态行）。为何现实中极难发生：需要同一遍瀑布内「L3 条目双跳 + 其 compressEnds 恰好失败 + 同层有既有巨 L4 撑爆 L4 层快照」三个条件同时满足；且 L4 渲染只有 ~16 tok（意图+outcome 行），L4 层快照超线基本靠巨 L4 条目驱动。裁定维持「观察到再修」：修法为 L5 组执行时过滤 level!==4 的成员（一行），或 mergeGroups 在执行期重算。",
+      "text": "五级阶梯遗留 Minor 清单：M4 已修（ff9809e）；M3+M9 已修（b42b03a）；P3 计数重写已修（89ebfca）；M5 实证存在但极苛刻维持观察；M7 挂 task-002；M6/M8 顺手",
+      "detail": "Codex 第四轮审查 P3（L5 计数矛盾）验证属实并已修复（2026-09-19，commit 89ebfca）。问题：两批条数相同（如各 2 条）且模型碰巧生成同一句描述正文的 L5 组相邻时，渲染层按描述全串聚合为一行，旧后缀「（2 条已合并）」与真实范围 T1-T4（4 条）矛盾。修复：renderActionLedger 聚合时若 group.length>1 则剥旧后缀、按真实条数重写「（N 条已合并）」；单条保留原描述（原批次计数仍真实，不因渲染改写历史——这是探针测试踩过的坑：无条件重写会把单条的原 3 条计数改成 1）。searchLedger 同构段无此问题（逐条 push 各自描述，label 只是范围标注，无计数声明）。此前 M4 修复的测试用例「描述相同仍聚为一行（无损）」的前提正是计数重写后不再矛盾。Codex 四轮审查累计发现 5 个真实问题（3 P1 + 1 P3 + dump 漏 notes 由用户实测发现），外部审查持续有效。",
       "status": "待办",
       "date": "2026-09-17",
-      "updatedAt": "2026-09-18T14:50:47.492Z",
+      "updatedAt": "2026-09-19T09:00:49.059Z",
       "source": "final review 报告（session 01a0ab54）+ cbee882 修复记录，2026-09-16 会话整理",
       "locked": false
     }
