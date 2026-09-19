@@ -270,3 +270,24 @@ describe("图片占位行", () => {
     expect(hasImg).toBeGreaterThan(noImg);
   });
 });
+
+describe("L5 聚合行计数重写（Codex P3）", () => {
+  it("两批描述相同（含相同后缀计数）聚合为一行时，后缀计数按真实条数重写", () => {
+    // 两批各 2 条、模型碰巧生成同一句正文 → 全串相同 → 聚合为一行；
+    // 旧行为显示「（2 条已合并）」但范围 T1-T4 有 4 条 → 范围与计数矛盾
+    const g = (id: string) => ({ ...full, turnStartEntryId: id, level: 5 as any, merged: { description: "修复测试失败（2 条已合并）" } });
+    const text = textOf(renderActionLedger([g("e001"), g("e101"), g("e201"), g("e301")]));
+    expect(text).toContain("T1-T4 · 修复测试失败（4 条已合并）");
+    expect(text).not.toContain("（2 条已合并）");
+  });
+
+  it("单条 L5 与同描述多条聚合均计数正确（不重写单条的已有后缀）", () => {
+    const g = (id: string) => ({ ...full, turnStartEntryId: id, level: 5 as any, merged: { description: "调试降级（3 条已合并）" } });
+    // 单条（独立行）：保持原后缀 3（描述里记录的就是它所在原批次的条数）
+    const single = textOf(renderActionLedger([g("e001")]));
+    expect(single).toContain("T1 · 调试降级（3 条已合并）");
+    // 3 条同描述聚合 → 计数仍是 3，无需变
+    const agg = textOf(renderActionLedger([g("e001"), g("e101"), g("e201")]));
+    expect(agg).toContain("T1-T3 · 调试降级（3 条已合并）");
+  });
+});

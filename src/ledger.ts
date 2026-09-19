@@ -142,7 +142,13 @@ export function renderActionLedger(rawLedgers: LedgerData[]): AgentMessage {
         ledgers[end + 1].merged?.description === l.merged?.description
       ) end++;
       const group = ledgers.slice(i, end + 1);
-      const desc = group[0].merged?.description ?? "（已合并）";
+      // 计数重写（Codex P3）：描述后缀由 mergeDescribe 按原批次条数生成；两个条数相同的
+      // 批次若模型碰巧生成同一句正文，全串相同会聚合为一行——此时旧后缀计数 < 真实范围。
+      // 仅在真正聚合（>1 条）时剥旧后缀、按真实条数重写；单条保留原描述（原批次计数仍真实）。
+      const rawDesc = group[0].merged?.description ?? "（已合并）";
+      const desc = group.length > 1
+        ? `${(rawDesc.replace(/（\d+ 条已合并）$/, "").trim() || "（已合并）")}（${group.length} 条已合并）`
+        : rawDesc;
       const range = group.length > 1 ? `T${i + 1}-T${end + 1}` : `T${i + 1}`;
       lines.push(`### ${range} · ${desc}\n`);
       i = end;
