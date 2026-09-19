@@ -9,7 +9,7 @@ import type {
   SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
 import { loadConfig, type ContextCompressConfig } from "./config.js";
-import { assembleContext, findWindowTurns, type AssembleStats } from "./assembler.js";
+import { assembleContext, findWindowTurns, planInflightTrim, type AssembleStats } from "./assembler.js";
 import { NoteStore, renderNotes } from "./notes.js";
 import type { AgentMessage } from "./types.js";
 import { LedgerStore, type SessionEntryLike } from "./store.js";
@@ -202,8 +202,14 @@ export default function (pi: ExtensionAPI): void {
     }
 
     const cache = new Map<string, LedgerData>();
-    for (const k of store.keys()) { const v = store.get(k); if (v) cache.set(k, v); }
-    const { messages, stats } = assembleContext(entries, cache, config.keepRecentTokens);
+    for (const k of store.keys()) { const v = store.get(k); if (v && !v.absorbed) cache.set(k, v); }
+    // 进行中超大 turn：溢出片段提前入摘要管线（spec §4.1）；新切片本轮不裁剪进 ledger（无 ledger，
+    // trimmedBranch 已移除片段条目，下一轮 context 事件时摘要落盘、片段由 ledger 代表）
+    const plan = planInflightTrim(entries, cache, config.keepRecentTokens);
+    if (plan.fragment && engine && !engine.failed().has(plan.fragment.startEntryId) && !store.get(plan.fragment.startEntryId)) {
+      engine.enqueue(plan.fragment);
+    }
+    const { messages, stats } = assembleContext(plan.trimmedBranch, cache, config.keepRecentTokens, plan.extraLedgers);
     if (compaction) {
       // pi 原生压缩摘要恢复：包裹文案与 pi 的 compactionSummary→user 转换同款
       // （core/messages.js COMPACTION_SUMMARY_PREFIX/SUFFIX，未从主包导出故内联；漂移只影响观感）
