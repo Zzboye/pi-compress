@@ -1112,6 +1112,126 @@ describe("extension entry wiring", () => {
     }
     });
 
+  // ---------- agent_settled 收敛：整 turn 落盘后片段墓碑化（Task 7） ----------
+  // 复用 Task 5 超大 turn fixture：u1(user) → a1(toolCall) → r1(巨型 toolResult ~1.5K tok)，
+  // context 事件切出片段（key=a1，≠ turn 起点 u1）→ 片段摘要落盘 → agent_settled 整 turn
+  // 入队 → 队列清空且整 turn 条目落盘后墓碑化片段（absorbed: true + store.delete）。
+  const mkAbsorbHarness = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-absorb-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({
+        contextCompress: {
+          summarizer: { kind: "registry", provider: "FakeBig", model: "big" },
+          keepRecentTokens: 1000, // 巨型 toolResult 必然溢出 → 切片段
+          backfillLimit: 0,       // 关闭补摘：隔离被测路径
+          retry: { maxAttempts: 1, backoffMs: 100 },
+        },
+      }),
+    );
+    const { handlers } = harness();
+    const writes: any[] = [];   // 捕获 onLedger/absorb → appendCustomEntry 的持久化写入
+    const prompts: string[] = [];
+    const branch: any[] = [
+      { id: "u1", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "修一下排序" }] } },
+      { id: "a1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "npm test" } }] } },
+      { id: "r1", parentId: "a1", type: "message", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "果".repeat(1500) }] } },
+    ];
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: () => {}, setStatus: () => {} },
+      getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
+      sessionManager: {
+        getBranch: () => branch,
+        appendCustomEntry: (_t: string, d: any) => {
+          writes.push(d);
+          branch.push({ id: `lg${branch.length}`, parentId: branch[branch.length - 1].id, type: "custom", customType: LEDGER_CUSTOM_TYPE, data: d });
+        },
+      },
+      modelRegistry: {
+        find: () => ({ provider: "FakeBig", model: "big" }),
+        complete: async (_model: any, msgs: any) => {
+          prompts.push(msgs.messages[0].content[0].text);
+          return { content: [{ type: "text", text: JSON.stringify({ entries: [{ id: 0, target: "npm test", detail: "执行了测试命令" }] }) }] };
+        },
+      },
+    };
+    return { dir, handlers, writes, prompts, branch, fakeCtx };
+  };
+
+  it("收敛：turn 结束后整 turn 条目落盘、片段墓碑化、重启不复活", async () => {
+    const { dir, handlers, writes, prompts, branch, fakeCtx } = mkAbsorbHarness();
+    try {
+      await handlers.session_start({}, fakeCtx);
+      // 1. context 触发切分入队；等片段摘要落盘（onLedger 先 store.set 后 appendCustomEntry，
+      //    branch 出现 custom entry ⇒ store 已有条目）
+      await handlers.context({}, fakeCtx);
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline && !branch.some((e) => e.type === "custom")) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(prompts.some((p) => p.includes("npm test"))).toBe(true); // 片段摘要请求已发生
+      // 2. agent_settled：整 turn 入队（FIFO 在片段后）→ waitIdle 队列清空 → 收敛墓碑化
+      await handlers.agent_settled({}, fakeCtx);
+      while (Date.now() < deadline && !writes.some((d) => d.absorbed)) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      // 3. 整 turn 条目落盘（turnStartEntryId=u1）+ 片段墓碑写入（absorbed: true）
+      expect(writes.some((d) => d.turnStartEntryId === "u1" && !d.absorbed)).toBe(true);
+      const tombstone = writes.find((d) => d.turnStartEntryId === "a1" && d.absorbed);
+      expect(tombstone).toBeTruthy();
+      // 4. 重启不复活：branch 持久化条目重建新 store——整 turn 在、片段（absorbed 被跳过）不在
+      const fresh = new LedgerStore();
+      fresh.rebuildFromEntries(branch as any);
+      expect(fresh.get("u1")).toBeTruthy();
+      expect(fresh.get("a1")).toBeUndefined();
+      // 幂等：重复 agent_settled 不报错、不重复墓碑化
+      await handlers.agent_settled({}, fakeCtx);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(writes.filter((d) => d.absorbed)).toHaveLength(1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("收敛守卫：整 turn 摘要失败时片段不墓碑（数据无损）", async () => {
+    const { dir, handlers, writes, prompts, branch, fakeCtx } = mkAbsorbHarness();
+    // 整 turn 摘要（prompt 含 user 消息「修一下排序」）→ 抛错；片段摘要（不含 user 消息）照常成功
+    const notifyCalls: string[] = [];
+    fakeCtx.ui.notify = (m: string) => notifyCalls.push(m);
+    fakeCtx.modelRegistry.complete = async (_model: any, msgs: any) => {
+      prompts.push(msgs.messages[0].content[0].text);
+      if (msgs.messages[0].content[0].text.includes("修一下排序")) {
+        throw new Error("整 turn 摘要失败");
+      }
+      return { content: [{ type: "text", text: JSON.stringify({ entries: [{ id: 0, target: "npm test", detail: "执行了测试命令" }] }) }] };
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      await handlers.context({}, fakeCtx);
+      const deadline = Date.now() + 4000;
+      while (Date.now() < deadline && !prompts.some((p) => p.includes("npm test"))) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      await handlers.agent_settled({}, fakeCtx);
+      // 等「摘要失败」warning 落地（整 turn 走完重试）
+      while (Date.now() < deadline && !notifyCalls.some((m) => m.includes("摘要失败"))) {
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      expect(notifyCalls.some((m) => m.includes("摘要失败"))).toBe(true);
+      await new Promise((r) => setTimeout(r, 50)); // absorb 微任务 flush
+      // 守卫：整 turn 条目不存在 → 不墓碑化（无 absorbed 写入），片段仍无损保留在 store
+      expect(writes.some((d) => d.absorbed)).toBe(false);
+      const fresh = new LedgerStore();
+      fresh.rebuildFromEntries(branch as any);
+      expect(fresh.get("a1")).toBeTruthy();  // 片段无损
+      expect(fresh.get("u1")).toBeUndefined(); // 整 turn 摘要未落盘
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
     it("context：无超大 turn → 行为逐字节不变", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-noinflight-"));
     try {

@@ -12,7 +12,7 @@ import { loadConfig, type ContextCompressConfig } from "./config.js";
 import { assembleContext, findWindowTurns, planInflightTrim, type AssembleStats } from "./assembler.js";
 import { NoteStore, renderNotes } from "./notes.js";
 import type { AgentMessage } from "./types.js";
-import { LedgerStore, collectFragmentKeys, type SessionEntryLike } from "./store.js";
+import { LedgerStore, collectFragmentEntries, collectFragmentKeys, type SessionEntryLike } from "./store.js";
 import {
   SummarizerEngine,
   createRegistryBackend,
@@ -138,9 +138,9 @@ export default function (pi: ExtensionAPI): void {
     const last = turns[turns.length - 1];
     const holdAt4 = new Set<string>();
     if (last) {
-      for (const k of collectFragmentKeys(last, store)) {
-        const frag = store.get(k);
-        if (frag) { ledgers.push(frag); holdAt4.add(k); }
+      for (const { key, ledger } of collectFragmentEntries(last, store)) {
+        ledgers.push(ledger);
+        holdAt4.add(key);
       }
     }
     if (ledgers.length === 0) return; // 早退在片段收集之后：无 ledgers 也无片段才白跑
@@ -246,10 +246,33 @@ export default function (pi: ExtensionAPI): void {
     const turns = splitIntoTurns(entries);
     if (turns.length === 0) return;
     const last = turns[turns.length - 1];
-    if (store.get(last.startEntryId) || engine.failed().has(last.startEntryId)) return;
-    engine.enqueue(last);
-    // 摘要完成后后台降级：L1>阈值 → 最旧降 L2，逐层瀑布，不阻塞事件返回
-    degradeAfterSettleSafe(ctx);
+    // 溢出片段收敛（spec §4.5）必须不受既有守卫拦截：整 turn 已有 ledger（session_start 补摘
+    // 场景）或已标记失败时片段墓碑化照常执行，故守卫改为布尔判定而非提前 return
+    const fragmentKeys = collectFragmentKeys(last, store);
+    const needSettle = !store.get(last.startEntryId) && !engine.failed().has(last.startEntryId);
+    if (needSettle) engine.enqueue(last);
+    if (fragmentKeys.length > 0) {
+      const turnStart = last.startEntryId;
+      // 整 turn 摘要落盘且队列清空后墓碑化片段。幂等守卫：整 turn ledger 不存在（摘要失败/超时）
+      // 时不墓碑——片段仍是唯一索引，数据无损优先，下轮 agent_settled 重试；
+      // 已 absorbed / 不在 store 的片段跳过（重复 agent_settled 不重复墓碑化）。
+      // waitIdle 在 enqueue 之后调用：整 turn FIFO 排在片段后，队列清空 = 全部落盘。
+      void engine.waitIdle(WAIT_TIMEOUT_MS).then(() => {
+        if (!store.get(turnStart)) return; // 整 turn 摘要未落盘：不收敛，下轮重试
+        for (const k of fragmentKeys) {
+          const frag = store.get(k);
+          if (!frag || frag.absorbed) continue;
+          const tombstone = { ...frag, absorbed: true as const };
+          store.set(tombstone);
+          try { (ctx.sessionManager as unknown as { appendCustomEntry(t: string, d: unknown): void }).appendCustomEntry(LEDGER_CUSTOM_TYPE, tombstone); } catch { /* 同 onLedger：持久化失败不影响内存收敛 */ }
+          store.delete(k); // cache 内移除（墓碑以 appendCustomEntry 落盘，rebuild 跳过 → 不复活）
+        }
+      });
+    }
+    if (needSettle) {
+      // 摘要完成后后台降级：L1>阈值 → 最旧降 L2，逐层瀑布，不阻塞事件返回
+      degradeAfterSettleSafe(ctx);
+    }
   });
 
   pi.on("session_before_compact", async (event, ctx) => {

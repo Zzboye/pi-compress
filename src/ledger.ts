@@ -37,7 +37,8 @@ export interface LedgerData {
   level?: LedgerLevel;
   /** level=5 时有效：合并行描述；turn 范围由渲染时相邻 level=5 条目聚合得出 */
   merged?: { description: string };
-  /** 溢出片段被整 turn 条目吸收后的墓碑标记：rebuild 跳过，渲染侧防御性过滤 */
+  /** 溢出片段被整 turn 条目吸收后的墓碑标记：rebuild 时删除同名缓存条目（append-only 文件中
+   *  原条目在前，仅跳过会复活），渲染侧防御性过滤 */
   absorbed?: true;
 }
 

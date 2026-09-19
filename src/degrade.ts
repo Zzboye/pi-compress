@@ -53,6 +53,8 @@ export function chooseOldestForLevel(
  * 逐层瀑布：L1→L2→L3→L4→L5（Task 2 右移一层）。L1 降级产生的新 L2 条目立即计入 L2 的 total
  * （下层计量基于降级后快照）。holdAt4 中的条目豁免 L5（进行中 turn 的溢出片段：L5 合并收益
  * 为零而拒绝召回是实害，spec 裁定 7）→ 不生成 toLevel=5 step、不入合并组，终态 L4。
+ * 被豁免的片段仍参与各层 total 与 reserve 计量（保守方向：只少选不超降——豁免只挡
+ * toLevel=5 step，不影响选中量，保留区不会因此被超卖）。
  * 不修改入参（在副本上推演），每轮 agent_settled 只做一遍瀑布，
  * 超量部分下一轮自然收敛。
  */
