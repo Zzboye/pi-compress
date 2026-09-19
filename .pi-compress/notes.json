@@ -50,11 +50,11 @@
     {
       "id": "task-005",
       "table": "tasks",
-      "text": "五级阶梯遗留 Minor 清单：M4 已修（ff9809e）；M3+M9 已修（b42b03a，本地待推送）；M7 挂 task-002；M5 观察到再修；M6/M8 纯卫生顺手做",
-      "detail": "五级阶梯 final review triage 17 条中 3 条已在分支内闭环（T1#2 孤立 L5 渲染用例、T2#3 spec 勘误注记、T3-F1 seenTurns 去重），2 条已修（commit cbee882：M1 README 召回路由 bullet 去重、M2 recall.ts:146 旧注释 L5 口径）。仍遗留 7 条（全部非正确性问题）：M3=spec §7 表称 L3「可见 ID=两端 ID」与 §4/实现（L3 渲染无任何 ↩ID，实际召回走 searchLedger 命中行）自相矛盾，需 spec 勘误注记（纯文档）；M4=ledger.ts:133-141 相邻两个 L5 组渲染聚合为一行仅显 group[0] 描述，后组描述被视图吞掉（旧四级同构预存在；根治需跨组重描述=新增 LLM 调用，不符预算，观察到实际困扰再修）；M5=degrade.ts 同遍瀑布中 L4→L5 组成员 compressEnds 失败回滚 L3 后仍被直接升 L5，mergeDescribe 输入含全量原文（数据无损有 warning，预存在边角）；M6=degrade.ts:65 w.level as 1|2|3|4 类型断言无运行时防护（上游 store 守卫已保证 1..5）；M7=index.ts:258,271-272 query+ids 同传时 splitIntoTurns 执行 3 次（挂 task-002 recall 分页时顺手做）；M8=recall.ts 多处卫生（turn 级图片 sourceId 注释失准、slice 可能切断代理对 CJK 概率极低、行为不变用例单锚点、5 as any 冗余、L2 用户侧 quote 无直接断言）；M9=index.ts recall 统计 L5 拒绝计入 recallStats.hits（missing 为空，统计口径 cosmetic，一行可改）。更早遗留还有：/compress-remember global 分支正则误匹配边界（挂 task-003 全局记忆）；notesQueue 跨 session_start 理论竞态（已记入 spec §10 已知限制，接受）。建议收口方式：M3+M9 可进半小时小清理 PR；M4/M5 等真实使用观察到困扰再修；M6/M8 触碰对应文件时顺手。",
+      "text": "五级阶梯遗留 Minor 清单：M4 已修（ff9809e）；M3+M9 已修（b42b03a，本地待推送）；M5 已实证存在但触发极苛刻（双跳+压缩失败+巨L4），维持观察到再修；M7 挂 task-002；M6/M8 纯卫生顺手做",
+      "detail": "M5 探针实证（2026-09-17，T102 会话）：**真实存在，但触发条件比描述的更苛刻**。构造出的触发场景：同一遍瀑布内双跳——L3 的条目 a 被选 toLevel=4 后，L4 层快照中它与既有巨 L4 条目一起再超线 → a 获得第二个 step toLevel=5。执行序：compressEnds(a) 失败回滚 a=3（warning「保持 L3」），但后续 L4→L5 组循环只看 plan.steps 的 toLevel=5 集合（plan 是静态推演，不知道运行时回滚）→ a 仍被 mergeDescribe 且置 L5。后果验证：mergeDescribe 输入含 a 的 L3 渲染=全量原文（>6k chars 撑大 prompt），数据无损（userIntent/outcome 虽失败但 merged.description 有），层级语义失真（L3 条目带着原文进了 L5 终态行）。为何现实中极难发生：需要同一遍瀑布内「L3 条目双跳 + 其 compressEnds 恰好失败 + 同层有既有巨 L4 撑爆 L4 层快照」三个条件同时满足；且 L4 渲染只有 ~16 tok（意图+outcome 行），L4 层快照超线基本靠巨 L4 条目驱动。裁定维持「观察到再修」：修法为 L5 组执行时过滤 level!==4 的成员（一行），或 mergeGroups 在执行期重算。",
       "status": "待办",
       "date": "2026-09-17",
-      "updatedAt": "2026-09-17T17:15:44.928Z",
+      "updatedAt": "2026-09-18T14:50:47.492Z",
       "source": "final review 报告（session 01a0ab54）+ cbee882 修复记录，2026-09-16 会话整理",
       "locked": false
     }
