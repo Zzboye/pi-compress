@@ -260,7 +260,11 @@ export default function (pi: ExtensionAPI): void {
       // 已 absorbed / 不在 store 的片段跳过（重复 agent_settled 不重复墓碑化）。
       // waitIdle 在 enqueue 之后调用：整 turn FIFO 排在片段后，队列清空 = 全部落盘。
       void engine.waitIdle(WAIT_TIMEOUT_MS).then(() => {
-        if (!store.get(turnStart)) return; // 整 turn 摘要未落盘：不收敛（失败不自动重试；超时由下轮 waitIdle 重试）
+        // 守卫（I-1）：整 turn ledger 未覆盖完整 turn（重启中途补摘陈旧 turnEndEntryId ≠
+        // 当前 turn 实际末尾，或摘要失败）→ 不收敛——片段仍是唯一索引，墓碑化会把它们
+        // 埋进一个不覆盖原文的陈旧摘要（不可见也不可检索）。正常落盘的整 turn ledger
+        // turnEndEntryId === last.endEntryId，守卫不受影响。
+        if (store.get(turnStart)?.turnEndEntryId !== last.endEntryId) return;
         for (const k of fragmentKeys) {
           const frag = store.get(k);
           if (!frag || frag.absorbed) continue;
@@ -280,7 +284,13 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_before_compact", async (event, ctx) => {
     if (!config || !engine) return undefined; // 未接管 → pi 原生压缩
     if (engine.pending() > 0) return undefined; // 不健康 → 让位
-    const ledgers = ledgersInBranchOrder(toMessageEntries(ctx.sessionManager.getBranch()), false);
+    const entries = toMessageEntries(ctx.sessionManager.getBranch());
+    const ledgers = ledgersInBranchOrder(entries, false);
+    // 同 recall query 调用点：追加末 turn 片段 ledger，超大 turn 场景提交给 pi 的压缩摘要
+    // 不丢片段行；无片段时空追加，行为逐字节不变
+    const turns = splitIntoTurns(entries);
+    const lastTurn = turns[turns.length - 1];
+    if (lastTurn) ledgers.push(...collectFragmentEntries(lastTurn, store).map((f) => f.ledger));
     if (ledgers.length === 0) return undefined;
     const ledgerMsg = renderActionLedger(ledgers);
     const text = ((ledgerMsg as any).content as any[]).map((c: any) => c.text ?? "").join("");
@@ -311,6 +321,12 @@ export default function (pi: ExtensionAPI): void {
         // query 模式：关键词检索已压缩历史，返回命中索引（不消耗 calls，calls 只计逐字取回）
         // T 标签按 branch 顺序编号，与 renderActionLedger 同口径
         const ledgers = ledgersInBranchOrder(entries, false);
+        // 片段 ledger（key ∈ 末 turn 中间条目）ledgersInBranchOrder 查不到：追加保证 query
+        // 可命中片段摘要，且 T 编号与 renderActionLedger（extraLedgers 同款追加）对齐；
+        // 无片段时空追加，行为逐字节不变
+        const turns = splitIntoTurns(entries);
+        const lastTurn = turns[turns.length - 1];
+        if (lastTurn) ledgers.push(...collectFragmentEntries(lastTurn, store).map((f) => f.ledger));
         const r = searchLedger(q, ledgers, 15);
         recallStats.searches += 1;
         recallStats.searchHits += r.hits.length;

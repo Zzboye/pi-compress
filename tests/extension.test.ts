@@ -1232,6 +1232,141 @@ describe("extension entry wiring", () => {
     }
   });
 
+  // ---------- I-1 回归：重启中途——陈旧整 turn ledger 不满足收敛守卫 ----------
+  // 场景：中途重启 → backfill 对进行中 turn 补摘落盘整 turn ledger（turnEndEntryId = 重启时刻
+  // 的 turn 末尾 a1）→ 用户继续任务切出新片段落盘（key=a1，覆盖到 r1）→ agent_settled：
+  // needSettle=false（store.get(u1) 成立）但陈旧整 turn ledger 不覆盖完整 turn——
+  // 守卫必须拦截：墓碑化会把新片段埋进不覆盖它们的陈旧摘要（内容不可见也不可检索）。
+  it("I-1 回归：陈旧整 turn ledger（重启补摘落盘）不覆盖完整 turn → 片段不墓碑化", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-stale-"));
+    try {
+      fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, ".pi", "settings.json"),
+        JSON.stringify({
+          contextCompress: {
+            summarizer: { kind: "registry", provider: "FakeBig", model: "big" },
+            keepRecentTokens: 1000,
+            backfillLimit: 0,
+            retry: { maxAttempts: 1, backoffMs: 100 },
+          },
+        }),
+      );
+      const { handlers } = harness();
+      const writes: any[] = [];
+      // 重启前持久化的两条 ledger：陈旧整 turn（补摘落盘，turnEndEntryId=重启时刻的 turn 末尾 a1）
+      // + 重启后切出并落盘的新片段（key=a1，覆盖 a1..r1）
+      const staleTurn = mkLedger({ turnStartEntryId: "u1", turnEndEntryId: "a1", level: 1 });
+      const fragment = mkLedger({ turnStartEntryId: "a1", turnEndEntryId: "r1", level: 1 });
+      const branch: any[] = [
+        { id: "u1", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "修一下排序" }] } },
+        { id: "a1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "npm test" } }] } },
+        { id: "r1", parentId: "a1", type: "message", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "果".repeat(1500) }] } },
+        { id: "lg1", parentId: "r1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: staleTurn },
+        { id: "lg2", parentId: "lg1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: fragment },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: () => {}, setStatus: () => {} },
+        getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
+        sessionManager: {
+          getBranch: () => branch,
+          appendCustomEntry: (_t: string, d: any) => {
+            writes.push(d);
+            branch.push({ id: `lg${branch.length}`, parentId: branch[branch.length - 1].id, type: "custom", customType: LEDGER_CUSTOM_TYPE, data: d });
+          },
+        },
+        modelRegistry: {
+          find: () => ({ provider: "FakeBig", model: "big" }),
+          complete: async () => { throw new Error("不应发起摘要调用（needSettle=false）"); },
+        },
+      };
+      await handlers.session_start({}, fakeCtx);
+      await handlers.agent_settled({}, fakeCtx);
+      await new Promise((r) => setTimeout(r, 100)); // waitIdle 微任务 flush
+      // 守卫拦截：无墓碑写入，新片段不被埋进陈旧摘要
+      expect(writes.some((d) => d.absorbed)).toBe(false);
+      const fresh = new LedgerStore();
+      fresh.rebuildFromEntries(branch as any);
+      expect(fresh.get("a1")).toBeTruthy();                 // 片段仍在（内容可 recall）
+      expect(fresh.get("u1")?.turnEndEntryId).toBe("a1");   // 陈旧整 turn ledger 原样保留
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // ---------- I-2 回归：两处调用点不含片段 ledger ----------
+  it("I-2 回归：recall query 检索命中片段摘要（T 编号与 renderActionLedger 对齐）", async () => {
+    const { handlers, tools } = harness();
+    const turnLedger = mkLedger({ turnStartEntryId: "u0", turnEndEntryId: "b0", level: 1 });
+    const fragment = mkLedger({
+      turnStartEntryId: "a1", turnEndEntryId: "r1", level: 1,
+      summary: { entries: [{ action: "exec", target: "npm test", detail: "执行了测试命令", recallIds: ["a1"], phase: "verify" }] },
+    } as Partial<LedgerData> & { turnStartEntryId: string });
+    const branch: any[] = [
+      { id: "u0", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+      { id: "b0", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+      { id: "lg0", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: turnLedger },
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "修一下排序" }] } },
+      { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "npm test" } }] } },
+      { id: "r1", type: "message", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "果".repeat(1500) }] } },
+      { id: "lg1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: fragment },
+    ];
+    const fakeCtx: any = {
+      cwd: "/nonexistent-pi-compress-test",
+      ui: { notify: () => {}, setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    await handlers.session_start({}, fakeCtx); // store 重建：整 turn + 片段 ledger 均入缓存
+    const out = await tools.recall.execute("tc1", { query: "执行了测试命令" }, undefined, undefined, fakeCtx);
+    const text = out.content[0].text;
+    expect(text).toContain("命中");
+    expect(text).toContain("执行了测试命令");
+    expect(text).toContain("↩a1");
+    expect(text).toContain("T2"); // 片段按 branch 顺序排整 turn ledger 之后
+  });
+
+  it("I-2 回归：session_before_compact 提交给 pi 的摘要文本含片段行", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-compactfrag-"));
+    try {
+      fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, ".pi", "settings.json"),
+        JSON.stringify({ contextCompress: { summarizer: { kind: "registry", provider: "FakeBig", model: "big" }, backfillLimit: 0 } }),
+      );
+      const { handlers } = harness();
+      const turnLedger = mkLedger({ turnStartEntryId: "u0", turnEndEntryId: "b0", level: 1 });
+      const fragment = mkLedger({
+        turnStartEntryId: "a1", turnEndEntryId: "r1", level: 1,
+        summary: { entries: [{ action: "exec", target: "npm test", detail: "执行了测试命令", recallIds: ["a1"], phase: "verify" }] },
+      } as Partial<LedgerData> & { turnStartEntryId: string });
+      const branch: any[] = [
+        { id: "u0", type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+        { id: "b0", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+        { id: "lg0", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: turnLedger },
+        { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "修一下排序" }] } },
+        { id: "a1", type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "tc1", name: "bash", arguments: { command: "npm test" } }] } },
+        { id: "r1", type: "message", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "果".repeat(1500) }] } },
+        { id: "lg1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: fragment },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: () => {}, setStatus: () => {} },
+        sessionManager: { getBranch: () => branch },
+      };
+      await handlers.session_start({}, fakeCtx);
+      const result = await handlers.session_before_compact(
+        { preparation: { firstKeptEntryId: "u0", tokensBefore: 1000 } },
+        fakeCtx,
+      );
+      expect(result).toBeTruthy();
+      expect(result!.compaction!.summary).toContain("执行了测试命令"); // 片段行不丢
+      expect(result!.compaction!.summary).toContain("↩a1");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
     it("context：无超大 turn → 行为逐字节不变", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-noinflight-"));
     try {
