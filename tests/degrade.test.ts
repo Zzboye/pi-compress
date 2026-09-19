@@ -20,6 +20,18 @@ function ledger(id: string, level: 1 | 2 | 3 | 4, tokens: number): LedgerData {
 }
 
 describe("planDegrade", () => {
+  it("L5 豁免：holdAt4 中的条目不生成 toLevel=5 step，保持 L4", () => {
+    const ls: LedgerData[] = [
+      { turnStartEntryId: "f1", turnEndEntryId: "f1", summary: { entries: [] }, level: 4 },   // 片段
+      { turnStartEntryId: "old", turnEndEntryId: "old", summary: { entries: [] }, level: 4 }, // 普通旧条目
+    ];
+    // brief 原 fixture（threshold=1, reserve=1）永不选中第二条（选 old 会剩 0 < reserve 1）→
+    // 按用例意图（两者都被选中升 5）修正 reserve=0
+    const plan = planDegrade(ls, 1, 0, new Set(["f1"]));
+    expect(plan.steps.find((s) => s.turnStartEntryId === "f1" && s.toLevel === 5)).toBeUndefined();
+    expect(plan.steps.find((s) => s.turnStartEntryId === "old" && s.toLevel === 5)).toBeDefined();
+  });
+
   it("no plan when every level under threshold", () => {
     const ls = [ledger("a", 1, 1000), ledger("b", 1, 2000)];
     const p = planDegrade(ls, 40000, 10000);
@@ -220,6 +232,22 @@ describe("DegradeEngine", () => {
     expect(ls[1].level).toBe(4);
     expect(ls[0].merged).toBeUndefined();
     expect(warnings).toHaveLength(1);
+  });
+
+  it("L5 豁免：holdAt4 中的片段保持 L4，普通旧条目正常合并为 L5", async () => {
+    const log: string[] = [];
+    const engine = new DegradeEngine(
+      makeBackend(['{"description":"旧任务描述"}'], log),
+      { ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 0 } as any, // reserve=0：两条都被选中升 5（brief fixture 同款意图）
+      (d) => {}, () => {},
+    );
+    const ls = [ledger("f1", 4, 21000), ledger("old", 4, 21000)];
+    await engine.run(ls, new Set(["f1"]));
+    expect(ls[0].level).toBe(4); // 片段终态 L4（L5 合并收益为零而拒绝召回是实害，裁定 7）
+    expect(ls[0].merged).toBeUndefined();
+    expect(ls[1].level).toBe(5);
+    expect(ls[1].merged?.description).toBe("旧任务描述（1 条已合并）");
+    expect(log).toEqual(["call0"]); // 仅旧条目所在组一次调用
   });
 
   it("executes serially: level written before LLM call, one call at a time", async () => {

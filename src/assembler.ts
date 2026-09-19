@@ -26,7 +26,6 @@ export function findWindowTurns(turns: Turn[], keepRecentTokens: number): Turn[]
  *  branch = 裁剪视图（去掉 covered 前缀条目，user 消息保留）；
  *  extraLedgers = 片段 ledger（branch 顺序追加在队尾）；
  *  fragment = 未覆盖部分仍超 keepRecentTokens 时切出的新片段伪 Turn（否则 null）。
- *  fragment = 未覆盖部分仍超 keepRecentTokens 时切出的新片段伪 Turn（否则 null）。
  *  注意：trimmedBranch 只裁剪已落盘片段覆盖的前缀，**不移除**新 fragment 切出的条目——
  *  新片段本轮原文放行（spec §2 安全窗口）；片段落盘后下一轮覆盖推导自然接管（前缀裁剪
  *  + extraLedgers 渲染），摘要失败则片段永远原文放行（spec §5 失败语义）。fragment

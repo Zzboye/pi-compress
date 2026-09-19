@@ -6,7 +6,7 @@ import path from "node:path";
 import piExtension from "../src/index.js";
 import { assembleContext } from "../src/assembler.js";
 import { compactionAwareEntries } from "../src/util.js";
-import { LEDGER_CUSTOM_TYPE, type LedgerData, type LedgerLevel } from "../src/ledger.js";
+import { LEDGER_CUSTOM_TYPE, renderTurnText, type LedgerData, type LedgerLevel } from "../src/ledger.js";
 import { LedgerStore } from "../src/store.js";
 import { NoteStore } from "../src/notes.js";
 
@@ -171,6 +171,87 @@ describe("extension entry wiring", () => {
       expect(degraded.sort()).toEqual(["v5", "w4", "x3", "y2", "z1"].filter((x) => x !== "v5")); // 时间序最旧 4 条降级（非字典序尾部）
       expect(lvl("v5")).toBe(1);  // 硬下界保留区（时间序靠新）
       expect(lvl("u6")).toBe(1);
+      expect(notifyCalls.join("")).not.toContain("摘要失败");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("降级瀑布接入片段：片段保持 L4 形态（L5 豁免），普通旧 turn 合并为 L5 行", async () => {
+    // 长任务多片段：进行中 turn（u_n）已有两个落盘片段（key 落在中间条目 a_n1/a_n2，≠ turn 起点）；
+    // 它们参与降级计量（否则溢出部分永远不降），但被 holdAt4 豁免 L5——片段 L5 合并收益为
+    // 零而拒绝召回是实害（裁定 7），终态 L4。旧 turn（o1/o2，L4）照常合并为 L5 行。
+    const { handlers } = harness();
+    const notifyCalls: string[] = [];
+    const writes: any[] = [];
+    const CJK = (n: number) => "查".repeat(n);
+    const mkL4 = (start: string, end: string) => ({
+      turnStartEntryId: start, turnEndEntryId: end, level: 4 as const,
+      summary: { userIntent: CJK(700), outcome: CJK(700), entries: [] }, // 渲染 ~1.4K tok/条
+    });
+    const branch: any[] = [];
+    // 旧 turn ×2（窗外；消息各 ~1.2K tok > keepRecent 1000，窗口只剩末 turn）
+    for (const id of ["o1", "o2"]) {
+      branch.push({ id, type: "message", message: { role: "user", content: [{ type: "text", text: CJK(600) }] } });
+      branch.push({ id: id + "-a", type: "message", message: { role: "assistant", content: [{ type: "text", text: CJK(600) }] } });
+      branch.push({ id: id + "-lg", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkL4(id, id + "-a") });
+    }
+    // 进行中 turn：u_n 起点（无整 turn ledger）→ a_n1/r_n1（片段 1）→ a_n2（片段 2）
+    branch.push({ id: "u_n", type: "message", message: { role: "user", content: [{ type: "text", text: "继续" }] } });
+    branch.push({ id: "a_n1", type: "message", message: { role: "assistant", content: [{ type: "text", text: CJK(10) }] } });
+    branch.push({ id: "r_n1", type: "message", message: { role: "toolResult", toolCallId: "tc1", content: [{ type: "text", text: "ok" }] } });
+    branch.push({ id: "lg_f1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkL4("a_n1", "r_n1") });
+    branch.push({ id: "a_n2", type: "message", message: { role: "assistant", content: [{ type: "text", text: CJK(10) }] } });
+    branch.push({ id: "lg_f2", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkL4("a_n2", "a_n2") });
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-frag-degrade-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".pi", "settings.json"), JSON.stringify({
+      contextCompress: {
+        summarizer: { kind: "registry", provider: "FakeBig", model: "big" },
+        keepRecentTokens: 1000,             // 窗口 = 末 turn（u_n）
+        ledgerDegradeThresholdTokens: 5000, // L4 总量 4×~1.4K ≈ 5.7K > 5K → 触发降级
+        ledgerReserveTokens: 1000,          // 硬下界：o1/o2/frag1 被选中（frag2 保留）
+        backfillLimit: 10,
+      },
+    }));
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: {
+        getBranch: () => branch,
+        appendCustomEntry: (_t: string, d: any) => writes.push(d),
+      },
+      modelRegistry: {
+        find: () => ({ provider: "FakeBig", model: "big" }),
+        // 按 prompt 路由：整 turn 摘要（动作记录员）与 L5 合并描述走不同 schema
+        complete: async (_model: any, req: any) => {
+          const prompt: string = req.messages[0].content[0].text;
+          if (prompt.includes("合并为一行主题描述")) {
+            return { content: [{ type: "text", text: JSON.stringify({ description: "早期排查与修复" }) }] };
+          }
+          return { content: [{ type: "text", text: JSON.stringify({ entries: [] }) }] };
+        },
+      },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);   // backfill u_n → 完成后触发 runDegrade
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline && !writes.some((d) => d.level === 5)) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      // 普通 old turn：正常合并为 L5 行
+      const l5 = writes.filter((d) => d.level === 5).map((d) => d.turnStartEntryId).sort();
+      expect(l5).toEqual(["o1", "o2"]);
+      expect(writes.find((d) => d.turnStartEntryId === "o1")?.merged?.description).toContain("（2 条已合并）");
+      // 片段：参与降级（frag1 被选中升 5），但被 holdAt4 豁免 → 终态 L4，无 L5 写入
+      expect(writes.some((d) => (d.turnStartEntryId === "a_n1" || d.turnStartEntryId === "a_n2") && d.level === 5)).toBe(false);
+      for (const f of ["lg_f1", "lg_f2"]) {
+        const frag = branch.find((e) => e.id === f).data;
+        expect(frag.level).toBe(4);
+        const text = renderTurnText(frag, 3); // L4 形态：意图 + outcome 两行
+        expect(text).toContain("意图：");
+        expect(text).toContain("最终回复（摘要）：");
+      }
       expect(notifyCalls.join("")).not.toContain("摘要失败");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
