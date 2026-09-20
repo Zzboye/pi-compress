@@ -300,7 +300,7 @@ src/
 npm test        # vitest 单测（tests/）
 ```
 
-`bench/` 内含压缩率基准、真实模型 e2e 与统计工具；`e2e/` 内含 RPC 驱动脚本，可驱动真实 pi 会话验证端到端行为。
+`bench/` 内含压缩率基准、真实模型 e2e 与统计工具（输入 fixture 在 `bench/fixtures/`，随仓库分发）；`e2e/` 内含 RPC 驱动脚本，可驱动真实 pi 会话验证端到端行为。`e2e/reports/` 是运行产物目录（已 gitignore，只落本地，不脏仓库）。
 
 ## 已知限制（v1）
 

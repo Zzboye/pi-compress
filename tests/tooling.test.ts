@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
+import { execSync } from "node:child_process";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -50,5 +51,25 @@ describe("工程配置", () => {
 
   it("e2e/reports 已 gitignore（bench 输出不脏工作区）", () => {
     expect(fs.readFileSync(join(root, ".gitignore"), "utf8")).toContain("e2e/reports/");
+  });
+});
+
+describe("e2e 产物与 bench fixture 分离", () => {
+  it("bench 输入 fixture 位于 bench/fixtures/ 且未被 gitignore（新克隆可跑）", () => {
+    const fx = join(root, "bench", "fixtures", "2026-09-05-current-context-dump.md");
+    expect(fs.existsSync(fx), "fixture 应存在于 bench/fixtures/").toBe(true);
+    // git check-ignore：exit 0 = 被忽略（坏），exit 1 = 未忽略（好）
+    let ignored = true;
+    try {
+      execSync(`git check-ignore -q "bench/fixtures/2026-09-05-current-context-dump.md"`, { cwd: root, stdio: "ignore" });
+    } catch (e: any) {
+      ignored = e.status === 0 ? true : false;
+    }
+    expect(ignored, "bench fixture 不应被 gitignore").toBe(false);
+  });
+
+  it("e2e/reports/ 下无已跟踪文件（产物只落本地，不脏仓库）", () => {
+    const tracked = execSync("git ls-files e2e/reports", { cwd: root, encoding: "utf8" }).trim();
+    expect(tracked).toBe("");
   });
 });

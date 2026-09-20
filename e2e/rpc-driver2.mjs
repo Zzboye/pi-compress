@@ -3,6 +3,11 @@
  * 触发「窗外 turn → 动作日志头替换」+「recall 工具取回逐字原文」。
  *
  *   node e2e/rpc-driver2.mjs <session-file>
+ *
+ * 前置条件（两者均为**本地产物**，不随仓库分发——`e2e/reports/` 已 gitignore）：
+ *   - e2e/reports/perf/assembled-context.txt（由 bench 生成）
+ *   - e2e/reports/2026-09-01-summary-before-after.md（历史 e2e 产物）
+ * 缺文件时第 3/4 轮会读到空内容，撑窗口的效果消失（脚本不报错但测不出目标行为）。
  */
 import { spawn, execSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";

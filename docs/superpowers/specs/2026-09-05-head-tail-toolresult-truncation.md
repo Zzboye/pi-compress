@@ -9,6 +9,9 @@
 （e2e/reports/2026-09-01-context-before-after.md）发现：17.9k-token 的大文件读取
 turn，摘要模型只能看到开头 ≈60 行。
 
+> 注（2026-09-21）：`e2e/reports/` 下的实验产物已移出版本控制（该目录改为 gitignore，
+> 只保留本地）。上引报告不再随仓库分发；结论已固化在本设计后续的实现与测试中。
+
 问题：**结论后置型输出**（vitest/tsc 失败汇总、构建错误、exit code 都在尾部）
 对摘要模型完全不可见，导致 ledger 的 `detail` 字段失真。
 

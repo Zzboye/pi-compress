@@ -85,7 +85,7 @@ function buildBigSession(): MessageEntry[] {
 
   // 巨型读取 turns（同 2026-09-01 e2e 报告的大文件场景）+ 中型读取 + 收尾问答
   bigReadTurn(entries, "看完整实现计划，摘要队列和强制点是怎么衔接的", [read("docs/superpowers/plans/2026-08-30-context-compress.md", 60000)], "确认 agent_settled 触发后台串行摘要队列，context 事件在超阈值时等待队列排空以执行重组。");
-  bigReadTurn(entries, "把这份上下文转储里的装配统计和窗口边界分析一下", [read("e2e/reports/2026-09-05-current-context-dump.md", 60000)], "装配统计显示窗口切换符合 turn 边界不变量，窗外 turn 全部走动作日志替身。");
+  bigReadTurn(entries, "把这份上下文转储里的装配统计和窗口边界分析一下", [read("bench/fixtures/2026-09-05-current-context-dump.md", 60000)], "装配统计显示窗口切换符合 turn 边界不变量，窗外 turn 全部走动作日志替身。");
   bigReadTurn(entries, "设计文档里的验收标准是什么", [read("docs/superpowers/specs/2026-08-30-context-compress-design.md", 16000)], "验收围绕四个不变量：装配器永不阻塞、成对切换、target 逐字、session 只追加。");
   bigReadTurn(entries, "依赖树里有没有需要注意的包", [read("package-lock.json", 20000)], "依赖只有 vitest/typescript/pi 主包与 typebox，无传递风险。");
 
