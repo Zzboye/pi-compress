@@ -8,7 +8,7 @@ import type {
   SessionEntry,
   SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
-import { loadConfig, type ContextCompressConfig } from "./config.js";
+import { loadConfigWithReport, type ContextCompressConfig, type ConfigAdjustment } from "./config.js";
 import { assembleContext, findWindowTurns, planAssembly, planInflightTrim, type AssembleStats } from "./assembler.js";
 import { NoteStore, renderNotes } from "./notes.js";
 import type { AgentMessage } from "./types.js";
@@ -62,6 +62,8 @@ function toMessageEntries(branch: SessionEntry[]): MessageEntry[] {
 
 export default function (pi: ExtensionAPI): void {
   let config: ContextCompressConfig | null = null;
+  // 被钳制的配置项（`/compress-status` 的「配置修正」行）：session_start 时随 loadConfigWithReport 记录
+  let configAdjustments: ConfigAdjustment[] = [];
   let store = new LedgerStore();
   // 项目记忆：session_start 时按 config.projectNotes.path（相对 cwd 解析）构造并 load
   let notesStore: NoteStore | null = null;
@@ -161,7 +163,9 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     const globalRaw = readJson(join(os.homedir(), ".pi", "agent", "settings.json"));
     const projectRaw = readJson(join(ctx.cwd, ".pi", "settings.json"));
-    config = loadConfig(globalRaw, projectRaw);
+    const { config: loaded, adjustments } = loadConfigWithReport(globalRaw, projectRaw);
+    config = loaded;
+    configAdjustments = adjustments;
     store = new LedgerStore();
     notesStore = new NoteStore(
       isAbsolute(config.projectNotes.path) ? config.projectNotes.path : join(ctx.cwd, config.projectNotes.path),
@@ -504,7 +508,11 @@ export default function (pi: ExtensionAPI): void {
         notes
           ? `项目记忆：启用 · ${notes.prefs.length + notes.feedback.length + notes.tasks.length} 条（偏好 ${notes.prefs.length} / 经验 ${notes.feedback.length} / 任务 ${notes.tasks.length}）· 召回 ${recallStats.notesHits} 条`
           : "项目记忆：未启用",
-        `计量校准：${lastCalibration ? `估算 ~${lastCalibration.estimated} tok · 真实 ${lastCalibration.actual} tok（差值含 system prompt/工具定义/模板开销）` : "无记录"}`,
+        // 配置修正行：仅在用户设了但被钳制时出现（越界回退默认 / 取整），避免静默钳制
+      ...(configAdjustments.length > 0
+        ? [`配置修正：${configAdjustments.map((a) => `${a.key} ${String(a.given)} → ${a.applied}（${a.reason === "rounded" ? "取整" : "越界回退默认"}）`).join(" · ")}`]
+        : []),
+      `计量校准：${lastCalibration ? `估算 ~${lastCalibration.estimated} tok · 真实 ${lastCalibration.actual} tok（差值含 system prompt/工具定义/模板开销）` : "无记录"}`,
         `摘要后端：${config?.summarizer ? JSON.stringify(config.summarizer) : "未配置（插件未接管）"}`,
         `备用后端：${config?.summarizerFallback ? `${JSON.stringify(config.summarizerFallback)}（主后端溢出/重试耗尽时接管）` : "未配置"}`,
       ];

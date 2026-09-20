@@ -369,6 +369,55 @@ describe("extension entry wiring", () => {
     expect(notify2.join("\n")).toContain("项目记忆：未启用");
   });
 
+  it("compress-status 显示「配置修正」行（越界回退/取整），全部合法时不显示", async () => {
+    // ① 项目配置 recallMaxTokensPerEntry=10（下限 500）→ 回退默认 4000，应报告 10 → 4000
+    const { commands, handlers } = harness();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-status-adj-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { recallMaxTokensPerEntry: 10, backfillLimit: 3.7 } }),
+    );
+    const notifyCalls: string[] = [];
+    const fakeCtx: any = {
+      cwd: dir,
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await handlers.session_start({}, fakeCtx);
+      await commands["compress-status"].handler("", fakeCtx);
+      const out = notifyCalls.join("\n");
+      expect(out).toContain("配置修正：");
+      expect(out).toContain("recallMaxTokensPerEntry 10 → 4000（越界回退默认）");
+      expect(out).toContain("backfillLimit 3.7 → 3（取整）");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    // ② 全部合法 → 不出现「配置修正」行
+    const h2 = harness();
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-status-adj2-"));
+    fs.mkdirSync(path.join(dir2, ".pi"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir2, ".pi", "settings.json"),
+      JSON.stringify({ contextCompress: { recallMaxTokensPerEntry: 8000, backfillLimit: 5 } }),
+    );
+    const notify2: string[] = [];
+    const fakeCtx2: any = {
+      cwd: dir2,
+      ui: { notify: (m: string) => notify2.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => [] },
+    };
+    try {
+      await h2.handlers.session_start({}, fakeCtx2);
+      await h2.commands["compress-status"].handler("", fakeCtx2);
+      expect(notify2.join("\n")).not.toContain("配置修正");
+    } finally {
+      fs.rmSync(dir2, { recursive: true, force: true });
+    }
+  });
+
   it("compress-status：enabled=false 时即使 notesStore 已构造且有条目，项目记忆行仍显示未启用", async () => {
     const { commands, handlers } = harness();
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-status-off-"));

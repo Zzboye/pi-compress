@@ -176,6 +176,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 最近装配：窗口 3 turns / 替换 2 / 原文放行 0
 召回：调用 4 次 / 取回 6 条 / 未中 0 个 ID / 搜索 1 次 / 记忆召回 2 条
 项目记忆：启用 · 5 条（偏好 1 / 经验 2 / 任务 2）· 召回 2 条
+配置修正：recallMaxTokensPerEntry 10 → 4000（越界回退默认）
 计量校准：估算 ~15340 tok · 真实 18920 tok（差值含 system prompt/工具定义/模板开销）
 摘要后端：{"kind":"registry","provider":"ollama","model":"qwen3:8b"}
 备用后端：{"kind":"registry","provider":"HSFZ","model":"glm-5.3-flash"}（主后端溢出/重试耗尽时接管）
@@ -186,6 +187,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **最近装配**：上一次 context 事件重组的统计（窗口/替换/原文放行 turn 数）。
 - **召回**：LLM 通过 recall 工具取回原文的统计——`调用` 为逐字取回的工具调用次数（可批量传多个 ID），`取回` 为命中并返回的条目数，`未中` 为不在当前分支的 ID 数（可能因 /tree 回退），`搜索` 为 query 关键词检索次数，`记忆召回` 为其中命中项目记忆条目的次数。全 0 表示 LLM 在窗口内就能拿到所需细节（健康信号）；持续高召回率说明 `keepRecentTokens` 偏小或动作日志 detail 粒度不够。
 - **项目记忆**：三表条目数与本会话记忆召回次数；`未启用` 表示未配置 `projectNotes` 或 `enabled: false`（此时 notes 工具仍可收集，但注入不生效，见下节）。
+- **配置修正**：仅在**用户设了但未被原样采纳**时出现——越界（含非数字/非有限数）回退默认标「越界回退默认」，取整型字段的小数标「取整」；格式 `字段 配置值 → 生效值（原因）`，多项以 ` · ` 连接。全部合法或缺省时该行不显示。用来发现静默钳制（如 `recallMaxTokensPerEntry` 下限 500，填 10 会静默变 4000）。
 
 ### recall 工具的两种用法
 
