@@ -500,3 +500,83 @@ describe("searchLedger", () => {
     expect(searchLedger("   ", ledgers, 15).truncated).toBe(false);
   });
 });
+
+describe("recall 截断口径与 offset 分页", () => {
+  it("CJK 长文本按 token 预算截断（4000 预算下不再放行 16000 字符）", () => {
+    const text = "中文内容".repeat(4000); // 16000 CJK 字符 = 16000 tok
+    const b: MessageEntry[] = [{ id: "cjk", message: { role: "assistant", content: [{ type: "text", text }] } as any }];
+    const r = executeRecall(["cjk"], b, 4000);
+    expect(r.text).toContain("已截断");
+    // 去掉标签行后的正文长度应贴近 4000（CJK 1 字符 ≈ 1 tok），远小于旧的 16000
+    expect(r.text.length).toBeLessThan(5000);
+    expect(r.text.length).toBeGreaterThan(3900);
+  });
+
+  it("末段（剩余内容在预算内）不再追加截断标记", () => {
+    const text = "短一些的内容".repeat(10); // 60 CJK 字符 = 60 tok
+    const b: MessageEntry[] = [{ id: "s", message: { role: "assistant", content: [{ type: "text", text }] } as any }];
+    const r = executeRecall(["s"], b, 4000);
+    expect(r.text).not.toContain("已截断");
+  });
+
+  it("offset 续取第二段：可越过首段取到后半部分", () => {
+    const text = "A".repeat(5000) + "B".repeat(5000); // 10000 ASCII ≈ 2500 tok
+    const b: MessageEntry[] = [{ id: "big", message: { role: "assistant", content: [{ type: "text", text }] } as any }];
+    const first = executeRecall(["big"], b, 500); // 500 tok ≈ 2000 ASCII 字符
+    expect(first.text).toContain("offset=");
+    expect(first.text).not.toContain("B"); // 首段全在 A 区
+    const m = /传 offset=(\d+) 继续/.exec(first.text);
+    expect(m).not.toBeNull();
+    const next = Number(m![1]);
+    const second = executeRecall(["big"], b, 500, undefined, next);
+    expect(second.text).toContain("A"); // 仍在 A 区（offset 生效、未从 0 重来）
+    const tail = executeRecall(["big"], b, 500, undefined, 5013); // 直接跳到 B 区（正文 B 起点 = `[Assistant]: ` 13 字符 + 5000 A）
+    expect(tail.text).toContain("B");
+    expect(tail.text).not.toContain("A");
+  });
+
+  it("offset 超出条目长度 → 提示行，不计 missing", () => {
+    const b: MessageEntry[] = [{ id: "e1", message: { role: "user", content: [{ type: "text", text: "短" }] } as any }];
+    const r = executeRecall(["e1"], b, 4000, undefined, 999999);
+    expect(r.missing).toEqual([]);
+    expect(r.text).toContain("offset");
+  });
+
+  it("多 ID + offset → 用法提示，不召回", () => {
+    const b: MessageEntry[] = [
+      { id: "a", message: { role: "user", content: [{ type: "text", text: "AAA" }] } as any },
+      { id: "c", message: { role: "user", content: [{ type: "text", text: "CCC" }] } as any },
+    ];
+    const r = executeRecall(["a", "c"], b, 4000, undefined, 10);
+    expect(r.text).toContain("单 ID");
+    expect(r.text).not.toContain("AAA");
+    expect(r.missing).toEqual([]);
+  });
+
+  it("offset 缺省（0）行为与旧实现一致", () => {
+    const r = executeRecall(["e1"], branch, 4000);
+    expect(r.text).toContain("问题原文");
+    expect(r.text).not.toContain("offset");
+  });
+
+  it("L3 turn 级截断提示不再指向死路「相邻 ID」，改为 offset", () => {
+    const big = "中文".repeat(20000); // 40000 CJK tok
+    const entries: MessageEntry[] = [
+      { id: "u1", message: { role: "user", content: [{ type: "text", text: "任务" }] } as any },
+      { id: "a1", message: { role: "assistant", content: [{ type: "text", text: big }] } as any },
+    ];
+    const l3: LedgerData = { turnStartEntryId: "u1", turnEndEntryId: "a1", level: 3, summary: { entries: [] } };
+    const ctx = { ledgers: [l3], turns: [{ startEntryId: "u1", endEntryId: "a1", entries }] };
+    const r = executeRecall(["u1"], entries, 4000, ctx as any);
+    expect(r.text).toContain("offset=");
+    expect(r.text).not.toContain("相邻 ID");
+  });
+
+  it("executeRecallDual 透传 offset（第 6 参）", () => {
+    const text = "A".repeat(5000) + "B".repeat(5000);
+    const b: MessageEntry[] = [{ id: "big", message: { role: "assistant", content: [{ type: "text", text }] } as any }];
+    const r = executeRecallDual(["big"], b, null, 500, undefined, 5013);
+    expect(r.text).toContain("B");
+    expect(r.text).not.toContain("A");
+  });
+});

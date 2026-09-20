@@ -1,4 +1,4 @@
-import { stripThinking, serializeForRecall, type MessageEntry, type Turn } from "./util.js";
+import { stripThinking, serializeForRecall, truncateToTokens, type MessageEntry, type Turn } from "./util.js";
 import type { LedgerData, LedgerLevel } from "./ledger.js";
 import type { NoteStore } from "./notes.js";
 
@@ -23,7 +23,7 @@ function collectImages(m: any, sourceId: string, imgs: RecallImage[], seen: Set<
   }
 }
 
-export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPerEntry: number, degradeCtx?: RecallDegradeCtx): RecallResult {
+export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPerEntry: number, degradeCtx?: RecallDegradeCtx, offset = 0): RecallResult {
   const stripped = stripThinking(branch);
   const byId = new Map(stripped.map((e) => [e.id, e]));
   // toolCallId → toolResult：recall 含 toolCall 的 assistant 条目时，连带取回配对的工具结果，
@@ -36,6 +36,10 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   const parts: string[] = [];
   const images: RecallImage[] = [];
   let rejected = 0;
+  // offset 分页仅支持单 ID（多 ID 各有一段文本，offset 语义歧义）：多 ID 直接给用法提示
+  if (offset > 0 && ids.length !== 1) {
+    return { text: "offset 分页仅支持单 ID：请一次只传一个 ID（如 recall({ ids: [\"↩id\"], offset: 12345 })）。", missing: [], notesHits: 0, images: [], rejected: 0 };
+  }
   // F1 去重：turnStartEntryId → 首个返回整段原文的 ID。多 ID 命中同一 L3/L4 turn 时，
   // 后续 ID 只给一行提示，不重复整段原文、不重复 push 图片。
   const seenTurns = new Map<string, string>();
@@ -57,10 +61,18 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
         continue;
       }
       seenTurns.set(turn.startEntryId, id);
-      // turn 级：整段原文（恢复被丢的工具过程/两端原文，spec §7）
-      let text = serializeForRecall(turn.entries.map((te) => ({ id: te.id, message: te.message as any })));
-      if (text.length > maxTokensPerEntry * 4) {
-        text = text.slice(0, maxTokensPerEntry * 4) + `\n…（已截断，原 turn 过大；如需其余部分请用相邻 ID 分段 recall）`;
+      // turn 级：整段原文（恢复被丢的工具过程/两端原文，spec §7）。截断按 token 预算
+      // （CJK 感知，见 truncateToTokens）；offset 续取下一段（无 offset 时从 0 起）。
+      const full = serializeForRecall(turn.entries.map((te) => ({ id: te.id, message: te.message as any })));
+      if (offset >= full.length) {
+        parts.push(`【${id}】offset ${offset} 超出该条目长度（${full.length} 字符），无可续取内容。`);
+        continue;
+      }
+      const seg = truncateToTokens(full.slice(offset), maxTokensPerEntry);
+      let text = offset > 0 ? `（从 offset ${offset} 起）\n${seg.text}` : seg.text;
+      if (seg.truncated) {
+        const rest = full.length - offset - seg.text.length;
+        text += `\n…（已截断，剩余 ${rest} 字符；传 offset=${offset + seg.text.length} 继续）`;
       }
       const imgs: RecallImage[] = [];
       const seen = new Set<string>();
@@ -85,11 +97,18 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
       }
     }
     // serializeForRecall：与 pi 同格式但 toolResult 不截断（pi 原版纯头截 2000 字符，
-    // 尾部结论丢失，超长结果无法完整 recall）。全量预算由下方 maxTokensPerEntry 统一负责。
-    let text = serializeForRecall(msgs.map((m, i) => ({ id: i === 0 ? id : `${id}-r${i}`, message: m as any })));
-    if (text.length > maxTokensPerEntry * 4) {
-      // 估算约 4 字符/token 截断（入口已剥离 thinking，text 即有效内容全量）
-      text = text.slice(0, maxTokensPerEntry * 4) + `\n…（已截断，原消息过大；如需其余部分请用相邻 ID 分段 recall）`;
+    // 尾部结论丢失，超长结果无法完整 recall）。预算截断按 token（truncateToTokens），
+    // 超出部分可用 offset 续取。
+    const full = serializeForRecall(msgs.map((m, i) => ({ id: i === 0 ? id : `${id}-r${i}`, message: m as any })));
+    if (offset >= full.length) {
+      parts.push(`【${id}】offset ${offset} 超出该条目长度（${full.length} 字符），无可续取内容。`);
+      continue;
+    }
+    const seg = truncateToTokens(full.slice(offset), maxTokensPerEntry);
+    let text = offset > 0 ? `（从 offset ${offset} 起）\n${seg.text}` : seg.text;
+    if (seg.truncated) {
+      const rest = full.length - offset - seg.text.length;
+      text += `\n…（已截断，剩余 ${rest} 字符；传 offset=${offset + seg.text.length} 继续）`;
     }
     // 图片召回：命中 entry 自身及配对 toolResult content 中的 image 块原样带回（sourceId 标注来源）。
     // 同图去重：同 mimeType+data 的块只收一次（assistant 自含+配对 toolResult 双路径常见重复）。
@@ -117,7 +136,7 @@ const NOTE_PREFIX_RE = /^(fb|task|pref)-/;
  * 双源 recall：ID 剥掉前导 ↩ 后以 fb-/task-/pref- 开头且 notes 已启用时，
  * 先查 notes（返回 detail，而非 branch 原文）；其余 ID 走现有 executeRecall 路径（行为与文案不变）。
  */
-export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: NoteStore | null, maxTokensPerEntry: number, degradeCtx?: RecallDegradeCtx): RecallResult {
+export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: NoteStore | null, maxTokensPerEntry: number, degradeCtx?: RecallDegradeCtx, offset = 0): RecallResult {
   const entryIds: string[] = [];
   const parts: string[] = [];
   const missing: string[] = [];
@@ -136,7 +155,7 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
   }
   let rejected = 0;
   if (entryIds.length > 0) {
-    const r = executeRecall(entryIds, branch, maxTokensPerEntry, degradeCtx);
+    const r = executeRecall(entryIds, branch, maxTokensPerEntry, degradeCtx, offset);
     parts.unshift(r.text);
     missing.unshift(...r.missing);
     allImages.push(...r.images);

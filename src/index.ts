@@ -310,6 +310,7 @@ export default function (pi: ExtensionAPI): void {
     parameters: Type.Object({
       ids: Type.Optional(Type.Array(Type.String(), { description: "entry ID 列表，来自动作日志 ↩ 标记" })),
       query: Type.Optional(Type.String({ description: "关键词（大小写不敏感子串匹配），如文件名/函数名/命令词" })),
+      offset: Type.Optional(Type.Number({ description: "续取起点（字符偏移），仅单 ID 时有效；截断提示会给出下一次的 offset 值" })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const entries = toMessageEntries(ctx.sessionManager.getBranch());
@@ -341,7 +342,7 @@ export default function (pi: ExtensionAPI): void {
         const r = executeRecallDual(params.ids, entries, notesStore, config?.recallMaxTokensPerEntry ?? 4_000, {
           ledgers: ledgersInBranchOrder(entries, false),
           turns: splitIntoTurns(entries),
-        });
+        }, params.offset ?? 0);
         recallStats.calls += 1;
         recallStats.hits += params.ids.length - r.missing.length - (r.rejected ?? 0); // L5 拒绝不计取回（M9）
         recallStats.missing += r.missing.length;
