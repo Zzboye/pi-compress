@@ -125,7 +125,7 @@ describe("SummarizerEngine", () => {
   });
 
   describe("fragment turn (isFragment)", () => {
-    it("片段 turn：finalReply 不提取（undefined），userMessage 保持 undefined", async () => {
+    it("片段 turn：finalReply 不提取（undefined）、userMessage 保持 undefined、isFragment 标记透传", async () => {
       const { validOutput } = turnFixture();
       const entries: MessageEntry[] = [
         { id: "a1", message: { role: "assistant", content: [
@@ -146,6 +146,7 @@ describe("SummarizerEngine", () => {
       expect(ledger.turnStartEntryId).toBe("a1");
       expect(ledger.userMessage).toBeUndefined();
       expect(ledger.finalReply).toBeUndefined();
+      expect(ledger.isFragment).toBe(true); // 渲染层据此走片段专用分支（spec 2026-09-20 §4.1）
       expect(ledger.summary.entries.length).toBeGreaterThan(0); // 动作照常提取
     });
   });

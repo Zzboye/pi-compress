@@ -40,6 +40,9 @@ export interface LedgerData {
   /** 溢出片段被整 turn 条目吸收后的墓碑标记：rebuild 时删除同名缓存条目（append-only 文件中
    *  原条目在前，仅跳过会复活），渲染侧防御性过滤 */
   absorbed?: true;
+  /** 溢出片段（进行中 turn 切出）：渲染走片段专用分支；缺省 = 整 turn 条目（兼容旧数据）。
+   *  不推断（userMessage 缺失 ≠ 片段：只含图片的用户消息也没有 userMessage）。 */
+  isFragment?: true;
 }
 
 const PHASE_LABEL: Record<LedgerPhase, string> = {
@@ -96,7 +99,37 @@ export function renderTurnText(l: LedgerData, n: number): string {
     lines.push(`- 最终回复（摘要）：${l.summary.outcome ?? "（无）"} ↩${outId}`);
     return lines.join("\n") + "\n";
   }
-  // L1–L3 共通骨架：用户行 + 图片占位行（L3 用户侧仍是原文）
+  // L1–L3：整 turn 与片段两套骨架
+  if (l.isFragment) {
+    // 片段：无用户消息、无最终回复，内容就是工具过程（spec 2026-09-20 §4.2）
+    if (lvl === 3) {
+      // L3 删除「工具过程」整类信息 → 只留机械标记行，保留「这里有一段工作」与全部 ↩ID
+      const ids = [...new Set(l.summary.entries.flatMap((e) => e.recallIds))];
+      if (l.summary.entries.length === 0) {
+        lines.push(`### T${n} · 片段（无动作记录）`);
+      } else if (ids.length === 0) {
+        lines.push(`### T${n} · 片段（${l.summary.entries.length} 个动作）`);
+      } else {
+        const head = ids.slice(0, 20).map((i) => `↩${i}`).join(",");
+        const tail = ids.length > 20 ? ` …（共 ${ids.length} 个 ↩ID，可用 query 检索）` : "";
+        lines.push(`### T${n} · 片段（${l.summary.entries.length} 个动作） ${head}${tail}`);
+      }
+      return lines.join("\n") + "\n";
+    }
+    lines.push(`### T${n} · 片段（进行中任务）`);
+    const fragImages = renderImagesLine(l);
+    if (fragImages) lines.push(fragImages);
+    for (const e of l.summary.entries) {
+      const recall = e.recallIds.length ? ` ↩${e.recallIds.join(",↩")}` : "";
+      if (lvl === 1) {
+        lines.push(`- ${PHASE_LABEL[e.phase]}：${e.target} → ${e.detail}${recall}`);
+      } else {
+        lines.push(`- ${PHASE_LABEL[e.phase]}：${e.detail}${recall}`);
+      }
+    }
+    return lines.join("\n") + "\n";
+  }
+  // 整 turn：用户行 + 图片占位行（L3 用户侧仍是原文）
   const uq = l.userMessage;
   if (uq) {
     lines.push(`### T${n} · 用户：「${uq.text.replace(/\n+/g, " ")}」`);

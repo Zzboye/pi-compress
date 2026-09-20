@@ -298,3 +298,80 @@ describe("normalizeLedgerData absorbed 透传", () => {
     expect(d.absorbed).toBe(true);
   });
 });
+
+describe("片段专用渲染（isFragment）", () => {
+  const frag = (level: 1 | 2 | 3, entries: any[] = []): LedgerData => ({
+    turnStartEntryId: "f1", turnEndEntryId: "f1-e", isFragment: true, level,
+    summary: { entries },
+  });
+
+  it("L1：片段头部为「片段（进行中任务）」，动作行含 target", () => {
+    const t = renderTurnText(frag(1, [
+      { action: "bash", target: "npm test", detail: "12 failed", recallIds: ["a1"], phase: "verify" },
+    ]), 3);
+    expect(t).toContain("片段（进行中任务）");
+    expect(t).not.toContain("用户意图");
+    expect(t).toContain("npm test");
+    expect(t).toContain("12 failed");
+    expect(t).toContain("↩a1");
+  });
+
+  it("L2：丢 target 保 detail 与 ↩ID", () => {
+    const t = renderTurnText(frag(2, [
+      { action: "bash", target: "npm test", detail: "12 failed", recallIds: ["a1"], phase: "verify" },
+    ]), 3);
+    expect(t).toContain("片段（进行中任务）");
+    expect(t).toContain("12 failed");
+    expect(t).not.toContain("npm test");
+    expect(t).toContain("↩a1");
+  });
+
+  it("L3：机械标记行（动作数 + ↩IDs），无动作行、无「用户意图」", () => {
+    const t = renderTurnText(frag(3, [
+      { action: "bash", target: "npm test", detail: "12 failed", recallIds: ["a1"], phase: "verify" },
+      { action: "read", target: "src/x.ts", detail: "确认早退", recallIds: ["a2"], phase: "investigate" },
+    ]), 3);
+    expect(t).toContain("片段（2 个动作）");
+    expect(t).toContain("↩a1");
+    expect(t).toContain("↩a2");
+    expect(t).not.toContain("12 failed");
+    expect(t).not.toContain("用户意图");
+    expect(t).not.toContain("（未知）");
+  });
+
+  it("L3：无动作 → 「片段（无动作记录）」，不输出 ↩", () => {
+    const t = renderTurnText(frag(3, []), 3);
+    expect(t).toContain("片段（无动作记录）");
+    expect(t).not.toContain("↩");
+  });
+
+  it("L3：↩ID 超过 20 个 → 截前 20 + 计数提示", () => {
+    const entries = Array.from({ length: 25 }, (_, i) => ({
+      action: "bash", target: "c" + i, detail: "d", recallIds: ["r" + i], phase: "verify" as const,
+    }));
+    const t = renderTurnText(frag(3, entries), 3);
+    expect(t).toContain("↩r0");
+    expect(t).toContain("↩r19");
+    expect(t).not.toContain("↩r20");
+    expect(t).toContain("共 25 个 ↩ID");
+  });
+
+  it("整 turn（有 userMessage）渲染不受影响", () => {
+    const t = renderTurnText({
+      turnStartEntryId: "u1", turnEndEntryId: "a1", level: 1,
+      userMessage: { text: "修排序", entryId: "u1" }, finalReply: { text: "已修", entryId: "a1" },
+      summary: { entries: [] },
+    }, 1);
+    expect(t).toContain("用户：「修排序」");
+    expect(t).not.toContain("片段");
+  });
+
+  it("userMessage 缺失但未标 isFragment（只含图片的用户消息）仍走整 turn 分支", () => {
+    const t = renderTurnText({
+      turnStartEntryId: "u1", turnEndEntryId: "a1", level: 1,
+      summary: { userIntent: "看图", entries: [] },
+    }, 1);
+    expect(t).toContain("用户意图：看图");
+    expect(t).not.toContain("片段");
+  });
+});

@@ -83,6 +83,7 @@ export class SummarizerEngine {
         summary,
         userMessage,
         finalReply,
+        ...(turn.isFragment ? { isFragment: true as const } : {}),
       });
       this.enqueued.delete(turn.startEntryId); // 完成，允许后续新 turn 同名场景入队（防御）
     };
