@@ -36,8 +36,16 @@ describe("工程配置", () => {
   });
 
   it("e2e/rpc-driver2.mjs 保留（含 rpc-driver.mjs 没有的续接会话/装配·召回状态解析能力）", () => {
-    expect(fs.existsSync(join(root, "e2e", "rpc-driver2.mjs"))).toBe(true);
-    expect(fs.existsSync(join(root, "e2e", "rpc-driver.mjs"))).toBe(true);
+    const d1 = fs.readFileSync(join(root, "e2e", "rpc-driver.mjs"), "utf8");
+    const d2 = fs.readFileSync(join(root, "e2e", "rpc-driver2.mjs"), "utf8");
+    // 独有能力必须真实存在，否则该文件与 driver1 重复，应删除。
+    // 注意：driver1 的 `--session-dir` 含 `--session` 子串，故用带空格/变量的完整形式判定。
+    for (const capability of ["--session ${", "round(", "statusOnce("]) {
+      expect(d2, `rpc-driver2.mjs 应含 ${capability}`).toContain(capability);
+    }
+    for (const capability of ["round(", "statusOnce("]) {
+      expect(d1, `rpc-driver.mjs 不应含 ${capability}（否则两者重复）`).not.toContain(capability);
+    }
   });
 
   it("e2e/reports 已 gitignore（bench 输出不脏工作区）", () => {

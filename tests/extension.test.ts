@@ -856,8 +856,15 @@ describe("extension entry wiring", () => {
     // 可控 deferred：pending 的摘要请求，手动释放
     let release: (() => void) | null = null;
     const gated = new Promise<{ content: { type: "text"; text: string }[] }>((r) => { release = () => r({ content: [{ type: "text", text: JSON.stringify({ entries: [] }) }] }); });
+    // 自包含配置：session_start 会读 os.homedir()/.pi/agent/settings.json（开发机可能没有）——
+    // 在临时 cwd 写项目 settings 提供 summarizer，否则干净环境（CI）下 makeEngine 返回 null，用例必红。
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-recover-"));
+    fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".pi", "settings.json"), JSON.stringify({
+      contextCompress: { summarizer: { kind: "registry", provider: "FakeBig", model: "big" }, backfillLimit: 0 },
+    }));
     const fakeCtx: any = {
-      cwd: "/nonexistent-pi-compress-test",
+      cwd: dir,
       ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
       sessionManager: { getBranch: () => branch },
       getContextUsage: () => ({ tokens: 900, contextWindow: 1000 }), // 0.9 > 0.76 → 走等待分支
@@ -889,6 +896,7 @@ describe("extension entry wiring", () => {
       expect(notifyCalls.join("\n")).toContain("恢复正常重组");
     } finally {
       vi.useRealTimers();
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
