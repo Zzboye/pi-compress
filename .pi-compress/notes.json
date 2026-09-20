@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nextId": 7,
+  "nextId": 8,
   "prefs": [],
   "feedback": [],
   "tasks": [
@@ -17,11 +17,11 @@
     {
       "id": "task-002",
       "table": "tasks",
-      "text": "recall 分页（B 方案）：offset 参数，单 ID 时生效",
-      "detail": "改动范围（已勘察）：recall.ts executeRecall 的 slice 改为 slice(offset, offset+N)，截断标记改为「剩余 X 字符，传 offset=Y 继续」；executeRecallDual 透传；index.ts recall 工具 schema 加 offset?: number。设计裁定已定：offset 仅单 ID 时生效，多 ID + offset 返回用法提示（不猜语义）。预估 1 小时，无风险点（recall 无状态，同 ID 文本会话内稳定，offset 不漂移）。前置依赖已就绪：serializeForRecall（commit 8c13c8e）已把 pi 的 2000 字符截断移出 recall 链路。触发时机：下次触碰 recall 链路时顺手做，或用户要求看超长构建日志全量时。",
-      "status": "待办",
+      "text": "recall 分页 + 截断口径修正：offset 参数（单 ID 生效）+ truncateToTokens 二分按 token 截断（取代字符×4）；已随 fix 分支合入 main（ddf6360+fab5831）",
+      "detail": "【已完成·2026-09-21】随 fix/review-findings-2026-09-20 分支合入 main（commit ddf6360「fix(recall): 截断按 token 口径 + offset 分页（取代死路提示）」+ fab5831「offset 参数规整与用法提示不计数」）。\n\n实际实现（比原勘察更完整）：\n- 截断口径从「字符 ×4」改为真正的 token 口径：新增 util.truncateToTokens（二分 + countTokensText，CJK 感知）。原实现 `text.length > maxTokensPerEntry * 4` 对中文会放行 4 倍预算（实测 16000 CJK 字符在 4000 预算下全量放行）。\n- offset 参数（仅单 ID 生效）：多 ID + offset 返回用法提示且**不计数**（RecallResult 新增 skipped 字段，index.ts 统计相应排除，避免「什么都没取到却计数为正」）。\n- 删除了两处「请用相邻 ID 分段 recall」的死路提示（相邻 ID 是别的 turn，不是这条消息的其余部分）。\n- README 同步：recall 用法示例加 offset 行、召回路由段说明续取、配置表 recallMaxTokensPerEntry 说明补 CJK 口径与 offset。\n- 测试 +8（tokens.test.ts 的 truncateToTokens 6 例含「CJK 4000 预算 → 4000 字符」与边界；recall.test.ts 的 offset 起点/超末尾/标记 Y 值/多 ID 提示等）。\n\nM7（query+ids 同传时 splitIntoTurns 执行 3 次）已随本轮 planAssembly 抽出而自然解决。\n\n原勘察记录（保留备查）：改动范围 recall.ts executeRecall 的 slice 改为 slice(offset, offset+N)，截断标记改为「剩余 X 字符，传 offset=Y 继续」；executeRecallDual 透传；index.ts recall 工具 schema 加 offset?: number。设计裁定：offset 仅单 ID 时生效，多 ID + offset 返回用法提示（不猜语义）。前置依赖：serializeForRecall（commit 8c13c8e）已把 pi 的 2000 字符截断移出 recall 链路。",
+      "status": "已完成",
       "date": "2026-09-15",
-      "updatedAt": "2026-09-15T17:26:07.875Z",
+      "updatedAt": "2026-09-20T18:02:32.490Z",
       "source": "会话讨论：B 方案改动评估",
       "locked": false
     },
@@ -50,11 +50,11 @@
     {
       "id": "task-005",
       "table": "tasks",
-      "text": "五级阶梯遗留 Minor 清单：M4 已修（ff9809e）；M3+M9 已修（b42b03a）；P3 计数重写已修（89ebfca）；M5 实证存在但极苛刻维持观察；M7 挂 task-002；M6/M8 顺手",
-      "detail": "Codex 第四轮审查 P3（L5 计数矛盾）验证属实并已修复（2026-09-19，commit 89ebfca）。问题：两批条数相同（如各 2 条）且模型碰巧生成同一句描述正文的 L5 组相邻时，渲染层按描述全串聚合为一行，旧后缀「（2 条已合并）」与真实范围 T1-T4（4 条）矛盾。修复：renderActionLedger 聚合时若 group.length>1 则剥旧后缀、按真实条数重写「（N 条已合并）」；单条保留原描述（原批次计数仍真实，不因渲染改写历史——这是探针测试踩过的坑：无条件重写会把单条的原 3 条计数改成 1）。searchLedger 同构段无此问题（逐条 push 各自描述，label 只是范围标注，无计数声明）。此前 M4 修复的测试用例「描述相同仍聚为一行（无损）」的前提正是计数重写后不再矛盾。Codex 四轮审查累计发现 5 个真实问题（3 P1 + 1 P3 + dump 漏 notes 由用户实测发现），外部审查持续有效。",
+      "text": "五级阶梯遗留 Minor：M3/M4/M9/P3 已修（b42b03a/ff9809e/89ebfca）；M7 已随 task-007 的 planAssembly 抽出解决；M5 实证存在但极苛刻维持观察；M6/M8 待顺手",
+      "detail": "五级阶梯 final review 遗留的 9 条 Minor（2 条已修 cbee882：README 重复 bullet、recall.ts 旧注释）。当前状态：\n\n- M3（spec §7 自相矛盾：「可见 ID = 两端 ID」vs 实现中 L3 渲染无 ↩ID）→ 已修 b42b03a（补勘误注记：「可见 ID」指 recall 路由语义而非渲染文本可见）。\n- M4（相邻两个 L5 组被聚合为一行、后组描述丢失）→ 已修 ff9809e（聚合边界从「L5 相邻」改为「相邻且 merged.description 相同」；零 LLM 调用，描述本已落盘）。\n- M5（同一遍瀑布中 L4→L5 组成员若 compressEnds 先失败回滚 L3，合并组仍把它升 L5）→ 已实证存在（2026-09-20 探针完整复现，三条件：plan 内双跳 + L4 层快照超线（通常需既有巨 L4 驱动）+ 该条 compressEnds 恰好失败）。后果比想象轻：数据无损（merged.description 正常写入，原文/摘要都在 quotes）、语义失真（L3 条目进 L5 终态，模型看不到也召不回）、mergeDescribe 输入被污染（巨条原文灌进 prompt）。修法便宜（L5 组执行时过滤 level !== 4，一行）但三条件同时发生概率极低，维持观察。\n- M6（degrade.ts 的 level 类型断言无运行时防护）→ 待办，纯防御，上游 store 守卫已保证。\n- M7（query+ids 同传时 splitIntoTurns 执行 3 次，微秒级纯函数）→ 【已解决·2026-09-21】随 task-007 的 planAssembly 抽出而自然消除（query 与日志头共用同一 plan）。\n- M8（recall.ts 多处：turn 级图片 sourceId 注释失准、slice 可能切断代理对、行为不变用例单锚点、冗余类型断言、L2 quote 无直接断言）→ 待办，测试观感/注释精度，无行为影响。\n- M9（L5 拒绝召回计入 recallStats.hits）→ 已修 b42b03a（RecallResult 新增 rejected，统计拆分，/compress-status 加「L5 拒绝 N 个」）。\n- 另：P3 计数重写（两批同描述合并后计数矛盾）→ 已修 89ebfca。\n\n剩余：M5（观察）、M6/M8（卫生，下一次触碰对应文件时顺手）。",
       "status": "待办",
       "date": "2026-09-17",
-      "updatedAt": "2026-09-19T09:00:49.059Z",
+      "updatedAt": "2026-09-20T18:03:17.110Z",
       "source": "final review 报告（session 01a0ab54）+ cbee882 修复记录，2026-09-16 会话整理",
       "locked": false
     },
@@ -67,11 +67,22 @@
       "updatedAt": "2026-09-20T09:15:02.999Z",
       "source": "会话讨论 T121",
       "locked": false
+    },
+    {
+      "id": "task-007",
+      "table": "tasks",
+      "text": "全项目审查四项发现（recall 截断口径 / 片段降级落 L3 / T 编号错位 / 工程卫生）已全部修复，随 fix 分支合入 main",
+      "detail": "审查方式：一批一次性探针（tests/_probe-review.test.ts，用后即删，工作区已复原）。\n\n四项发现与对应修复 commit（随 fix/review-findings-2026-09-20 分支 ff 合入 main @ 40afddc）：\n【A · 中高】recall 截断口径错误：src/recall.ts 用 `text.length > maxTokensPerEntry * 4` 后 slice（注释称「约 4 字符/token」），但本项目 countTokens 对 CJK 系数 1.0——实测 16000 CJK 字符 = 16000 tok（配置 4000）→ 实际放行 4 倍预算；ASCII 才恰好 4000。README 明确写「预算（tokens）」。修复：a67a2ad/3c423e3 新增 util.truncateToTokens（二分 + countTokensText）；ddf6360 换口径 + offset 分页（取代「请用相邻 ID」死路提示）；fab5831 offset 规整与用法提示不计数（RecallResult 新增 skipped）。\n【B · 中】片段降级路径与设计前提不符：实测片段 = 20,286 tok/个 L1 渲染、阈值 40000/reserve 10000 时，「每 ~2 个满尺寸片段吃掉一级」，长任务必然把最旧片段推到 L3；而旧 L3 渲染对无 userMessage 的片段输出「### T · 用户意图：（未知） ↩key」——动作行与全部动作 recallIds 消失，零信息行。裁定 7（L5 豁免）与片段 L4 渲染分支针对几乎不可达路径（实测旧 L3 条目 50/300/800 条时，片段 0 次被选入 toLevel=4）。修复：8a3a919 新增 LedgerData.isFragment 显式字段（不从 userMessage 缺失推断——只含图片的用户消息也会让 userMessage 为 undefined）+ 片段专用渲染（L3 保留「片段（k 个动作）↩IDs」机械标记行）；ffba837 holdAt4 → holdAt3（挡 toLevel>=4，片段终态 L3）；a260003 修恒真断言 + JSDoc 补存量例外。\n【C · 中】query 与日志头 T 标签错位：头部 T 编号在 renderActionLedger（下标+1，只含「已替换」turn，extraLedgers 追加末尾）；searchLedger 编号含窗口内 turn 的 cache 全集，片段追加位置不同。实测同一片段头部 T8、query 命中 T10。修复：9084d6f 抽 assembleContext/planAssembly 共用「日志头实际渲染的 ledger 列表」；75193c6 query 数据源改为 compactionAwareEntries（pi 原生压缩后 T 编号仍同源）。\n【D · 低】工程卫生：无 vitest.config，默认 include 把 bench/ 5 个文件计入（bench 会写 e2e/reports/perf）；多个一次性脚本入库；无 CI。修复：b15cd43 vitest.config.ts 排除 bench + vitest.bench.config.ts + .github/workflows/ci.yml + 清 3 个脚本；af53498 恢复用例自包含（干净 HOME/CI 可跑，此前依赖开发机 settings.json）+ tooling 断言改真实能力；7600ba3 compaction fixture 改真实布局（firstKeptEntryId 在 compaction 之前）。\n\n终审同时修正：README 中已被 C 推翻的「search 仍走全量 branch」表述。\n\n【顺带清理·同日】e2e 产物与 bench fixture 分离（commit 0d92dc7）：2026-09-05-current-context-dump.md 是 bench 的真实输入（bench/real-model-e2e.test.ts 用 readFileSync 读）而非产物，git mv 到 bench/fixtures/（否则新克隆/CI 上 bench 缺文件）；其余 4 个纯产物 git rm --cached（本地保留）；新增 2 条 tooling 守卫（fixture 未被 gitignore、e2e/reports 无已跟踪文件）；spec 加勘误注记、rpc-driver2.mjs 头部注明本地产物依赖、README 补分工说明。\n\n【保留的历史遗留】终审登记 3 条非阻塞 Minor：offset=NaN 输出「剩余 NaN」（JSON 工具调用不可达）；单 notes ID + offset 时 offset 被静默忽略（notes 路径不截断，本就无意义）；tests/tokens.test.ts 用例名里的「≈4 字符/token」是描述 ASCII 计量器本身，合法。\n\n【已证伪，勿再追】①「巨 L1 条目饿死片段降级」——片段体积小（77 tok）时从未被选中；②「片段走 compressEnds 编造意图」——片段从未被选入 toLevel=4，未复现。",
+      "status": "已完成",
+      "date": "2026-09-20",
+      "updatedAt": "2026-09-20T18:03:01.513Z",
+      "source": "用户「审查项目并给出下一步优化方案」（探针实证）+ fix 分支合入 + e2e 清理",
+      "locked": false
     }
   ],
   "seq": {
     "prefs": 0,
     "feedback": 0,
-    "tasks": 6
+    "tasks": 7
   }
 }
