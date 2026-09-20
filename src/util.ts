@@ -60,6 +60,26 @@ export function countTokensText(text: string): number {
   return Math.ceil(cjk * CJK_RATIO + (text.length - cjk) / ASCII_CHARS_PER_TOKEN);
 }
 
+/**
+ * 按 token 预算截断文本（CJK 感知口径，与窗口/降级阈值同一计量器）。
+ * 二分查找最长前缀使 countTokensText(前缀) ≤ maxTokens；不做逐字符扫描。
+ * maxTokens ≤ 0 时返回空串；预算充足时原样返回（truncated=false）。
+ * 调用方负责在 truncated 时追加自己的截断提示。
+ */
+export function truncateToTokens(text: string, maxTokens: number): { text: string; truncated: boolean } {
+  if (text.length === 0) return { text: "", truncated: false };
+  if (maxTokens <= 0) return { text: "", truncated: true };
+  if (countTokensText(text) <= maxTokens) return { text, truncated: false };
+  let lo = 1;                      // 已知 1 字符前缀可行（单字符 ≤ 1 tok，maxTokens ≥ 1）
+  let hi = text.length;            // 已知 hi 不可行
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (countTokensText(text.slice(0, mid)) <= maxTokens) lo = mid;
+    else hi = mid - 1;
+  }
+  return { text: text.slice(0, lo), truncated: true };
+}
+
 function contentTokens(content: unknown): number {
   if (typeof content === "string") return countTokensText(content);
   if (!Array.isArray(content)) return 0;

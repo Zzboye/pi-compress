@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { countTokens, countTokensText, CJK_RATIO } from "../src/util.js";
+import { countTokens, countTokensText, truncateToTokens, CJK_RATIO } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
 
 function userMsg(text: string): AgentMessage {
@@ -86,5 +86,46 @@ describe("countTokens", () => {
 
   it("unknown role: 0 (same as pi estimateTokens fallback)", () => {
     expect(countTokens(msg({ role: "unknown-role" }))).toBe(0);
+  });
+});
+
+describe("truncateToTokens", () => {
+  it("CJK 文本按 token 截断（不再按 chars/4 放行 4 倍预算）", () => {
+    const text = "中文内容测试".repeat(2000); // 12000 CJK 字符 = 12000 tok
+    const r = truncateToTokens(text, 4000);
+    expect(r.truncated).toBe(true);
+    expect(r.text.length).toBeLessThanOrEqual(4000); // CJK 1 字符 = 1 tok
+    expect(countTokensText(r.text)).toBeLessThanOrEqual(4000);
+    expect(countTokensText(r.text)).toBeGreaterThan(3900); // 二分应贴近预算而非过分保守
+  });
+
+  it("ASCII 文本保持 ≈4 字符/token", () => {
+    const text = "abcdefgh".repeat(2000); // 16000 ASCII 字符 ≈ 4000 tok
+    const r = truncateToTokens(text, 4000);
+    expect(countTokensText(r.text)).toBeLessThanOrEqual(4000);
+    expect(r.text.length).toBeGreaterThan(15000);
+  });
+
+  it("预算充足时不截断且原样返回", () => {
+    const text = "短文本";
+    const r = truncateToTokens(text, 4000);
+    expect(r).toEqual({ text, truncated: false });
+  });
+
+  it("空字符串", () => {
+    expect(truncateToTokens("", 100)).toEqual({ text: "", truncated: false });
+  });
+
+  it("极小预算仍返回非空前缀（不返回空串导致调用方误判）", () => {
+    const r = truncateToTokens("中".repeat(1000), 1);
+    expect(r.truncated).toBe(true);
+    expect(r.text.length).toBe(1);
+  });
+
+  it("混合文本：截断点按 CJK 感知口径", () => {
+    const text = "中".repeat(100) + "a".repeat(1000); // 100 + 250 = 350 tok
+    const r = truncateToTokens(text, 200);
+    expect(countTokensText(r.text)).toBeLessThanOrEqual(200);
+    expect(r.text.startsWith("中".repeat(100))).toBe(true); // 全中文前缀保留
   });
 });
