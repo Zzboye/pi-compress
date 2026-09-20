@@ -54,7 +54,7 @@ export function chooseOldestForLevel(
  * （下层计量基于降级后快照）。holdAt3 中的条目豁免 L4 与 L5（进行中 turn 的溢出片段：
  * L3 起片段已无实体内容——L4 的意图/outcome 对片段语义为空，L5 的合并收益为零而拒绝
  * 召回是实害；spec 2026-09-20 §2 裁定 3）→ 不生成 toLevel>=4 的 step、不入合并组，
- * 终态 L3。被豁免的片段仍参与各层 total 与 reserve 计量（保守方向：只少选不超降）。
+ * 终态 L3（起点已 ≥4 的存量片段停在原层，不回落）。被豁免的片段仍参与各层 total 与 reserve 计量（保守方向：只少选不超降）。
  * 不修改入参（在副本上推演），每轮 agent_settled 只做一遍瀑布，超量部分下一轮自然收敛。
  */
 export function planDegrade(

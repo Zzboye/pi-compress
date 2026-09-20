@@ -21,14 +21,16 @@ function ledger(id: string, level: 1 | 2 | 3 | 4, tokens: number): LedgerData {
 
 describe("planDegrade", () => {
   it("片段上限 L3：holdAt3 中的条目不生成 toLevel>=4 的 step，普通条目照常降级", () => {
-    const ls: LedgerData[] = [ledger("f1", 3, 21000), ledger("old", 3, 21000)];
+    // 三条：f1（片段，L3，渲染仅 ~10 tok）、old（普通，L3）、l4old（普通，已是 L4，~21013 tok）
+    const ls: LedgerData[] = [ledger("f1", 3, 21000), ledger("old", 3, 21000), ledger("l4old", 4, 21000)];
     (ls[0] as any).isFragment = true;
-    // Task 3 后 L3 片段渲染为机械标记行（~10 tok），故用 old 的 21013 tok 超阈（21023 > 20000）；
-    // reserve=0：两条都被选中（若不被豁免）；f1 被豁免停在 L3，old 降 L4
+    // Task 3 后 L3 片段渲染为机械标记行（~10 tok）；L3 层 21023 > 20000 触发瀑布，
+    // 随后 L4 层（l4old + 刚升上来的 old）也超阈 → 产生真实 L5 合并组（f1 不得进入）
     const plan = planDegrade(ls, 20000, 0, new Set(["f1"]));
     expect(plan.steps.find((s) => s.turnStartEntryId === "f1" && s.toLevel >= 4)).toBeUndefined();
     expect(plan.steps.find((s) => s.turnStartEntryId === "old" && s.toLevel === 4)).toBeDefined();
     expect(plan.mergeGroups.flat()).not.toContain("f1"); // 片段不进合并组
+    expect(plan.mergeGroups.flat().length).toBeGreaterThan(0); // 断言非空，避免恒真
   });
 
   it("no plan when every level under threshold", () => {
