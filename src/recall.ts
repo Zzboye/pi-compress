@@ -4,7 +4,7 @@ import type { NoteStore } from "./notes.js";
 
 /** recall 召回的图片块：block 可直接作为 pi 工具结果的 image content，sourceId 标注来源 entry */
 export interface RecallImage { block: { type: "image"; data: string; mimeType: string }; sourceId: string }
-export interface RecallResult { text: string; missing: string[]; notesHits: number; images: RecallImage[]; rejected?: number }
+export interface RecallResult { text: string; missing: string[]; notesHits: number; images: RecallImage[]; rejected?: number; skipped?: number }
 
 /** recall 层级路由上下文：ledgers 按 branch 序（index.ts 的 ledgersInBranchOrder 产出） */
 export interface RecallDegradeCtx { ledgers: LedgerData[]; turns: Turn[] }
@@ -24,6 +24,7 @@ function collectImages(m: any, sourceId: string, imgs: RecallImage[], seen: Set<
 }
 
 export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPerEntry: number, degradeCtx?: RecallDegradeCtx, offset = 0): RecallResult {
+  offset = Math.max(0, Math.floor(offset)); // 规整：负值视为 0，小数向下取整（提示与 slice 同一数值）
   const stripped = stripThinking(branch);
   const byId = new Map(stripped.map((e) => [e.id, e]));
   // toolCallId → toolResult：recall 含 toolCall 的 assistant 条目时，连带取回配对的工具结果，
@@ -36,9 +37,10 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   const parts: string[] = [];
   const images: RecallImage[] = [];
   let rejected = 0;
-  // offset 分页仅支持单 ID（多 ID 各有一段文本，offset 语义歧义）：多 ID 直接给用法提示
+  // offset 分页仅支持单 ID（多 ID 各有一段文本，offset 语义歧义）：多 ID 直接给用法提示。
+  // skipped 标记「全部传入 ID 均未执行」：调用方据此不计入 calls/hits（spec §7 不召回、不计数）。
   if (offset > 0 && ids.length !== 1) {
-    return { text: "offset 分页仅支持单 ID：请一次只传一个 ID（如 recall({ ids: [\"↩id\"], offset: 12345 })）。", missing: [], notesHits: 0, images: [], rejected: 0 };
+    return { text: "offset 分页仅支持单 ID：请一次只传一个 ID（如 recall({ ids: [\"↩id\"], offset: 12345 })）。", missing: [], notesHits: 0, images: [], rejected: 0, skipped: ids.length };
   }
   // F1 去重：turnStartEntryId → 首个返回整段原文的 ID。多 ID 命中同一 L3/L4 turn 时，
   // 后续 ID 只给一行提示，不重复整段原文、不重复 push 图片。
@@ -137,6 +139,12 @@ const NOTE_PREFIX_RE = /^(fb|task|pref)-/;
  * 先查 notes（返回 detail，而非 branch 原文）；其余 ID 走现有 executeRecall 路径（行为与文案不变）。
  */
 export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: NoteStore | null, maxTokensPerEntry: number, degradeCtx?: RecallDegradeCtx, offset = 0): RecallResult {
+  offset = Math.max(0, Math.floor(offset)); // 与 executeRecall 同一规整（notes 路径也吃同一 offset）
+  // 单 ID 守卫按**原始 ids 数量**判定（不能用过滤掉 notes ID 后的 entryIds.length：
+  // notes ID 与 branch ID 混传时也会静默生效，spec §7「仅单 ID 时有效」）。
+  if (offset > 0 && ids.length !== 1) {
+    return { text: "offset 分页仅支持单 ID：请一次只传一个 ID（如 recall({ ids: [\"↩id\"], offset: 12345 })）。", missing: [], notesHits: 0, images: [], rejected: 0, skipped: ids.length };
+  }
   const entryIds: string[] = [];
   const parts: string[] = [];
   const missing: string[] = [];
@@ -154,14 +162,16 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
     entryIds.push(raw);
   }
   let rejected = 0;
+  let skipped = 0;
   if (entryIds.length > 0) {
     const r = executeRecall(entryIds, branch, maxTokensPerEntry, degradeCtx, offset);
     parts.unshift(r.text);
     missing.unshift(...r.missing);
     allImages.push(...r.images);
     rejected = r.rejected ?? 0;
+    skipped = r.skipped ?? 0;
   }
-  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits, images: allImages, rejected };
+  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits, images: allImages, rejected, skipped };
 }
 
 // ---------- 关键词检索（searchLedger）----------

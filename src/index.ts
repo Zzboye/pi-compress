@@ -343,8 +343,13 @@ export default function (pi: ExtensionAPI): void {
           ledgers: ledgersInBranchOrder(entries, false),
           turns: splitIntoTurns(entries),
         }, params.offset ?? 0);
-        recallStats.calls += 1;
-        recallStats.hits += params.ids.length - r.missing.length - (r.rejected ?? 0); // L5 拒绝不计取回（M9）
+        // 多 ID + offset 的用法提示（skipped 覆盖全部传入 ID）：不召回也不计数（spec §7）。
+        const skipped = r.skipped ?? 0;
+        if (skipped < params.ids.length) {
+          recallStats.calls += 1;
+          // 取回数 = 传入数 − 未中 − L5 拒绝 − 未执行
+          recallStats.hits += params.ids.length - r.missing.length - (r.rejected ?? 0) - skipped;
+        }
         recallStats.missing += r.missing.length;
         recallStats.notesHits += r.notesHits;
         recallStats.rejected += r.rejected ?? 0;

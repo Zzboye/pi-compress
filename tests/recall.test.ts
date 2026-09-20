@@ -105,7 +105,7 @@ describe("executeRecall", () => {
         { type: "text", text: "短正文" },
       ] } as unknown as AgentMessage },
     ];
-    const r = executeRecall(["t1"], b, 100); // 阈值 400 chars，正文 3 chars
+    const r = executeRecall(["t1"], b, 100); // 预算 100 tok（剥离 thinking 后正文仅 ~3 tok）
     expect(r.text).toContain("短正文");
     expect(r.text).not.toContain("截断");
   });
@@ -114,7 +114,7 @@ describe("executeRecall", () => {
     const b: MessageEntry[] = [
       { id: "t1", message: { role: "assistant", content: [{ type: "text", text: "长".repeat(1000) }] } as unknown as AgentMessage },
     ];
-    const r = executeRecall(["t1"], b, 100); // 阈值 400 chars
+    const r = executeRecall(["t1"], b, 100); // 预算 100 tok（正文 1000 CJK 字符 = 1000 tok，必截断）
     expect(r.text).toContain("截断");
   });
 });
@@ -339,7 +339,7 @@ describe("三档召回语义（L3/L4 turn 级、L5 拒绝）", () => {
   });
 
   it("turn 级召回受 maxTokensPerEntry 预算截断", () => {
-    const r = executeRecallDual(["u1"], branch, null, 1, mkCtx(3)); // 1 token = 4 字符
+    const r = executeRecallDual(["u1"], branch, null, 1, mkCtx(3)); // 预算 1 tok（CJK 1 字符 ≈ 1 tok）
     expect(r.text).toContain("已截断");
     expect(r.text.length).toBeLessThan(400);
   });
@@ -542,7 +542,7 @@ describe("recall 截断口径与 offset 分页", () => {
     expect(r.text).toContain("offset");
   });
 
-  it("多 ID + offset → 用法提示，不召回", () => {
+  it("多 ID + offset → 用法提示，不召回，且 skipped 覆盖全部传入 ID", () => {
     const b: MessageEntry[] = [
       { id: "a", message: { role: "user", content: [{ type: "text", text: "AAA" }] } as any },
       { id: "c", message: { role: "user", content: [{ type: "text", text: "CCC" }] } as any },
@@ -551,6 +551,37 @@ describe("recall 截断口径与 offset 分页", () => {
     expect(r.text).toContain("单 ID");
     expect(r.text).not.toContain("AAA");
     expect(r.missing).toEqual([]);
+    // skipped = 传入 ID 数：调用方据此判定「未召回任何 ID」，不计入 calls/hits（spec §7）
+    expect(r.skipped).toBe(2);
+  });
+
+  it("负 offset 规整为 0：从头返回，不再静默返回尾部片段", () => {
+    const text = "A".repeat(5000) + "B".repeat(5000);
+    const b: MessageEntry[] = [{ id: "big", message: { role: "assistant", content: [{ type: "text", text }] } as any }];
+    const base = executeRecall(["big"], b, 500);
+    const neg = executeRecall(["big"], b, 500, undefined, -100);
+    expect(neg.text).toBe(base.text); // 与缺省 offset=0 逐字节一致
+    expect(neg.text).not.toContain("从 offset");
+  });
+
+  it("小数 offset 规整为整数：提示里不再出现小数", () => {
+    const text = "A".repeat(5000) + "B".repeat(5000);
+    const b: MessageEntry[] = [{ id: "big", message: { role: "assistant", content: [{ type: "text", text }] } as any }];
+    const frac = executeRecall(["big"], b, 500, undefined, 1.5);
+    expect(frac.text).toContain("从 offset 1 起");
+    expect(frac.text).not.toContain("1.5");
+    const int = executeRecall(["big"], b, 500, undefined, 1);
+    expect(frac.text).toBe(int.text); // 规整后与整数 1 等价
+  });
+
+  it("executeRecallDual：notes ID 与 branch ID 混传 + offset → 用法提示（按原始 ids 数量判定）", () => {
+    const store = mkDualStore();
+    store.append("feedback", { text: "摘要行", detail: "详情全文" });
+    const r = executeRecallDual(["fb-001", "u1"], [userEntry("u1", "hi")], store, 4000, undefined, 5);
+    expect(r.text).toContain("单 ID");
+    expect(r.text).not.toContain("详情全文"); // notes 源也不召回
+    expect(r.missing).toEqual([]);
+    expect(r.skipped).toBe(2);
   });
 
   it("offset 缺省（0）行为与旧实现一致", () => {

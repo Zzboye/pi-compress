@@ -309,6 +309,26 @@ describe("extension entry wiring", () => {
     expect(out).not.toContain("取回 1 条"); // 旧行为：拒绝被计入取回
   });
 
+  it("compress-status 统计口径：多 ID + offset 用法提示不计入「调用」与「取回」（spec §7）", async () => {
+    const { tools, commands } = harness();
+    const notifyCalls: string[] = [];
+    const branch = [
+      { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "原文一" }] } },
+      { id: "u2", type: "message", message: { role: "user", content: [{ type: "text", text: "原文二" }] } },
+    ];
+    const fakeCtx: any = {
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      sessionManager: { getBranch: () => branch },
+    };
+    const out = await tools.recall.execute("tc1", { ids: ["u1", "u2"], offset: 10 }, undefined, undefined, fakeCtx);
+    expect(out.content[0].text).toContain("单 ID"); // 返回用法提示
+    expect(out.content[0].text).not.toContain("原文一"); // 不召回
+    await commands["compress-status"].handler("", fakeCtx);
+    const status = notifyCalls.join("\n");
+    expect(status).toContain("调用 0");   // 用法提示不计入调用
+    expect(status).toContain("取回 0 条"); // 也不计入取回
+  });
+
   it("compress-status 显示项目记忆行（启用含三表计数与召回数；未启用含未启用）", async () => {
     // ① enabled：三表各预置一条，recall 命中一条记忆 → 状态行含计数与「/ 记忆召回」
     const { tools, commands, handlers } = harness();
