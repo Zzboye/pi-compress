@@ -102,6 +102,52 @@ export function planInflightTrim(
 
 export interface AssembleStats { windowTurns: number; replacedTurns: number; passthroughTurns: number }
 
+export interface AssemblyPlan {
+  turns: Turn[];
+  window: Turn[];
+  windowStartIds: Set<string>;
+  /** 日志头顺序 = 窗外有 ledger 的 turn（branch 序）+ extraLedgers（片段，追加末尾）。
+   *  T 编号的唯一来源：数组下标 + 1。日志头渲染与 query 搜索必须共用本列表（spec 2026-09-20 §5）。 */
+  ledgers: LedgerData[];
+  /** 窗外无 ledger 的 turn 条目 id（原文照发） */
+  passthroughIds: Set<string>;
+  stats: AssembleStats;
+}
+
+/** 装配计划（纯计算）：窗口划分、日志头 ledger 列表、原文照发集合、统计。
+ *  assembleContext 与 recall query 共用本函数，保证 T 编号严格同源。 */
+export function planAssembly(
+  branch: MessageEntry[],
+  cache: Map<string, LedgerData>,
+  keepRecentTokens: number,
+  extraLedgers: LedgerData[] = [],
+): AssemblyPlan {
+  const turns = splitIntoTurns(branch);
+  const window = findWindowTurns(turns, keepRecentTokens);
+  const windowStartIds = new Set(window.map((t) => t.startEntryId));
+  const stats: AssembleStats = { windowTurns: window.length, replacedTurns: 0, passthroughTurns: 0 };
+  const ledgers: LedgerData[] = [];
+
+  for (const turn of turns) {
+    if (windowStartIds.has(turn.startEntryId)) continue; // 窗口内，原文追加
+    const cached = cache.get(turn.startEntryId);
+    if (cached) {
+      ledgers.push(cached);
+      stats.replacedTurns++;
+    } else {
+      stats.passthroughTurns++;
+    }
+  }
+  ledgers.push(...extraLedgers);
+
+  const passthroughIds = new Set(
+    turns
+      .filter((t) => !windowStartIds.has(t.startEntryId) && !cache.has(t.startEntryId))
+      .flatMap((t) => t.entries.map((e) => e.id)),
+  );
+  return { turns, window, windowStartIds, ledgers, passthroughIds, stats };
+}
+
 /** 装配上下文：窗口外有摘要的 turn 用 ledger 头代表，无摘要的 turn 原文照发，窗口内 turn 原文追加。
  *  extraLedgers（进行中 turn 的片段 ledger）追加在日志头 ledgers 数组末尾——片段属于最后
  *  turn，branch 顺序天然在最后；缺省 [] 时行为与旧签名逐字节一致。 */
@@ -111,35 +157,13 @@ export function assembleContext(
   keepRecentTokens: number,
   extraLedgers: LedgerData[] = [],
 ): { messages: AgentMessage[]; stats: AssembleStats } {
-  const turns = splitIntoTurns(branch);
-  const window = findWindowTurns(turns, keepRecentTokens);
-  const windowStartIds = new Set(window.map((t) => t.startEntryId));
-  const stats: AssembleStats = { windowTurns: window.length, replacedTurns: 0, passthroughTurns: 0 };
+  const plan = planAssembly(branch, cache, keepRecentTokens, extraLedgers);
   const messages: AgentMessage[] = [];
-  const ledgers: LedgerData[] = [];
-
-  for (const turn of turns) {
-    if (windowStartIds.has(turn.startEntryId)) continue; // 窗口内，稍后原文追加
-    const cached = cache.get(turn.startEntryId);
-    if (cached) {
-      ledgers.push(cached);
-      stats.replacedTurns++;
-    } else {
-      stats.passthroughTurns++;
-    }
-  }
-
-  // 无摘要的窗外 turn 原文照发（不阻塞、不丢弃）
-  const passthroughIds = new Set(
-    turns.filter((t) => !windowStartIds.has(t.startEntryId) && !cache.has(t.startEntryId)).flatMap((t) => t.entries.map((e) => e.id)),
-  );
-
-  if (ledgers.length > 0 || extraLedgers.length > 0) messages.push(renderActionLedger([...ledgers, ...extraLedgers]));
+  if (plan.ledgers.length > 0) messages.push(renderActionLedger(plan.ledgers));
   const strippedBranch = stripThinking(branch); // passthrough 与窗口统一剥离 thinking（见 stripThinking）
   for (const e of strippedBranch) {
-    if (passthroughIds.has(e.id)) messages.push(e.message);
+    if (plan.passthroughIds.has(e.id)) messages.push(e.message);
   }
-  for (const t of window) for (const e of stripThinking(t.entries)) messages.push(e.message);
-
-  return { messages, stats };
+  for (const t of plan.window) for (const e of stripThinking(t.entries)) messages.push(e.message);
+  return { messages, stats: plan.stats };
 }

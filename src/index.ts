@@ -9,7 +9,7 @@ import type {
   SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
 import { loadConfig, type ContextCompressConfig } from "./config.js";
-import { assembleContext, findWindowTurns, planInflightTrim, type AssembleStats } from "./assembler.js";
+import { assembleContext, findWindowTurns, planAssembly, planInflightTrim, type AssembleStats } from "./assembler.js";
 import { NoteStore, renderNotes } from "./notes.js";
 import type { AgentMessage } from "./types.js";
 import { LedgerStore, collectFragmentEntries, collectFragmentKeys, type SessionEntryLike } from "./store.js";
@@ -320,15 +320,15 @@ export default function (pi: ExtensionAPI): void {
       // ids 模式召回的 image 块：拼在文本后作为混合 content 返回（query-only 时为空数组无影响）
       const imageBlocks: RecallImage["block"][] = [];
       if (q) {
-        // query 模式：关键词检索已压缩历史，返回命中索引（不消耗 calls，calls 只计逐字取回）
-        // T 标签按 branch 顺序编号，与 renderActionLedger 同口径
-        const ledgers = ledgersInBranchOrder(entries, false);
-        // 片段 ledger（key ∈ 末 turn 中间条目）ledgersInBranchOrder 查不到：追加保证 query
-        // 可命中片段摘要，且 T 编号与 renderActionLedger（extraLedgers 同款追加）对齐；
-        // 无片段时空追加，行为逐字节不变
-        const turns = splitIntoTurns(entries);
-        const lastTurn = turns[turns.length - 1];
-        if (lastTurn) ledgers.push(...collectFragmentEntries(lastTurn, store).map((f) => f.ledger));
+        // query 模式：关键词检索，返回命中索引（不消耗 calls，calls 只计逐字取回）。
+        // 检索范围 = 日志头实际渲染的 ledger 列表（planAssembly 产出，与 renderActionLedger 同一数组）
+        // → T 编号与日志头严格同源。窗口内 turn 的内容原文在场，模型无需检索其陈旧 ledger 副本。
+        const cache = new Map<string, LedgerData>();
+        for (const k of store.keys()) { const v = store.get(k); if (v && !v.absorbed) cache.set(k, v); }
+        // config 为 null = session_start 未跑（无日志头、store 空），此处仅为满足严格空检查；查询结果不受影响
+        const keepRecentTokens = config?.keepRecentTokens ?? 0;
+        const plan = planInflightTrim(entries, cache, keepRecentTokens);
+        const ledgers = planAssembly(plan.trimmedBranch, cache, keepRecentTokens, plan.extraLedgers).ledgers;
         const r = searchLedger(q, ledgers, 15);
         recallStats.searches += 1;
         recallStats.searchHits += r.hits.length;

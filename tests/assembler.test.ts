@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { splitIntoTurns, type MessageEntry } from "../src/util.js";
-import { findWindowTurns, assembleContext, planInflightTrim } from "../src/assembler.js";
+import { findWindowTurns, assembleContext, planAssembly, planInflightTrim } from "../src/assembler.js";
 import type { AgentMessage } from "../src/types.js";
 import type { LedgerData } from "../src/ledger.js";
 
@@ -240,5 +240,43 @@ describe("planInflightTrim", () => {
     const out = planInflightTrim(branch, new Map(), 1_000_000);
     expect(out.fragment).toBeNull();
     expect(out.trimmedBranch).toEqual(branch);
+  });
+});
+
+describe("planAssembly（T 编号的唯一来源）", () => {
+  const msg = (id: string, text: string): MessageEntry => ({ id, message: { role: "user", content: [{ type: "text", text }] } as any });
+  const led = (k: string): LedgerData => ({ turnStartEntryId: k, turnEndEntryId: k + "-e", summary: { entries: [] } });
+
+  it("ledgers = 窗外有 ledger 的 turn + extraLedgers 追加在末尾（顺序即 T 编号）", () => {
+    // 三个 turn 各 100 tok（400 ASCII 字符）；预算 100 → 窗口只剩 t3；t1 有 ledger、t2 无（passthrough）
+    const branch = [msg("t1", "a".repeat(400)), msg("t2", "b".repeat(400)), msg("t3", "c".repeat(400))];
+    const cache = new Map<string, LedgerData>([["t1", led("t1")], ["t3", led("t3")]]);
+    const plan = planAssembly(branch, cache, 100, [led("frag")]);
+    expect(plan.window.map((t) => t.startEntryId)).toEqual(["t3"]);
+    expect(plan.ledgers.map((l) => l.turnStartEntryId)).toEqual(["t1", "frag"]); // t3 在窗口内、t2 无 ledger
+    expect(plan.passthroughIds).toEqual(new Set(["t2"]));
+    expect(plan.stats).toEqual({ windowTurns: 1, replacedTurns: 1, passthroughTurns: 1 });
+  });
+
+  it("窗口内 turn 不进 ledgers（原文在场，不参与 T 编号）", () => {
+    const branch = [msg("t1", "a".repeat(400)), msg("t2", "b".repeat(400)), msg("t3", "c".repeat(400))];
+    const cache = new Map<string, LedgerData>([["t1", led("t1")], ["t2", led("t2")], ["t3", led("t3")]]);
+    const plan = planAssembly(branch, cache, 110); // 窗口只留 t3
+    expect(plan.window.map((t) => t.startEntryId)).toEqual(["t3"]);
+    expect(plan.ledgers.map((l) => l.turnStartEntryId)).toEqual(["t1", "t2"]);
+  });
+
+  it("无 ledger、无 extraLedgers 时 ledgers 为空（日志头不渲染）", () => {
+    const branch = [msg("t1", "a".repeat(400))];
+    const plan = planAssembly(branch, new Map(), 1_000_000);
+    expect(plan.ledgers).toEqual([]);
+  });
+
+  it("stats 与 assembleContext 一致（复用同一计算）", () => {
+    const branch = [msg("t1", "a"), msg("t2", "b")];
+    const cache = new Map<string, LedgerData>([["t1", led("t1")]]);
+    const plan = planAssembly(branch, cache, 1_000_000);
+    const { stats } = assembleContext(branch, cache, 1_000_000);
+    expect(plan.stats).toEqual(stats);
   });
 });
