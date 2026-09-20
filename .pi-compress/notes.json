@@ -28,11 +28,11 @@
     {
       "id": "task-003",
       "table": "tasks",
-      "text": "图片透传观察（等真实含图 turn）+ 四项锦上添花（cache 量化 / status 钳制透明化 / LLM-judge / 图片常量）；全局记忆已移交新项目，不在 pi-compress 实现",
-      "detail": "用户裁定（2026-09-17）：全局记忆不在 pi-compress 实现，新开独立项目做含全局记忆的插件。连带调整：(1) task-003 中全局记忆与 global 正则瑕疵移出 pi-compress 范围；(2) pi-compress 的 /compress-remember global 预留分支去留待定（可删除或保持预留）；(3) pi-compress 收敛为「项目记忆 + 上下文压缩」单一职责，积压只剩小项。新项目可参考的讨论资产：T17 需求原文（原因分析文件、原因可 recall）、T18 提炼时机四选项（推荐 D：session_start 增量 + 手动命令兜底）、双插件注入位置冲突风险。",
+      "text": "图片透传观察（等真实含图 turn）+ 三项锦上添花（cache 量化 / LLM-judge / 图片常量）；status 钳制透明化已完成（c505e21）；全局记忆已移交新项目，不在 pi-compress 实现",
+      "detail": "用户裁定（2026-09-17）：全局记忆不在 pi-compress 实现，新开独立项目做含全局记忆的插件。连带调整：(1) task-003 中全局记忆与 global 正则瑕疵移出 pi-compress 范围；(2) pi-compress 的 /compress-remember global 预留分支去留待定（可删除或保持预留）；(3) pi-compress 收敛为「项目记忆 + 上下文压缩」单一职责，积压只剩小项。新项目可参考的讨论资产：T17 需求原文（原因分析文件、原因可 recall）、T18 提炼时机四选项（推荐 D：session_start 增量 + 手动命令兜底）、双插件注入位置冲突风险。\n\n【已完成·2026-09-21】status 钳制透明化（方案 A，commit c505e21，分支 feat/config-adjustment-report）：config 新增 loadConfigWithReport() 返回 {config, adjustments}，readNum() 为 num() 的记账版（判定逻辑一致，额外记录被修正项：out-of-range / rounded）；loadConfig() 变其 .config 包装，行为逐字节不变（差分探针逐字段逐值比对 main 验证，含 projectNotes.maxTokens 不取整这一既有口径）。/compress-status 新增「配置修正」行，仅当用户设了但未被原样采纳时出现，格式「字段 配置值 → 生效值（原因）」，多项以 · 连接。测试 +7（config 6 + extension 1）。README 状态示例与条目说明同步。\n\n【剩余】图片透传观察（等真实含图 turn）；cache 量化、LLM-judge、图片常量提取三项未做。",
       "status": "已完成",
       "date": "2026-09-15",
-      "updatedAt": "2026-09-20T09:14:51.250Z",
+      "updatedAt": "2026-09-20T16:22:04.191Z",
       "source": "T55/T69 遗留清单",
       "locked": false
     },
