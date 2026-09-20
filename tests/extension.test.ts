@@ -1449,23 +1449,33 @@ describe("extension entry wiring", () => {
     }
   });
 
-  it("T 标签同源：query 命中行的 T 编号与日志头一致（含片段与窗口内 ledger）", async () => {
+  it("T 标签同源：query 命中行的 T 编号与日志头一致（多个窗外 ledger + 片段）", async () => {
     const { tools, handlers } = harness();
     const CJK = (n: number) => "内".repeat(n);
     const branch: any[] = [];
     // parentId 成链（compaction 感知路径用 buildContextEntries 走 parentId 回溯，见 inflight 用例教训）
     let prev: string | null = null;
     const push = (e: any) => { e.parentId = prev; prev = e.id; branch.push(e); };
-    // 4 个已完成 turn，各自有 ledger（turnStartEntryId = user 消息 id）
-    for (let i = 1; i <= 4; i++) {
+    // 3 个已完成 turn（t1–t3），各 ~1200 tok（> keepRecentTokens 合法下界 1000）→ 必在窗外、必有 ledger：
+    // 日志头因此确实含多个已完成 turn 的节（T 编号一致性的断言对象）
+    for (let i = 1; i <= 3; i++) {
       push({ id: `t${i}`, type: "message", message: { role: "user", content: [{ type: "text", text: `需求${i}` }] } });
-      push({ id: `t${i}r`, type: "message", message: { role: "assistant", content: [{ type: "text", text: CJK(200) }] } });
+      push({ id: `t${i}r`, type: "message", message: { role: "assistant", content: [{ type: "text", text: CJK(1200) }] } });
       push({ id: `lg${i}`, type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({
         turnStartEntryId: `t${i}`, turnEndEntryId: `t${i}r`, level: 1,
         userMessage: { text: `需求${i}`, entryId: `t${i}` },
         summary: { entries: [{ action: "exec", target: `cmd${i}`, detail: `第${i}步`, recallIds: [`t${i}r`], phase: "verify" }] },
       }) });
     }
+    // 窗口内 turn（t4，~200 tok，落在 keepRecentTokens=1000 窗口）：其 ledger 在 store 里，
+    // 但不得出现在日志头，也不得进入 query 的 T 编号空间（窗口内内容原文在场，无需检索陈旧副本）
+    push({ id: "t4", type: "message", message: { role: "user", content: [{ type: "text", text: "需求4" }] } });
+    push({ id: "t4r", type: "message", message: { role: "assistant", content: [{ type: "text", text: CJK(200) }] } });
+    push({ id: "lg4", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({
+      turnStartEntryId: "t4", turnEndEntryId: "t4r", level: 1,
+      userMessage: { text: "需求4", entryId: "t4" },
+      summary: { entries: [{ action: "exec", target: "cmdWindow", detail: "窗口内步骤", recallIds: ["t4r"], phase: "verify" }] },
+    }) });
     // 进行中 turn（t5）带一个已落盘片段
     push({ id: "t5", type: "message", message: { role: "user", content: [{ type: "text", text: "继续" }] } });
     push({ id: "a5", type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "c1", name: "exec", arguments: { command: "cmdFrag" } }] } });
@@ -1480,7 +1490,7 @@ describe("extension entry wiring", () => {
       fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
       fs.writeFileSync(path.join(dir, ".pi", "settings.json"), JSON.stringify({
         contextCompress: {
-          keepRecentTokens: 100,
+          keepRecentTokens: 1000, // 合法下界（<1000 会被 loadConfig 静默回落 20000，窗口断言随之失效）
           summarizer: { kind: "registry", provider: "Fake", model: "m" },
           backfillLimit: 0, // 关掉补摘：本用例只验证标签，不需要后台摘要（避免触发真实 backend 调用）
         },
@@ -1501,12 +1511,92 @@ describe("extension entry wiring", () => {
       const header = (out.messages as any[]).find((m) => JSON.stringify(m.content).includes("<action-ledger>"));
       const headerText = ((header.content as any[]).map((c) => c.text ?? "").join("")) as string;
       const headerLabels = [...headerText.matchAll(/^### T(\d+)/gm)].map((m) => m[1]);
-      // query 命中行
-      const res = await tools.recall.execute("tc", { query: "片段结果" }, undefined, undefined, fakeCtx);
-      const hitLabel = /T(\d+)/.exec(res.content[0].text)![1];
-      expect(headerLabels).toContain(hitLabel); // 命中的 T 编号必须出现在日志头中
-      // 片段在日志头是最后一节（extraLedgers 追加在末尾）——回归「片段追加位置」这个错位根因
-      expect(headerLabels[headerLabels.length - 1]).toBe(hitLabel);
+      // 多个窗外已完成 turn + 片段：T1..T4 各一节（片段追加在末尾）
+      expect(headerLabels).toEqual(["1", "2", "3", "4"]);
+      expect(headerText).toContain("需求1");
+      expect(headerText).toContain("需求3");
+      // 窗口内 turn（t4）的 ledger 不得进入日志头
+      expect(headerText).not.toContain("cmdWindow");
+
+      // query 命中行的 T 编号逐条与日志头一致（覆盖多个窗外 ledger + 片段）
+      const expectHitLabel = async (query: string, label: string) => {
+        const res = await tools.recall.execute("tc", { query }, undefined, undefined, fakeCtx);
+        expect(res.content[0].text).toContain(`T${label}`);
+        expect(/T(\d+)/.exec(res.content[0].text)![1]).toBe(label);
+      };
+      await expectHitLabel("第1步", "1");
+      await expectHitLabel("第2步", "2");
+      await expectHitLabel("第3步", "3");
+      await expectHitLabel("片段结果", "4");
+      // 窗口内 turn 的 ledger 不参与 query 的编号空间（无命中）
+      const resWindow = await tools.recall.execute("tc", { query: "cmdWindow" }, undefined, undefined, fakeCtx);
+      expect(resWindow.content[0].text).toContain("无命中");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // ---------- 回归：pi 原生压缩后 query 的 T 编号仍与日志头同源 ----------
+  // 根因：store.rebuildFromEntries 扫全 branch（含被压缩掉的旧 turn 的 ledger），若 query 用全分支
+  // entries 做 planAssembly，被压缩掉的旧 ledger 会占掉 T 编号，而日志头（compactionAwareEntries）
+  // 根本不渲染它 → 整体错位。query 必须与日志头共用 compaction 感知数据源。
+  it("回归：pi 原生压缩后 query 的 T 编号与日志头一致（被压缩掉的旧 ledger 不进编号空间）", async () => {
+    const { tools, handlers } = harness();
+    const CJK = (n: number) => "内".repeat(n);
+    // parentId 成链：buildContextEntries 从叶子沿 parentId 回溯
+    let prev: string | null = null;
+    const branch: any[] = [];
+    const push = (e: any) => { e.parentId = prev; prev = e.id; branch.push(e); };
+    // 压缩前的旧 turn（u1/a1）：其 ledger 仍在 store 里（rebuild 扫全 branch），但不在 compaction 感知视图
+    push({ id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "precompact 提问" }] } });
+    push({ id: "a1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "precompact 回答" }] } });
+    push({ id: "lgPre", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({
+      turnStartEntryId: "u1", turnEndEntryId: "a1", level: 1,
+      userMessage: { text: "precompact", entryId: "u1" },
+      summary: { entries: [{ action: "exec", target: "precompact", detail: "precompact 旧步骤", recallIds: ["a1"], phase: "verify" }] },
+    }) });
+    // pi 原生 compaction：firstKeptEntryId=u2 → u1/a1 由摘要代表，不再进上下文
+    push({ id: "c1", type: "compaction", summary: "旧历史摘要", firstKeptEntryId: "u2", tokensBefore: 5000 });
+    // 保留 turn（u2/a2）：有 ledger 且在窗外 → 日志头唯一一节 T1
+    push({ id: "u2", type: "message", message: { role: "user", content: [{ type: "text", text: "alphaone 提问" }] } });
+    push({ id: "a2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "alphaone 回答" }] } });
+    push({ id: "lgA", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({
+      turnStartEntryId: "u2", turnEndEntryId: "a2", level: 1,
+      userMessage: { text: "alphaone", entryId: "u2" },
+      summary: { entries: [{ action: "exec", target: "alphaone", detail: "alphaone 步骤", recallIds: ["a2"], phase: "verify" }] },
+    }) });
+    // 末 turn（u3/a3）：~1200 tok 必超 keepRecentTokens=1000 → 窗口内，无 ledger（不进日志头）
+    push({ id: "u3", type: "message", message: { role: "user", content: [{ type: "text", text: "alphatwo 提问" }] } });
+    push({ id: "a3", type: "message", message: { role: "assistant", content: [{ type: "text", text: CJK(1200) }] } });
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-compactlabel-"));
+    try {
+      fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+      fs.writeFileSync(path.join(dir, ".pi", "settings.json"), JSON.stringify({
+        contextCompress: { keepRecentTokens: 1000, backfillLimit: 0 },
+      }));
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: () => {}, setStatus: () => {} },
+        sessionManager: { getBranch: () => branch },
+        getContextUsage: () => ({ tokens: 5000, contextWindow: 200_000 }),
+      };
+      await handlers.session_start({}, fakeCtx);
+      const out = await handlers.context({}, fakeCtx);
+      const header = (out.messages as any[]).find((m) => JSON.stringify(m.content).includes("<action-ledger>"));
+      const headerText = ((header.content as any[]).map((c) => c.text ?? "").join("")) as string;
+      const headerLabels = [...headerText.matchAll(/^### T(\d+)/gm)].map((m) => m[1]);
+      // 日志头只渲染保留 turn（u2）一节：T1 = alphaone；被压缩掉的旧 ledger（precompact）不渲染
+      expect(headerLabels).toEqual(["1"]);
+      expect(headerText).toContain("alphaone");
+      expect(headerText).not.toContain("precompact");
+
+      // query 的 T 编号必须与日志头一致：alphaone → T1
+      const resAlpha = await tools.recall.execute("tc", { query: "alphaone" }, undefined, undefined, fakeCtx);
+      expect(/T(\d+)/.exec(resAlpha.content[0].text)![1]).toBe("1");
+      // 被压缩掉的旧 ledger 不参与 query 的编号空间（修复前会命中 T1，与日志头冲突）
+      const resPre = await tools.recall.execute("tc", { query: "precompact" }, undefined, undefined, fakeCtx);
+      expect(resPre.content[0].text).toContain("无命中");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

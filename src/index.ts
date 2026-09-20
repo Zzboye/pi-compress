@@ -325,9 +325,14 @@ export default function (pi: ExtensionAPI): void {
         // → T 编号与日志头严格同源。窗口内 turn 的内容原文在场，模型无需检索其陈旧 ledger 副本。
         const cache = new Map<string, LedgerData>();
         for (const k of store.keys()) { const v = store.get(k); if (v && !v.absorbed) cache.set(k, v); }
+        // 数据源必须与日志头（context 事件）同一：compactionAwareEntries（被 pi 原生压缩掉的旧 turn
+        // 不参与）——store 在 session_start 扫全 branch，被压缩掉的旧 ledger 仍在 store 里，
+        // 若用 execute 顶部的全分支 entries 编号，query 会把日志头不渲染的旧 ledger 编进 T 序号 → 整体错位。
+        // ids 路由仍用全分支 entries（spec §5.2：ids 路由不改）。
+        const queryEntries = compactionAwareEntries(ctx.sessionManager.getBranch()).entries;
         // config 为 null = session_start 未跑（无日志头、store 空），此处仅为满足严格空检查；查询结果不受影响
         const keepRecentTokens = config?.keepRecentTokens ?? 0;
-        const plan = planInflightTrim(entries, cache, keepRecentTokens);
+        const plan = planInflightTrim(queryEntries, cache, keepRecentTokens);
         const ledgers = planAssembly(plan.trimmedBranch, cache, keepRecentTokens, plan.extraLedgers).ledgers;
         const r = searchLedger(q, ledgers, 15);
         recallStats.searches += 1;
