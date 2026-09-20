@@ -63,12 +63,12 @@ export function countTokensText(text: string): number {
 /**
  * 按 token 预算截断文本（CJK 感知口径，与窗口/降级阈值同一计量器）。
  * 二分查找最长前缀使 countTokensText(前缀) ≤ maxTokens；不做逐字符扫描。
- * maxTokens ≤ 0 时返回空串；预算充足时原样返回（truncated=false）。
- * 调用方负责在 truncated 时追加自己的截断提示。
+ * 前提：maxTokens 为 ≥ 1 的整数（调用方为配置项，经钳制）。maxTokens < 1 时返回空串；
+ * 预算充足时原样返回（truncated=false）。调用方负责在 truncated 时追加自己的截断提示。
  */
 export function truncateToTokens(text: string, maxTokens: number): { text: string; truncated: boolean } {
   if (text.length === 0) return { text: "", truncated: false };
-  if (maxTokens <= 0) return { text: "", truncated: true };
+  if (!(maxTokens >= 1)) return { text: "", truncated: true }; // 含 <1 与 NaN
   if (countTokensText(text) <= maxTokens) return { text, truncated: false };
   let lo = 1;                      // 已知 1 字符前缀可行（单字符 ≤ 1 tok，maxTokens ≥ 1）
   let hi = text.length;            // 已知 hi 不可行

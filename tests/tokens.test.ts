@@ -101,9 +101,21 @@ describe("truncateToTokens", () => {
 
   it("ASCII 文本保持 ≈4 字符/token", () => {
     const text = "abcdefgh".repeat(2000); // 16000 ASCII 字符 ≈ 4000 tok
-    const r = truncateToTokens(text, 4000);
-    expect(countTokensText(r.text)).toBeLessThanOrEqual(4000);
-    expect(r.text.length).toBeGreaterThan(15000);
+    const r = truncateToTokens(text, 3000); // 预算低于全文 → 真实走截断路径
+    expect(r.truncated).toBe(true);
+    expect(countTokensText(r.text)).toBeLessThanOrEqual(3000);
+    expect(r.text.length).toBeGreaterThan(11000); // ≈ 4 字符/token（3000 tok ≈ 12000 字符）
+  });
+
+  it("预算恰好等于全文 → 不截断", () => {
+    const text = "中文内容测试".repeat(100); // 600 CJK 字符 = 600 tok
+    expect(truncateToTokens(text, 600)).toEqual({ text, truncated: false });
+  });
+
+  it("非整数/非正预算 → 空串且 truncated（不返回超预算前缀）", () => {
+    for (const bad of [0, -1, 0.5, NaN]) {
+      expect(truncateToTokens("中".repeat(100), bad)).toEqual({ text: "", truncated: true });
+    }
   });
 
   it("预算充足时不截断且原样返回", () => {
