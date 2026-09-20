@@ -50,17 +50,16 @@ export function chooseOldestForLevel(
 }
 
 /**
- * 逐层瀑布：L1→L2→L3→L4→L5（Task 2 右移一层）。L1 降级产生的新 L2 条目立即计入 L2 的 total
- * （下层计量基于降级后快照）。holdAt4 中的条目豁免 L5（进行中 turn 的溢出片段：L5 合并收益
- * 为零而拒绝召回是实害，spec 裁定 7）→ 不生成 toLevel=5 step、不入合并组，终态 L4。
- * 被豁免的片段仍参与各层 total 与 reserve 计量（保守方向：只少选不超降——豁免只挡
- * toLevel=5 step，不影响选中量，保留区不会因此被超卖）。
- * 不修改入参（在副本上推演），每轮 agent_settled 只做一遍瀑布，
- * 超量部分下一轮自然收敛。
+ * 逐层瀑布：L1→L2→L3→L4→L5。L1 降级产生的新 L2 条目立即计入 L2 的 total
+ * （下层计量基于降级后快照）。holdAt3 中的条目豁免 L4 与 L5（进行中 turn 的溢出片段：
+ * L3 起片段已无实体内容——L4 的意图/outcome 对片段语义为空，L5 的合并收益为零而拒绝
+ * 召回是实害；spec 2026-09-20 §2 裁定 3）→ 不生成 toLevel>=4 的 step、不入合并组，
+ * 终态 L3。被豁免的片段仍参与各层 total 与 reserve 计量（保守方向：只少选不超降）。
+ * 不修改入参（在副本上推演），每轮 agent_settled 只做一遍瀑布，超量部分下一轮自然收敛。
  */
 export function planDegrade(
   ledgers: LedgerData[], thresholdTokens: number, reserveTokens: number,
-  holdAt4?: Set<string>,
+  holdAt3?: Set<string>,
 ): DegradePlan {
   const steps: DegradeStep[] = [];
   const working: Array<{ l: LedgerData; level: 1 | 2 | 3 | 4 | 5 }> = ledgers.map((l) => ({ l, level: l.level ?? 1 }));
@@ -74,7 +73,7 @@ export function planDegrade(
     for (const w of working) {
       if (w.level === level && chosen.has(w.l.turnStartEntryId)) {
         const to = (level + 1) as 2 | 3 | 4 | 5;
-        if (to === 5 && holdAt4?.has(w.l.turnStartEntryId)) continue; // 片段 L5 豁免（裁定 7）
+        if (to >= 4 && holdAt3?.has(w.l.turnStartEntryId)) continue; // 片段上限 L3（spec 2026-09-20 §2 裁定 3）
         w.level = to;
         steps.push({ turnStartEntryId: w.l.turnStartEntryId, toLevel: to });
       }
@@ -111,8 +110,8 @@ export class DegradeEngine {
     private onWarning: (m: string) => void,
   ) {}
 
-  async run(ledgers: LedgerData[], holdAt4?: Set<string>): Promise<void> {
-    const plan = planDegrade(ledgers, this.config.ledgerDegradeThresholdTokens, this.config.ledgerReserveTokens, holdAt4);
+  async run(ledgers: LedgerData[], holdAt3?: Set<string>): Promise<void> {
+    const plan = planDegrade(ledgers, this.config.ledgerDegradeThresholdTokens, this.config.ledgerReserveTokens, holdAt3);
     const byId = new Map(ledgers.map((l) => [l.turnStartEntryId, l]));
 
     for (const step of plan.steps.filter((s) => s.toLevel === 2)) {

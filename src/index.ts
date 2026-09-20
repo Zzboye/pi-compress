@@ -130,21 +130,22 @@ export default function (pi: ExtensionAPI): void {
 
   /** 降级流水：按 branch 真实顺序取窗外全量 ledgers，交 DegradeEngine（内部逐层瀑布，持久化走 onLedger）。
    *  溢出片段（key ∈ 末 turn 中间条目，ledgersInBranchOrder 查不到）push 到末尾（= branch 顺序）参与降级，
-   *  并作为 holdAt4 豁免 L5（裁定 7：L5 合并收益为零而拒绝召回是实害，片段终态 L4）。 */
+   *  并作为 holdAt3 豁免 L4/L5（spec 2026-09-20 §2 裁定 3：L4 的意图/outcome 对片段语义为空，
+   *  L5 合并收益为零而拒绝召回是实害；片段终态 L3）。 */
   const runDegrade = async (entries: MessageEntry[]): Promise<void> => {
     if (!degradeEngine) return;
     const ledgers = ledgersInBranchOrder(entries, true);
     const turns = splitIntoTurns(entries);
     const last = turns[turns.length - 1];
-    const holdAt4 = new Set<string>();
+    const holdAt3 = new Set<string>();
     if (last) {
       for (const { key, ledger } of collectFragmentEntries(last, store)) {
         ledgers.push(ledger);
-        holdAt4.add(key);
+        holdAt3.add(key);
       }
     }
     if (ledgers.length === 0) return; // 早退在片段收集之后：无 ledgers 也无片段才白跑
-    await degradeEngine.run(ledgers, holdAt4);
+    await degradeEngine.run(ledgers, holdAt3);
   };
 
   /** 摘要队列 drain 完成后触发一次降级（不阻塞事件返回，fire-and-forget） */

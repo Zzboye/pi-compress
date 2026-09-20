@@ -6,7 +6,7 @@ import path from "node:path";
 import piExtension from "../src/index.js";
 import { assembleContext } from "../src/assembler.js";
 import { compactionAwareEntries } from "../src/util.js";
-import { LEDGER_CUSTOM_TYPE, renderTurnText, type LedgerData, type LedgerLevel } from "../src/ledger.js";
+import { LEDGER_CUSTOM_TYPE, type LedgerData, type LedgerLevel } from "../src/ledger.js";
 import { LedgerStore } from "../src/store.js";
 import { NoteStore } from "../src/notes.js";
 
@@ -177,10 +177,11 @@ describe("extension entry wiring", () => {
     }
   });
 
-  it("降级瀑布接入片段：片段保持 L4 形态（L5 豁免），普通旧 turn 合并为 L5 行", async () => {
+  it("降级瀑布接入片段：片段豁免 L4→L5（holdAt3），普通旧 turn 合并为 L5 行", async () => {
     // 长任务多片段：进行中 turn（u_n）已有两个落盘片段（key 落在中间条目 a_n1/a_n2，≠ turn 起点）；
-    // 它们参与降级计量（否则溢出部分永远不降），但被 holdAt4 豁免 L5——片段 L5 合并收益为
-    // 零而拒绝召回是实害（裁定 7），终态 L4。旧 turn（o1/o2，L4）照常合并为 L5 行。
+    // 它们参与降级计量（否则溢出部分永远不降），但被 holdAt3 豁免 L4/L5——片段 L4 的意图/outcome
+    // 语义为空、L5 合并收益为零而拒绝召回是实害（spec 2026-09-20 §2 裁定 3），终态 L3（fixture
+    // 起点已是 L4，故停在 4）。旧 turn（o1/o2，L4）照常合并为 L5 行。
     const { handlers } = harness();
     const notifyCalls: string[] = [];
     const writes: any[] = [];
@@ -243,14 +244,13 @@ describe("extension entry wiring", () => {
       const l5 = writes.filter((d) => d.level === 5).map((d) => d.turnStartEntryId).sort();
       expect(l5).toEqual(["o1", "o2"]);
       expect(writes.find((d) => d.turnStartEntryId === "o1")?.merged?.description).toContain("（2 条已合并）");
-      // 片段：参与降级（frag1 被选中升 5），但被 holdAt4 豁免 → 终态 L4，无 L5 写入
+      // 片段：参与降级但被 holdAt3 豁免 → 不进 L4→L5 合并（fixture 起点已是 L4，故停在 4；
+      // 真实片段从 L1 起步，上限 L3）
       expect(writes.some((d) => (d.turnStartEntryId === "a_n1" || d.turnStartEntryId === "a_n2") && d.level === 5)).toBe(false);
       for (const f of ["lg_f1", "lg_f2"]) {
         const frag = branch.find((e) => e.id === f).data;
-        expect(frag.level).toBe(4);
-        const text = renderTurnText(frag, 3); // L4 形态：意图 + outcome 两行
-        expect(text).toContain("意图：");
-        expect(text).toContain("最终回复（摘要）：");
+        expect([3, 4]).toContain(frag.level);
+        expect(frag.merged).toBeUndefined(); // 未被合并
       }
       expect(notifyCalls.join("")).not.toContain("摘要失败");
     } finally {
