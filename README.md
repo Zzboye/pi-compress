@@ -11,7 +11,7 @@
 - **结论保新鲜**：最终回复由系统机械逐字保留在日志头部（primacy），不经摘要模型转述
 - **近期保时序**：默认最近 20k tokens 的 turn 原文保留在窗口尾部（recency）
 - **细节按需取回**：窗外的工具调用、用户原话、最终回复都落盘为动作日志，LLM 传 `↩entryId` 即可召回逐字原文——**零模型调用**；不知道该召回哪个 ID 时，recall 还支持 `query` 关键词检索（对 LedgerData 全量字段做大小写不敏感子串匹配，**不受降级层级影响**——L3 起渲染已逐步压缩（L4/L5 更甚），但检索命中的是底层逐字数据），返回命中索引后再按 ID 取回
-- **超大 turn 边答边压**：进行中 turn 的原文超过 `keepRecentTokens` 时，溢出部分（最旧的完整工具调用对）自动切成 ledger 条目提前进入摘要管线与降级瀑布（片段最多降到 L4、豁免 L5 合并；turn 结束由整 turn 摘要吸收后墓碑化收敛），不必等 turn 结束才开始压缩；溢出切分不拆散 toolCall→toolResult 对，用户消息永不切出
+- **超大 turn 边答边压**：进行中 turn 的原文超过 `keepRecentTokens` 时，溢出部分（最旧的完整工具调用对）自动切成 ledger 条目提前进入摘要管线与降级瀑布（片段降级上限 L3，L3 起渲染为机械标记行、动作 ↩ID 保留；turn 结束由整 turn 摘要吸收后墓碑化收敛），不必等 turn 结束才开始压缩；溢出切分不拆散 toolCall→toolResult 对，用户消息永不切出
 摘要模型只负责整理「思考与工具调用 → 动作摘要」，且模型生成的自由文本字段为零：思考内容直接丢弃（过程噪声），工具调用的 target/路径逐字保留，用户原话与最终回复由系统机械提取。
 
 ## 工作原理
@@ -113,7 +113,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 | `ledgerDegradeThresholdTokens` | `40000` | 5000–2000000 | 动作日志 L1 区渲染体积阈值（tokens）：超过时最旧 turns 降级为 L2（保留尾部约 `ledgerReserveTokens`），逐级瀑布 L1→L2→L3→L4→L5 |
 | `ledgerReserveTokens` | `10000` | 1000–500000 | 每层降级时尾部的保留区大小（tokens），按 turn 边界取整（硬下界：降级后该层剩余不得低于此值，单条巨条也不得击穿） |
 | `targetMaxChars` | `230` | 40–10000 | L1 动作行 target（命令/路径）的机械截断阈值：含换行（heredoc 内联脚本）或超长的命令只保留首行/首段并加 `…`，全文可按行尾 ↩ID 召回。截断发生在机械提取阶段（摘要模型看到的就是截断值），正常短命令逐字保留 |
-| `recallMaxTokensPerEntry` | `4000` | 500–1000000 | recall 单条召回预算（tokens）：单个 ID 序列化后的文本超过此值则截断并提示；不设总量限制（多 ID 各享独立预算）。recall 用专用全量序列化器，toolResult 不经 pi 的 2000 字符截断，超长工具结果在预算内可完整取回 |
+| `recallMaxTokensPerEntry` | `4000` | 500–1000000 | recall 单条召回预算（tokens，CJK 感知口径：中文约 1 tok/字）：单个 ID 序列化后的文本超过此值则按 token 截断并提示；提示给出下一次的 `offset` 值用于续取。不设总量限制（多 ID 各享独立预算）。recall 用专用全量序列化器，toolResult 不经 pi 的 2000 字符截断 |
 | `backfillLimit` | `20` | 0–100000 | `session_start` 时补摘未摘要 turn 的上限（最旧优先），0 = 关闭。会话恢复/崩溃重启后自动补齐历史缺口 |
 | `projectNotes.enabled` | `false` | bool | 项目记忆开关。开启后每轮装配把三表条目注入上下文头部（ledger 头之前）；**只关注入不关收集**——`false` 时 notes 工具与 `/compress-remember` 仍可写入，只是不注入 |
 | `projectNotes.path` | `.pi-compress/notes.json` | 路径 | notes 文件路径（相对项目 cwd 解析，绝对路径亦可），保存时同目录生成人读视图 `notes.md` |
@@ -132,6 +132,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 - **L1** 用户原文 + 动作（命令+摘要+↩ID）+ 最终回复原文
 - **L2** 丢动作中的命令，两端原文保留
 - **L3** 丢全部动作行（工具过程），用户原文与最终回复原文保留——纯机械降级，零 LLM 调用
+  - 进行中 turn 的溢出片段在 L3 渲染为机械标记行 `### T{n} · 片段（{k} 个动作） ↩id1,↩id2,…`（保留召回入口，动作行移除）；片段降级上限即 L3（L4 的意图/outcome 对片段语义为空）
 - **L4** 用户意图（↩ID）+ 最终回复摘要（↩ID）——本地模型生成（compressEnds）
 - **L5** 多 turn 合并一行 `T3-T7 · 描述（N 条已合并）`——本地模型生成（mergeDescribe）；同一批降级组描述相同聚为一行，相邻不同批次的组（描述不同）分行各显描述；**行尾无 ↩ID，细节不可召回**
 - **图片**：用户消息中的图片在 L1–L3 渲染占位行 `[图片 ×N: mime1, mime2 ↩entryId]`（不随层级降级）；L4 起不渲染占位行，图片存在感由摘要描述承载。
@@ -190,6 +191,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 
 ```
 recall({ ids: ["↩ 后的 entry ID 列表"] })   → 逐字原文（含配对 toolResult，单条截断 4k tokens）
+recall({ ids: ["↩id"], offset: 12345 })     → 单 ID 续取：从字符偏移 12345 继续（截断提示会给出该值）
 recall({ query: "forceRatio" })             → 命中索引（不返回原文）：
 
   命中 3 处：
@@ -200,11 +202,11 @@ recall({ query: "forceRatio" })             → 命中索引（不返回原文�
   需要逐字原文时，调用 recall 并传入对应 ↩ 后的 ID。
 ```
 
-- **召回按层级路由**：L1/L2 条目的 ↩ID 返回该 entry 逐字原文（toolCall 连带配对 toolResult）；L3/L4 的 ↩ID 返回**所在 turn 的整段原文**（被压缩丢弃的工具过程完整恢复）；L5 命中行附带的 ↩ID 召回会得到「已合并为终态摘要」的终态说明，不返回原文（L5 行尾虽随搜索命中展示 IDs，但渲染层不显示 ↩ID，持旧 ID 亦被拒）。整段召回同样受 `recallMaxTokensPerEntry` 预算约束。
+- **召回按层级路由**：L1/L2 条目的 ↩ID 返回该 entry 逐字原文（toolCall 连带配对 toolResult）；L3/L4 的 ↩ID 返回**所在 turn 的整段原文**（被压缩丢弃的工具过程完整恢复）；L5 命中行附带的 ↩ID 召回会得到「已合并为终态摘要」的终态说明，不返回原文（L5 行尾虽随搜索命中展示 IDs，但渲染层不显示 ↩ID，持旧 ID 亦被拒）。整段召回同样受 `recallMaxTokensPerEntry` 预算约束；超预算时截断提示给出 `offset`，可续取剩余部分（`offset` 仅单 ID 时有效）。
 
 含图 entry 的 recall 返回混合 content——原文文本 + 真图块（命中 entry 自身及配对 toolResult 中的 image 块原样带回），文本尾部附 `[含图片 ×N，已附在结果中]` 提示。
 
-`query` 与 `ids` 可同传（先搜索再取回，两段结果拼接）。搜索在 LedgerData 全量字段（用户原话/最终回复逐字全文、动作 target+detail、L5 合并描述）上做大小写不敏感子串匹配，零模型调用。
+`query` 与 `ids` 可同传（先搜索再取回，两段结果拼接）。搜索在 LedgerData 全量字段（用户原话/最终回复逐字全文、动作 target+detail、L5 合并描述）上做大小写不敏感子串匹配，零模型调用。检索范围 = 日志头实际渲染的 ledger（窗外已替换 turn + 进行中片段），因此命中行的 `T` 编号与日志头严格一致；窗口内 turn 的内容原文在场，模型无需检索其陈旧 ledger 副本。
 - **计量校准**：最近一次装配的「估算（CJK 感知）vs 真实 usage」并排对比。差值 = system prompt + 工具定义 + 模板开销 + 估算误差；长期稳定偏差即可推出校准系数，供后续自动校准参考。
 - **摘要后端** / **备用后端**：当前生效的后端配置；未配置时显示 `未配置`。
 
@@ -303,8 +305,8 @@ npm test        # vitest 单测（tests/）
 - **动作日志降级（五级分层）依赖本地模型**：L3→L4 的意图/outcome 摘要与 L4→L5 的合并描述由 `summarizer` 现场生成，降级触发瞬间可能增加一次后台模型调用；L1→L2（去命令）与 L2→L3（丢动作行）为纯规则，无模型成本。
 - **补摘仅在 session_start 触发**：历史缺口在会话恢复时补齐；会话中途关闭摘要器再开启需重启会话才会补摘。补摘受 `backfillLimit` 上限约束，超出部分（更旧的 turn）保持原文放行。
 - **RPC/print 模式未特殊处理**：插件在 `tui` 模式下完整工作；`rpc`/`json`/`print` 模式下事件仍触发，但 `ctx.ui.notify`/`setStatus` 可能无可见输出。
-- **进行中超大 turn**：原文超过 `keepRecentTokens` 后，溢出部分（最旧的完整工具调用对）自动切成 ledger 条目提前进入摘要管线与降级瀑布（片段豁免 L5 合并、最多降到 L4；turn 结束由整 turn 摘要吸收后墓碑化收敛）；低于阈值时整体保留，行为不变。溢出切分不拆散 toolCall→toolResult 对，用户消息永不切出；新切片段当轮仍原文放行（落盘后下一轮由 ledger 行接管），摘要失败的片段保持原文放行，数据无损
-- **pi 原生压缩感知**：context 装配与 dump 用 pi 的 `buildContextEntries` 裁剪（firstKeptEntryId 之前的旧历史不回归），pi 原生压缩摘要（含插件经 `session_before_compact` 提交的文本）以 user 消息恢复在最前；pre-compaction 旧历史不再可见原文，但 recall/search 仍走全量 branch，↩ID 照常可召回。
+- **进行中超大 turn**：原文超过 `keepRecentTokens` 后，溢出部分（最旧的完整工具调用对）自动切成 ledger 条目提前进入摘要管线与降级瀑布（片段降级上限 L3，L3 起渲染为机械标记行、动作 ↩ID 保留；turn 结束由整 turn 摘要吸收后墓碑化收敛）；低于阈值时整体保留，行为不变。溢出切分不拆散 toolCall→toolResult 对，用户消息永不切出；新切片段当轮仍原文放行（落盘后下一轮由 ledger 行接管），摘要失败的片段保持原文放行，数据无损
+- **pi 原生压缩感知**：context 装配与 dump 用 pi 的 `buildContextEntries` 裁剪（firstKeptEntryId 之前的旧历史不回归），pi 原生压缩摘要（含插件经 `session_before_compact` 提交的文本）以 user 消息恢复在最前；pre-compaction 旧历史不再可见原文；`query`/`search` 检索范围与日志头同源（compaction 感知，被 pi 原生压缩掉的旧 turn 不进入 T 编号空间），而 recall 按 ↩ID 路由仍走全量 branch，pre-compaction 内容照常可按 ID 召回。
 - **逐字校验依赖路径正则**：`verbatimCheck` 用 `/[\w./\\-]+\.\w{1,4}/g` 提取疑似路径，对无扩展名的命令/参数不做校验。
 - **摘要只见 toolResult 的头+尾**：超过 2000 字符的 toolResult 在摘要 prompt 中按「前 1400 + 后 500 + 中段省略标记」采样；中段内容对摘要模型不可见（recall 可取回：单条 `recallMaxTokensPerEntry`（默认 4000 token）内逐字全量，超出部分截断）。
 
