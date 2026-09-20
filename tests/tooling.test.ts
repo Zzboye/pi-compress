@@ -30,6 +30,15 @@ describe("工程配置", () => {
     expect(wf).toContain("npm test");
   });
 
+  it("CI 用 node24 runtime 的 action 版本（@v4 会触发 Node 20 弃用告警）", () => {
+    const wf = fs.readFileSync(join(root, ".github", "workflows", "ci.yml"), "utf8");
+    // actions/checkout 与 actions/setup-node 自 v5 起改用 node24；@v4 是 node20。
+    expect(wf).not.toMatch(/actions\/checkout@v[0-4]\b/);
+    expect(wf).not.toMatch(/actions\/setup-node@v[0-4]\b/);
+    expect(wf).toMatch(/actions\/checkout@v[5-9]\b/);
+    expect(wf).toMatch(/actions\/setup-node@v[5-9]\b/);
+  });
+
   it("重复/一次性脚本已清理", () => {
     for (const p of ["scripts/_turnsize.mjs", "scripts/_asmstats.mjs", "scripts-dump-context.mjs"]) {
       expect(fs.existsSync(join(root, p)), `${p} 应已删除`).toBe(false);
