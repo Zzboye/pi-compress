@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nextId": 6,
+  "nextId": 7,
   "prefs": [],
   "feedback": [],
   "tasks": [
@@ -28,11 +28,11 @@
     {
       "id": "task-003",
       "table": "tasks",
-      "text": "进行中超大 turn 溢出摘要实现完成（feat/inflight-turn-degrade，11 commits 至 21d102c），301 passed，final review clean，待用户选合并方式",
-      "detail": "SDD 8 任务全部完成 + 终审 2 Important 修复。关键裁定：①spec 优先于 brief 测试（Task 3 brief 断言与 spec 矛盾，翻转——新切片段本轮必须原文放行）；②collectFragmentKeys/Entries 落 store.ts（非计划的 index.ts）；③rebuild 对 absorbed 从「跳过」改「删除同名条目」（append-only 文件墓碑压制）；④终审 I-1：墓碑守卫改为 turnEndEntryId !== last.endEntryId 防陈旧整 turn ledger 穿透；⑤终审 I-2：searchLedger 与 session_before_compact 补 collectFragmentEntries。遗留 deferred minors 见 ledger（已随工作区删除，要点：豁免片段计入 reserve 计量保守方向、README:307 措辞、偶发时序敏感测试、意图（未知）占位）。分支未合并 main。",
-      "status": "进行中",
+      "text": "图片透传观察（等真实含图 turn）+ 四项锦上添花（cache 量化 / status 钳制透明化 / LLM-judge / 图片常量）；全局记忆已移交新项目，不在 pi-compress 实现",
+      "detail": "用户裁定（2026-09-17）：全局记忆不在 pi-compress 实现，新开独立项目做含全局记忆的插件。连带调整：(1) task-003 中全局记忆与 global 正则瑕疵移出 pi-compress 范围；(2) pi-compress 的 /compress-remember global 预留分支去留待定（可删除或保持预留）；(3) pi-compress 收敛为「项目记忆 + 上下文压缩」单一职责，积压只剩小项。新项目可参考的讨论资产：T17 需求原文（原因分析文件、原因可 recall）、T18 提炼时机四选项（推荐 D：session_start 增量 + 手动命令兜底）、双插件注入位置冲突风险。",
+      "status": "已完成",
       "date": "2026-09-15",
-      "updatedAt": "2026-09-19T16:26:16.740Z",
+      "updatedAt": "2026-09-20T09:14:51.250Z",
       "source": "T55/T69 遗留清单",
       "locked": false
     },
@@ -57,11 +57,21 @@
       "updatedAt": "2026-09-19T09:00:49.059Z",
       "source": "final review 报告（session 01a0ab54）+ cbee882 修复记录，2026-09-16 会话整理",
       "locked": false
+    },
+    {
+      "id": "task-006",
+      "table": "tasks",
+      "text": "新开独立项目做含全局记忆的插件（全局记忆从 pi-compress 移出）",
+      "status": "规划中",
+      "date": "2026-09-20",
+      "updatedAt": "2026-09-20T09:15:02.999Z",
+      "source": "会话讨论 T121",
+      "locked": false
     }
   ],
   "seq": {
     "prefs": 0,
     "feedback": 0,
-    "tasks": 5
+    "tasks": 6
   }
 }
