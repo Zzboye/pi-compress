@@ -1555,8 +1555,6 @@ describe("extension entry wiring", () => {
       userMessage: { text: "precompact", entryId: "u1" },
       summary: { entries: [{ action: "exec", target: "precompact", detail: "precompact 旧步骤", recallIds: ["a1"], phase: "verify" }] },
     }) });
-    // pi 原生 compaction：firstKeptEntryId=u2 → u1/a1 由摘要代表，不再进上下文
-    push({ id: "c1", type: "compaction", summary: "旧历史摘要", firstKeptEntryId: "u2", tokensBefore: 5000 });
     // 保留 turn（u2/a2）：有 ledger 且在窗外 → 日志头唯一一节 T1
     push({ id: "u2", type: "message", message: { role: "user", content: [{ type: "text", text: "alphaone 提问" }] } });
     push({ id: "a2", type: "message", message: { role: "assistant", content: [{ type: "text", text: "alphaone 回答" }] } });
@@ -1565,6 +1563,9 @@ describe("extension entry wiring", () => {
       userMessage: { text: "alphaone", entryId: "u2" },
       summary: { entries: [{ action: "exec", target: "alphaone", detail: "alphaone 步骤", recallIds: ["a2"], phase: "verify" }] },
     }) });
+    // pi 原生 compaction（真实布局：firstKeptEntryId 指向 compaction **之前**的保留条目，
+    // buildContextEntries 只在 path[0..compactionIdx) 内查找它）→ u1/a1 由摘要代表，不再进上下文
+    push({ id: "c1", type: "compaction", summary: "旧历史摘要", firstKeptEntryId: "u2", tokensBefore: 5000 });
     // 末 turn（u3/a3）：~1200 tok 必超 keepRecentTokens=1000 → 窗口内，无 ledger（不进日志头）
     push({ id: "u3", type: "message", message: { role: "user", content: [{ type: "text", text: "alphatwo 提问" }] } });
     push({ id: "a3", type: "message", message: { role: "assistant", content: [{ type: "text", text: CJK(1200) }] } });
