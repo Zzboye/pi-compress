@@ -103,7 +103,7 @@ export function renderTurnText(l: LedgerData, n: number): string {
   if (l.isFragment) {
     // 片段：无用户消息、无最终回复，内容就是工具过程（spec 2026-09-20 §4.2）
     if (lvl === 3) {
-      // L3 删除「工具过程」整类信息 → 只留机械标记行，保留「这里有一段工作」与全部 ↩ID
+      // L3 删除「工具过程」整类信息 → 只留机械标记行，保留「这里有一段工作」与 ↩ID（去重后前 20 个，超出以计数提示）
       const ids = [...new Set(l.summary.entries.flatMap((e) => e.recallIds))];
       if (l.summary.entries.length === 0) {
         lines.push(`### T${n} · 片段（无动作记录）`);
