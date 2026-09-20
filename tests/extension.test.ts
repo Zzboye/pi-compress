@@ -634,7 +634,7 @@ describe("extension entry wiring", () => {
     }
   });
 
-  it("未启用时 notes 工具返回提示；/compress-remember 直写 prefs locked 条目；global 提示未实现；空参数提示用法", async () => {
+  it("未启用时 notes 工具返回提示；/compress-remember 直写 prefs locked 条目；空参数提示用法", async () => {
     // ① 未启用（session_start 未触发 → notesStore=null）→ 工具返回「未启用」且不抛异常
     const h1 = harness();
     const r = await h1.tools.notes.execute("tc", { action: "append", table: "prefs", text: "X" }, undefined, undefined, {
@@ -666,11 +666,7 @@ describe("extension entry wiring", () => {
       const j = JSON.parse(fs.readFileSync(notesPath, "utf8"));
       expect(j.prefs).toHaveLength(1);
       expect(j.prefs[0].locked).toBe(true);
-      // ③ 末尾带 global → 全局记忆未实现
-      await commands["compress-remember"].handler("记录A global", fakeCtx);
-      expect(notifyCalls.at(-1)).toContain("未实现");
-      expect(JSON.parse(fs.readFileSync(notesPath, "utf8")).prefs).toHaveLength(1); // 未写入
-      // ④ 无参数 → 用法提示
+      // ③ 无参数 → 用法提示
       await commands["compress-remember"].handler("", fakeCtx);
       expect(notifyCalls.at(-1)).toContain("用法");
     } finally {

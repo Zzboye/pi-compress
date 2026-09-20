@@ -242,7 +242,6 @@ notes({ action: "delete", id: "fb-001" })
 
 ```
 /compress-remember <内容>          把一条用户偏好写入 prefs（locked=true，跨会话注入且 LLM 不可改删）
-/compress-remember <内容> global   全局记忆预留语法，当前提示「未实现」
 ```
 
 ### recall 双源

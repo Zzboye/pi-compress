@@ -433,10 +433,6 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify("用法：/compress-remember <内容> —— 将一条用户偏好写入项目记忆（跨会话生效，LLM 不可修改）", "warning");
         return;
       }
-      if (/\s+global\s*$/i.test(raw)) {
-        ctx.ui.notify("全局记忆未实现：/compress-remember 目前仅支持当前项目记忆", "warning");
-        return;
-      }
       if (!notesStore) {
         ctx.ui.notify("项目记忆未启用（contextCompress.projectNotes.path 未配置）", "warning");
         return;

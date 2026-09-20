@@ -13,7 +13,7 @@
 
 ### 非目标（本期不做）
 
-- 全局（跨项目）记忆、原因分析文件、跨会话提炼（`/compress-remember global` 预留参数，报「未实现」）
+- 全局（跨项目）记忆、原因分析文件、跨会话提炼（已裁定移出 pi-compress 范围，另立独立项目；原 `/compress-remember global` 预留分支已删除）
 - 后台自动沉淀（笔记判断步骤）——已评审否决，见 §3 决策记录
 - 记忆条目的语义检索（notes 条目少，全量注入即可）
 - notes.md → notes.json 反向同步（手改 md 不生效，文件头注明）
@@ -124,11 +124,10 @@ recall({ ids: ["↩t42-u"] })   → 未命中 notes → 现有 branch 查找路�
 ## 6. 用户命令
 
 ```
-/compress-remember <内容> [global]
+/compress-remember <内容>
 ```
 
-- 本期仅 project：内容直接 append 进对应表（不经模型，用户写什么记什么），写入条目 `locked=true`
-- 表归属：命令不指定时默认 prefs；带 `global` 参数 → 回复「全局记忆未实现」（预留）
+- 内容直接 append 进 prefs 表（不经模型，用户写什么记什么），写入条目 `locked=true`
 - 与 notes 工具共用写队列
 
 ## 7. 配置
@@ -158,7 +157,7 @@ recall({ ids: ["↩t42-u"] })   → 未命中 notes → 现有 branch 查找路�
 - **notes 工具**：append 分配单调 ID（删后不复用）、update 状态翻转、delete、locked 拒改、校验失败错误文本、写队列串行
 - **渲染**：三表顺序、条件装配（空/关/全空）、maxTokens 截断顺序与尾注、schema 兼容（旧文件缺字段容错）
 - **recall 双源**：notes 命中/branch 兜底/missing 文案分叉/宽松 ID 解析
-- **命令**：直写 locked 条目、global 提示
+- **命令**：直写 locked 条目
 - **e2e**：会话 A 写记忆 → 会话 B 注入 + 召回 detail（跨会话核心场景）
 
 ## 10. 已知限制
