@@ -93,11 +93,11 @@
     {
       "id": "task-009",
       "table": "tasks",
-      "text": "L5 固定步长分组（A2+分片）与「按任务聚合」双双挂起；L4 摘要 prompt 已改 V6（20850b0）",
-      "detail": "【已实施】L4 摘要 prompt 重写为 V6（条目化 + 保留标识，废除 ≤20/≤30 字数硬上限）——commit 20850b0（分支 feat/l4-summary-prompt-v6，基于 main）。spec: docs/superpowers/specs/2026-09-26-l4-summary-prompt-design.md，证据附件 docs/evidence/*.txt。8 变体探针结论：V6 压缩率 22.2% / 标识保留率 52%，是最优档；V0(旧) 1.3%/0%；V4 9-16%/13-21%；V9/V10(加取舍指令) ~10%/24-26%——修正版更差，因为「删掉解释」会连带删掉 file:line/commit。影响：L4 单 turn 44.6→约 150-160 tok，40k 阈值触发点 900→约 260 turn。\n\n【挂起】task-009 的两个方案都未实施：\n(a) 按任务聚合（startsNewTask 标记）——探针否证：153 turn 真实会话上边界 Jaccard 仅 0.41-0.58（不可复现），P=0.50/R=0.44，假阴性主导。spec 在 feat/l5-task-aggregation 分支（e43086f，未合并）。\n(b) L5 固定步长分组（步长 2、按组累加至击穿 reserve、A2 批量 mergeDescribe + 分片 50 组）——探针已做：A2 质量≈A1 且风格更凝练，但批量上限约 80-100 组（100 组会空返回，需分片+重试回退）；现状 L5 跨度可达 1436 条（用户判断「跨度太大」成立，718 组 / 11.5-23k tok）。\n\n【待办】L5 可召回（任务级 L3 视图 + 锚点 ID）不依赖上两项，可独立实施。\n【注意】实施 L5 改动时需按 V6 之后的新 L4 体积（150-160 tok/turn）重新核算阈值。",
+      "text": "L4 prompt 已改 V6 并合并 main；L5 spec 迁入 main 标否证，分支已删",
+      "detail": "【已实施】L4 摘要 prompt 重写为 V6（条目化 + 保留标识，废除 ≤20/≤30 字数硬上限）——commit 20850b0 + 记忆同步 b4f249f（已 ff 合并 main）。spec: docs/superpowers/specs/2026-09-26-l4-summary-prompt-design.md，证据附件 docs/evidence/*.txt（2 份，59KB）。8 变体探针结论：V6 压缩率 22.2% / 标识保留率 52%，是最优档；V0(旧) 1.3%/0%；V4 9-16%/13-21%；V9/V10(加取舍指令) ~10%/24-26%。影响：L4 单 turn 44.6→约 150-160 tok，40k 阈值触发点 900→约 260 turn。\n\n【已删除分支】feat/l5-task-aggregation（原 commit e43086f）已删除；其 spec（266 行）**已迁入 main**（commit 1e0c2a9）→ docs/superpowers/specs/2026-09-21-l5-task-aggregation-design.md，文件头加了「状态：部分否证（2026-09-26）」标注说明哪些裁定被否证、哪些仍有效。迁入原因：裁定 6（L5 可召回）不依赖被否证的标记，删分支会丢掉 266 行设计。\n\n【挂起】两个 L5 方案：\n(a) 按任务聚合（startsNewTask）——已被探针否证：153 turn 上边界 Jaccard 仅 0.41-0.58（不可复现），P=0.50/R=0.44 假阴性主导。\n(b) L5 固定步长分组（步长 2、按组累加至击穿 reserve、A2 批量 mergeDescribe + 分片 50 组）——探针已做：A2 质量≈A1 且风格更凝练，但批量上限约 80-100 组（100 组会空返回，需分片+重试回退）；现状 L5 跨度可达 1436 条（用户判断「跨度太大」成立，718 组 / 11.5-23k tok）。\n\n【待办】L5 可召回（裁定 6 部分）不依赖上两项，可独立实施；但「任务级」粒度在标记不可靠时需重新定义（可能退化为「批次级」）。实施 L5 改动时需按 V6 之后的新 L4 体积（150-160 tok/turn）重新核算阈值。\n\n【状态】main = 1e0c2a9，未推送（本地领先 origin 3 个 commit，网络 connection reset）。338 passed / 1 skipped，tsc 干净。",
       "status": "待办",
       "date": "2026-09-26",
-      "updatedAt": "2026-09-27T03:28:42.627Z",
+      "updatedAt": "2026-09-27T03:40:38.130Z",
       "source": "会话讨论 T145-T153 + 2026-09-21 探针（L5 分组/调用方式）",
       "locked": false
     }
