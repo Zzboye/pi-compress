@@ -1,0 +1,597 @@
+L5 mergeDescribe 探针：A（现状 ≤25字）vs B（不限字数+保留标识）
+语料：本项目 2026-09-12 会话的 148 条真实 L4（含旧 prompt 与新 V6 prompt 两批产物）
+模型：deepseek-v4-flash，temperature=0，步长 2 → 74 组
+══════════════════════════════════════════════════════════════════════
+
+--- 组 1 ---
+  [L4 7923b7b1] 意图：对比pi-compress与成熟上下文管理工具的差距
+     结果：从功能与质量两方面列出七大差距，并给出按优先级排序的改进建议。
+  [L4 36e90b79] 意图：了解recall关键词检索模式的用法与作用
+     结果：确认该模式通过子串匹配全量数据定位ID，解决降级后检索死区，零新依赖可实施
+  [A 20字] 分析pi-compress功能与检索模式
+  [B 63字] 围绕 pi-compress 的改进，梳理其与成熟工具的七大差距及优先级建议，并确认 recall 关键词检索模式的定位与作用
+
+--- 组 2 ---
+  [L4 a3240b85] 意图：确认消息ID的唯一性规则
+     结果：确认每条消息ID唯一且跨层级不变，L4聚合ID为并集，搜索可直接复用ID实现recall。
+  [L4 17b6b682] 意图：确认是否保留recall搜索功能
+     结果：保留，与ID唯一性互补，缺一不可
+  [A 22字] 确认消息ID唯一性与保留recall搜索功能
+  [B 51字] 确认消息ID唯一性规则（跨层级不变、L4聚合ID为并集）与保留recall搜索功能，二者互补、缺一不可
+
+--- 组 3 ---
+  [L4 1e41b6f5] 意图：确认开始设计方案
+     结果：提交了3任务TDD方案，待选执行方式
+  [L4 371bba5d] 意图：确认任务1执行状态
+     结果：任务1实现者已派出，执行中，待通知后审查
+  [A 14字] 确认方案并跟进任务1执行状态
+  [B 30字] T5提交3任务TDD方案，T6确认任务1已派出并执行中待审查
+
+--- 组 4 ---
+  [L4 71e06009] 意图：告知重启完成，推进环境变量生效
+     结果：要求重启会话，确保环境变量生效后继续验证
+  [L4 1590a899] 意图：重启后定位pi-web启动失败原因
+     结果：确认包解析链路失败，需在~/.pi/agent/npm下建junction修复
+  [A 18字] 重启后环境变量生效与启动失败原因排查
+  [B 69字] 处理重启后环境变量生效及 pi-web 启动失败问题，定位到包解析链路需在 ~/.pi/agent/npm 下创建 junction 修复
+
+--- 组 5 ---
+  [L4 725520f9] 意图：更换代理插件后要求重派任务
+     结果：Task1完成通过，待用户裁定Task2是否提交CJK工作线
+  [L4 78738bd0] 意图：确认并完成计划全部任务
+     结果：3个recall查询任务全部完成，测试通过183/1跳过，工作区干净
+  [A 17字] 完成计划任务，测试通过，工作区干净
+  [B 49字] 完成全部 recall 查询任务（Task1/Task2），测试通过 183/1 跳过，工作区干净
+
+--- 组 6 ---
+  [L4 ce55eb4a] 意图：询问提PR的操作步骤
+     结果：确认测试通过且分支可推送，但fetch失败需代理，待选择后续动作
+  [L4 e926d67a] 意图：确认代理启动
+     结果：PR已创建，含commit、代理设置及三块工作描述，等待反馈
+  [A 15字] 询问提PR步骤并完成创建与说明
+  [B 32字] 完成PR创建，包含commit、代理设置及三块工作描述，等待反馈
+
+--- 组 7 ---
+  [L4 ad986481] 意图：询问 PR 的含义
+     结果：解释 PR 为拉取请求，是代码协作机制，用于审查和讨论，非合并本身
+  [L4 63a2f60f] 意图：确认PR是否已合并
+     结果：未合并，PR待审查无冲突，需用户网页操作，可选三种合并方式
+  [A 12字] 解释PR含义并确认未合并
+  [B 25字] 解释PR含义并确认其未合并，需网页操作选择合并方式
+
+--- 组 8 ---
+  [L4 79472dfa] 意图：询问创建新分支的合适时机
+     结果：总结分支应随主题而非时间开启，并给出具体触发场景及经验法则
+  [L4 ca307253] 意图：创建新分支，探讨跨会话笔记设计
+     结果：分支已建，提出三方案待定，推荐B方案
+  [A 13字] 讨论分支创建时机并实际创建
+  [B 35字] 讨论创建分支的合适时机，并新建分支探讨跨会话笔记设计方案（推荐B方案）
+
+--- 组 9 ---
+  [L4 ec673360] 意图：确认跨会话记忆功能需求
+     结果：确认了功能结构，并就用户主动命令形式提出分支方案待选
+  [L4 22a2f904] 意图：确认项目记忆由本地模型管理
+     结果：同意摘要后追加笔记判断，并推荐全局记忆跨会话整理方案D
+  [A 13字] 确认记忆功能需求与管理方案
+  [B 28字] 确认跨会话记忆需求，采用本地模型管理并推荐全局整理方案D
+
+--- 组 10 ---
+  [L4 aeb7dbeb] 意图：讨论项目记忆的内容与管理
+     结果：建议记事实/偏好/决策/进度四类，不记计划表，采用全文重写式更新并设快照护栏
+  [L4 ba9a7afd] 意图：询问主流工具记忆设计
+     结果：梳理出收窄记什么、进度重写、防膨胀及混合更新策略
+  [A 17字] 讨论项目记忆内容管理及主流工具设计
+  [B 47字] 项目记忆管理设计：四类记忆（事实/偏好/决策/进度）与全文重写、快照护栏及主流工具混合更新策略
+
+--- 组 11 ---
+  [L4 9a53226c] 意图：用三张表替换原四类记忆结构
+     结果：确认三表结构，推荐先全量注入后截断降级
+  [L4 8140264b] 意图：确认压缩与注入规格
+     结果：锁定注入规则与维护链路，待用户确认后写spec
+  [A 18字] 确定三表结构、压缩注入规则与维护链路
+  [B 28字] 确定用三张表替换原四类记忆结构，并锁定注入规则与维护链路
+
+--- 组 12 ---
+  [L4 369461b5] 意图：评估项目记忆方案
+     结果：指出recallId跨会话失效等三缺陷并给出修正建议，推荐混合方案a
+  [L4 3321f8de] 意图：询问recall的召回路径
+     结果：解释路径并分析缺陷一，提出三种修法并建议分步实施
+  [A 19字] 评估记忆方案并探讨recall缺陷修复
+  [B 57字] 围绕recall记忆方案评估其召回路径与recallId跨会话失效等缺陷，提出修正建议与三种修法，推荐混合方案a。
+
+--- 组 13 ---
+  [L4 fcab5185] 意图：询问notes保存的数据内容
+     结果：给出notes完整数据模型，含字段清单与存储双轨方案，留待确认
+  [L4 87369bff] 意图：询问三张表是否为独立文件
+     结果：建议单文件分节存三表，双轨方案待确认
+  [A 16字] 讨论notes数据模型与存储方案
+  [B 30字] notes数据存储方案：三表以单文件分节存储，双轨方案待确认
+
+--- 组 14 ---
+  [L4 baefc822] 意图：了解项目记忆上下文的装配方式
+     结果：说明了条件装配、预算截断及cache影响，设计完整待确认
+  [L4 1665fbf7] 意图：确认修正召回对象为notes详情
+     结果：确认召回notes详情并简化设计，待定双轨存储方案
+  [A 11字] 确认记忆装配与召回对象
+  [B 28字] 确定记忆上下文装配方式并确认召回notes详情的简化设计
+
+--- 组 15 ---
+  [L4 bf38f905] 意图：确认视图内容，设置maxTokens参数
+     结果：阐明视图为完整详情版，maxTokens可配置，设计闭环待写spec
+  [L4 633f3e49] 意图：确认maxTokens语义并修正视图格式
+     结果：确认maxTokens默认不限，视图改行尾↩id且不内嵌detail
+  [A 20字] 确认maxTokens语义并调整视图格式
+  [B 45字] 确认并修正视图语义：maxTokens默认不限，视图格式改为行尾↩id且不内嵌detail
+
+--- 组 16 ---
+  [L4 277848db] 意图：确认召回ID格式并统一标记
+     结果：确认fb-001为notes条目ID，统一召回标记为↩fb-001
+  [L4 5e4fd68f] 意图：确认用户偏好排序优先级
+     结果：确定注入顺序为偏好→经验→任务，设计闭环无遗留
+  [A 16字] 确认召回ID格式与偏好排序优先级
+  [B 36字] 确认召回ID格式（↩fb-001）与用户偏好注入排序（偏好→经验→任务）
+
+--- 组 17 ---
+  [L4 2121c49b] 意图：审查当前方案设计
+     结果：确认方案主体可行，并明确串行调用与输入采样等关键设计
+  [L4 bebf6579] 意图：讨论将项目记忆交给执行LLM管理
+     结果：确定采用LLM主动工具调用方案，本地模型退回摘要角色，待定update权限范围。
+  [A 17字] 确认方案设计并确定记忆交LLM管理
+  [B 66字] 审查方案设计并确定执行LLM以主动工具调用管理项目记忆，本地模型退回摘要角色，串行调用与输入采样为关键设计，update权限范围待定
+
+--- 组 18 ---
+  [L4 49ce974d] 意图：确认spec写入完成
+     结果：Spec已提交，结构完整，待用户审阅后进入写计划阶段。
+  [L4 15f6ec4e] 意图：确认继续并选择执行方式
+     结果：提交6任务TDD计划，提供两种执行方式待选
+  [A 20字] 确认spec及TDD计划，待用户审阅选择
+  [B 38字] 确认 spec 已完成并提交含 6 任务的 TDD 计划，待用户选择执行方式
+
+--- 组 19 ---
+  [L4 dd4ce53c] 意图：确认起始状态
+     结果：确认main分支为863cf01，工作区干净，测试基线212通过。
+  [L4 36407485] 意图：清理小 PR 遗留问题
+     结果：三项修复完成，测试通过，代码已推送 main
+  [A 14字] 确认基线并完成小PR修复推送
+  [B 33字] 在main分支863cf01上完成三项修复并通过212项测试后推送
+
+--- 组 20 ---
+  [L4 bd426172] 意图：询问当前所在分支
+     结果：确认在main分支，仅剩此分支且工作区干净
+  [L4 ea53c656] 意图：确认ledger规则放置位置是否需调整
+     结果：建议开头结尾都放，低成本双保险提升召回提示可靠性
+  [A 19字] 确认分支状态与ledger规则放置位置
+  [B 45字] 确认仓库状态（main分支，工作区干净）及 ledger 规则放置位置（建议开头结尾双放）
+
+--- 组 21 ---
+  [L4 224c4189] 意图：确认修改并推进交付
+     结果：已完成文案改动并本地提交，推送受阻待网络恢复
+  [L4 eb274b9e] 意图：了解两件待办事项的作用
+     结果：两件待办均为收尾工作：补测试防回归，记竞态入文档防误判，不改行为。
+  [A 15字] 确认交付进展并说明收尾待办事项
+  [B 49字] 交付前收尾：完成文案改动并本地提交（推送待网络恢复），以及补测试防回归、记录竞态防误判，不改行为。
+
+--- 组 22 ---
+  [L4 3c42fb07] 意图：确认执行待办事项
+     结果：完成防御测试与竞态记录，等待推送
+  [L4 eb3a26f5] 意图：定位L2压缩未保留L1问题
+     结果：确认是degrade.ts边界条件bug，建议先检查后选中修复
+  [A 11字] 完成待办并定位压缩问题
+  [B 41字] 排查防御测试与竞态问题，定位L2压缩未保留L1为degrade.ts边界条件bug
+
+--- 组 23 ---
+  [L4 fa342faf] 意图：修复runDegrade排序bug
+     结果：确认根因为ID字典序当时间序，提出修法待确认
+  [L4 88421519] 意图：确认修复方案
+     结果：修复完成，修复两个bug并推送，222测试通过
+  [A 22字] 修复runDegrade排序bug并验证通过
+  [B 55字] 修复 runDegrade 排序 bug（ID 字典序误当时间序）及关联问题，修复完成并推送，222 测试通过
+
+--- 组 24 ---
+  [L4 56bf05b7] 意图：查询降级阈值参数作用
+     结果：解释其作为日志头降级瀑布触发线，控上下文上限
+  [L4 42a0a2a6] 意图：询问5000下限钳制的作用
+     结果：防止阈值过小导致降级失控、死局和缓存击穿，静默钳制策略
+  [A 15字] 探讨降级阈值参数及下限钳制作用
+  [B 20字] 查询降级阈值参数及5000下限钳制的作用
+
+--- 组 25 ---
+  [L4 7d221a1d] 意图：澄清压缩后工具结果残留L1的疑问
+     结果：说明L1不含工具原文，残留来自窗口/passthrough/回复正文
+  [L4 58ca2934] 意图：查明T46上下文渲染问题
+     结果：确认是toolCall命令参数渲染，建议截断target修复
+  [A 16字] 排查工具结果残留与上下文渲染问题
+  [B 43字] 排查工具结果残留（L1）与toolCall渲染问题（T46），建议截断target修复
+
+--- 组 26 ---
+  [L4 7e4bb1ef] 意图：反馈T46工具顺序与实际不符
+     结果：确认存在5处逆序，提出修复方案，待用户选择归位粒度
+  [L4 abdccc0b] 意图：讨论截断标记与phase分组的去留
+     结果：采纳单省略号截断及扁平时间序，保留phase为标签
+  [A 14字] 讨论输出展示的格式与顺序调整
+  [B 21字] 修正工具顺序并调整截断标记与时间序展示规则
+
+--- 组 27 ---
+  [L4 f6eba52a] 意图：确认执行推送操作
+     结果：完成推送并交付三项改动，验证通过
+  [L4 9a84bb68] 意图：补齐README所有可配置参数
+     结果：修复表格断裂并补齐全部配置项，提交3bd00a1
+  [A 17字] 推送改动并补齐README配置参数
+  [B 28字] 完成推送并补齐README配置项（含提交3bd00a1）
+
+--- 组 28 ---
+  [L4 6833e2af] 意图：查询未完成任务清单
+     结果：列出待办事项，全局记忆为最大未开工项
+  [L4 726eed8b] 意图：制定图片降级策略
+     结果：确认现状为三个缺口，需决策recall是否返图
+  [A 15字] 梳理任务清单并制定图片降级策略
+  [B 27字] 项目待办梳理及图片降级策略规划（recall返图决策）
+
+--- 组 29 ---
+  [L4 0de071b2] 意图：询问ledger图片占位符是否降级
+     结果：推荐A，全层级保留图片占位符
+  [L4 f8b919a9] 意图：确定占位符中图片recall ID的方案
+     结果：推荐复用现有entry ID，零映射层，recall时附带全部图片
+  [A 16字] 确定账本图片占位符与召回标识方案
+  [B 51字] 确定ledger图片占位符方案：全层级保留占位符，recall时复用现有entry ID并附带全部图片
+
+--- 组 30 ---
+  [L4 652e19d8] 意图：确认图片降级策略设计
+     结果：完成图片turn降级策略设计，含数据模型、渲染、摘要、召回方案，待确认后实施
+  [L4 50cc5ab4] 意图：确认进入下一步
+     结果：Spec已提交，内容按五项裁定落定，待确认后进入计划阶段
+  [A 17字] 确认图片降级策略设计，等待确认推进
+  [B 29字] 完成图片降级策略设计并提交 Spec，待确认后进入计划阶段
+
+--- 组 31 ---
+  [L4 4f9c34da] 意图：确认计划并提出执行方式
+     结果：计划已提交，提供子代理或内联两种执行方式供选择
+  [L4 eb6dab17] 意图：创建分支并执行图片降级策略任务
+     结果：图片降级策略完成，已合并推送，243测试通过，7条Minor遗留
+  [A 15字] 确认计划并执行图片降级策略任务
+  [B 34字] 完成图片降级策略任务，已合并推送，243测试通过，遗留7条Minor
+
+--- 组 32 ---
+  [L4 4bba4661] 意图：询问LLM如何得知项目记忆机制
+     结果：解释是工具description而非系统提示词，并说明设计原理
+  [L4 0c32536b] 意图：讨论工具描述是否过于粗糙并请求改进建议
+     结果：判定为 Needs Fix：描述是规则而非操作指南，缺三表填法定义、示例、整体图景；建议紧凑版改法（每表可判定分界句、字段职责一句话、内联示例），约200字/130 tokens，比现多40 tokens；可选分流到 NOTES_HEADER 的混合方案被否；待办：确认是否按紧凑版修改
+  [A 17字] 讨论记忆机制工具描述问题与改进建议
+  [B 46字] 围绕项目记忆工具描述改进，确定按紧凑版（约200字/130 tokens）重写以明确操作指南
+
+--- 组 33 ---
+  [L4 d5968007] 意图：修复任务记录门槛文案盲区与空记忆提示缺失问题
+     结果：判定：Needs Fix；核心问题：文案将“任务开始”与“状态变化”混为一谈，导致首条任务记录被劝退；空记忆时renderNotes返回null，无外部提醒。修法：description改为生命周期写法，显式将“新任务开始”置为触发列表第一位；可选增加renderNotes空态提示行，代价约30 tokens/轮。待办：description重写+renderNotes空态分支+各自测试；风险：空记忆提示增加固定token消耗。
+  [L4 d2768ced] 意图：确认并接受改动方案
+     结果：已推送 commit 53d9251（main）；notes 工具 description 重写为三段式操作指南（三表分工/何时写/怎么填）并修复任务触发盲区；空记忆注入引导在 renderNotes 全空时返回提示行（约30 tokens）；新增空态测试（3断言），renderNotes 17/17，全量 243 passed / 1 skipped，tsc 干净；注入与 recall 链路零改动；description 每轮多约40 tokens；遗留风险：空态提示固定开销在空记忆期持续在场。
+  [A 18字] 修复任务记录文案盲区并增加空记忆提示
+  [B 96字] 修复任务记录门槛文案盲区与空记忆提示缺失：重写 notes 工具描述为三段式操作指南，新增 renderNotes 空态提示行及测试（commit 53d9251，全量 243 passed）
+
+--- 组 34 ---
+  [L4 be0680bc] 意图：询问为何dump上下文不含系统提示词
+     结果：核心结论：dump设计上不包含系统提示词且拿不到；系统提示词是pi每次请求时动态拼装（pi核心+扩展+工具定义），从不持久化，所以branch（src/index.ts:213）无此文本；插件无请求时钩子，dump只能获得插件装配的消息列表（ledger头+notes+窗口原文），pi核心system prompt构造对插件是黑盒；dump口径是消息层而非请求层，含ledger头/notes/窗口原文/passthrough，缺system prompt和工具定义（如notes description、recall schema约2k tokens）；dump头部token统计偏小，差值约等于system+tools（README已注明）；待办/建议：查看完整请求可用LM Studio服务端日志，或dump估算与真实prompt tokens相减得system+tools体积；限制：逐字复现system prompt做不到（pi核心地盘），理论可加“已知固定开销”说明段但未实现。
+  [L4 7eec1da8] 意图：询问工具描述与agents.md相比哪个模型注意力更高
+     结果：无权威定量结论，核心判定为“两种描述在不同决策时刻被激活”，非谁更高；AGENTS.md在对话顶端有首位效应且每轮在场，但随对话变长被稀释；工具description离决策点最近，若模型不调用工具则基本不看；行为差异：调用决策受description影响，全局风格受系统提示词影响，冲突时系统提示词通常胜出；实操结论：工具行为规则放description（已做，约200 tokens），AGENTS.md只放全局约定并保持精悍；限制条件：两边均受长度稀释，重复规则双份付费不双份生效；待办/风险：避免两边内容冲突。
+  [A 19字] 分析系统提示词与工具描述的作用与可见性
+  [B 70字] 分析系统提示词不可见性（dump不含，src/index.ts:213）及工具描述与AGENTS.md的注意力差异（约200 tokens）
+
+--- 组 35 ---
+  [L4 b62e56d1] 意图：了解项目剩余未完成任务
+     结果：工作区干净、本地与远程同步（main=`53d9251`），无半完成事项；观察类：pi工具图片透传验证（spec §3.4风险闸门）需等真实含图turn确认，若不透传则删index.ts中imageBlocks展开回退纯文本；遗留Minor（不阻塞）：同图双召回去重（recall.ts ~5行+1测试）、截断+图提示共存用例（1测试）、index.ts `imageBlocks: any[]`→`ImageContent[]`（1行）、imageToTextMarkers mimeType降级分支无测试（1测试）；未开工正餐：全局记忆三个设计点未定（原因文件、提炼时机、`/compress-remember global`分支为预留且有global正则误匹配边界小瑕疵）；非承诺项：notes注入块击穿prompt cache前缀（未量化）、`/compress-status`显示配置值→生效值不一致、bench加LLM-judge评测、README“~1200 tok/张”提为导出常量；建议#1等真实场景，#2攒小清理PR，#3需先讨论三个设计点。
+  [L4 e7d6ebb9] 意图：执行第2项任务
+     结果：核心结论：Needs Fix 已解决，全部完成并推送（commit `8ec010c`，main）。四处 Minor 全部清掉：1. 同图双召回去重——`executeRecall` 按 `mimeType+data` 去重（每 entry 内 `seen` Set）；2. 截断+图提示共存——用例：9000 字+图+maxTokens=1000，断言提示在截断标记之后；3. 类型收紧——`imageBlocks: any[]` → `RecallImage["block"][]`；4. mimeType 回退守卫——收集路缺 mimeType 回退 `image/png`，摘要标记路回退 `[图片: unknown]`。验证：243→246 passed（+3 用例），tsc 干净，全量无回归。去重是行为变更（此前双路径返回重复图、重复计 token），语义与 spec「全量带回」裁定不冲突。待办/风险：图片透传观察（等真实含图 turn）、全局记忆（三个设计点待讨论）、两个可选锦上添花（notes 块 cache 击穿量化、status 配置透明化）。
+  [A 14字] 梳理剩余任务并完成第2项清理
+  [B 219字] 项目剩余任务盘点及第2项小清理：在 `main=53d9251` 干净基线上，完成并推送 `8ec010c`，清掉 4 处 Minor（`recall.ts` 同图双召回去重、`index.ts` `imageBlocks` 类型收紧为 `RecallImage["block"][]`、mimeType 回退守卫、截断+图提示共存用例），测试 243→246 passed；图片透传观察（spec §3.4）与全局记忆三设计点仍待后续。
+
+--- 组 36 ---
+  [L4 b7e41f0e] 意图：询问图片透传观察中某段代码的作用
+     结果：该代码为 pi 的 `downgradeUnsupportedImages`，在模型不支持图片时把 image 块替换为文本占位符，防止请求被拒；支持的模型直接原样通过；连续多图只留一个占位符；核心结论：pi 链路是透传的，占位符仅在不支持图片时兜底；限制条件：当前会话模型需支持图片输入才不触发降级；待办：需 vision 模型验证 recall 真图，LM Studio 中 qwen3.8-27b 无 vision 能力；风险：无请求报错风险，pi 已内置兜底
+  [L4 229525c4] 意图：确认 codex 指出的 pi-compress 强制降级后无法自动恢复问题是否属实
+     结果：核心结论：Codex 判定属实，P1 成立；恢复代码（line 202）位于早退（line 175）之后，degraded=true 时不可达，120 秒超时后整个会话停止重组，仅 session_start 可重置；关键位置：src/index.ts:175、202、190；限制：README:181 承诺的自动恢复未实现；修复方案：将恢复检查移至早退分支内，队列清空即恢复；待办：用 fake timers 测试真实 120 秒超时场景，需确认是否开工
+  [A 13字] pi图片降级及恢复问题核查
+  [B 48字] 分析 pi 图片降级占位符逻辑及自动恢复缺陷（src/index.ts:175、202、190）
+
+--- 组 37 ---
+  [L4 d34dfb1f] 意图：修复 context 处理器降级后恢复不可达问题
+     结果：核心结论：Codex 报告的 P1 属实，已修复并合并（commit `2cb8864`）；根因：`degraded=true` 后 175 行早退，202 行恢复代码不可达；修复：恢复检查移入早退分支，队列清空即恢复，`enforceForcePoint` 在队列空时返回 `pass`，避免恢复后立即再降级；测试：247 passed / 1 skipped（246→247），tsc 干净，新测试连跑 3 遍无抖动；限制：推送被 connection reset 挡，本地 main 领先 origin 一个 commit，网络恢复后需 `git push origin main`；待办：补一条 notes 记录外部审查验证有效的经验。
+  [L4 b082714f] 意图：验证Codex关于同一路径动作错配问题的说法并修复
+     结果：核心结论：Codex说法属实，已复现并修复（commit 433ebcf，本地main，推送被connection reset阻挡）；关键参数：parseLedgerOutput中Map按target建键致read被write覆盖、seen按target去重丢第二条，修复后采用稳定序号id=N、按id建Map精确匹配、兼容旧格式（无id时按target轮转匹配），测试+2全量249 passed，tsc干净，README同步；限制条件：旧格式回退在同target输出次数>机械条目数时会静默丢弃多余条目；待办/风险：推送积攒两个commit（2cb8864+433ebcf）待网络恢复后推平，两轮Codex审查四个P1全部属实的信号已写入项目记忆。
+  [A 16字] 修复Codex报告的两个P1问题
+  [B 105字] 修复 Codex 报告的两处 P1 缺陷：context 降级后恢复不可达与 parseLedgerOutput 动作错配，提交 2cb8864 与 433ebcf，测试从 247 增至 249 passed。
+
+--- 组 38 ---
+  [L4 75dea3ec] 意图：验证超长工具结果无法完整 recall 的问题是否属实
+     结果：判定：属实，已复现（Needs Fix）；根因：executeRecall（recall.ts:33）走 pi 的 serializeConversation，其内部 TOOL_RESULT_MAX_CHARS=2000 纯头部截断，20,000 字符探针仅返回 2,107 字符，尾部完全丢失；recall.ts 自身的 16k 字符截断轮不到生效，且无 offset/page 参数；摘要路径 preTruncateToolResults 有防护但 recall 未接，README:304 承诺未兑现；修法 A：自建 serializeForRecall 全量序列化，去掉 2000 字符截断，只保留 recall 预算层截断（默认 16k 字符），可恢复 16k/20k 内容；修法 B：A+分页参数（offset/part）彻底取回；建议先做 A，README 改口径为「预算内逐字取回」，B 可选；待抉择：选 A 还是 A+B。
+  [L4 d7e9fe71] 意图：询问 maxTokensPerEntry 的作用
+     结果：maxTokensPerEntry 是 recall 工具单条召回预算，硬编码 4000 token（src/index.ts:266），不暴露为配置项；防单条召回爆炸，每条各享 4k，无总预算；截断标记建议用相邻 ID 分段 recall 是错误逃生路，为 P1 病根之一；修 Codex P1 后它成为唯一生效预算线，语义变为工具结果 ≤16k 字符逐字取回，>16k 截断标记；A 方案完成后 README 可承诺单条 4k 内逐字取回，B 分页锦上添花不冲突；可选项：将 4000 提为配置项（如 recallMaxTokensPerEntry，默认 4000），需确认实际使用是否够；遗留：相邻 ID 分段 recall 盲区未解决。
+  [A 19字] 探究 recall 截断问题与修复方案
+  [B 205字] 确认 recall 超长结果截断问题属实（recall.ts:33 经 TOOL_RESULT_MAX_CHARS=2000 纯头部截断，20k 探针仅回 2,107 字符），并规划 A/B 修复方案：A 自建全量序列化仅保留 16k 预算截断，B 增加分页参数；同时明确 maxTokensPerEntry=4000（src/index.ts:266）为单条召回预算，并调整 README:304 承诺口径。
+
+--- 组 39 ---
+  [L4 f1ab40ea] 意图：对比B方案与直接取消上限的差异并确认优劣
+     结果：结论：B严格优于取消上限；两者可取回信息总量相同，但付费方式与风险模型不同；取消上限一次注入全文（受上下文窗口限制，超限被API拒收且无法撤回），B分页单次注入仍受maxTokensPerEntry限制但总量无上限，可按需取段止损；B实现仅需将text.slice(0,N)改为slice(offset,offset+N)并加offset参数及截断标记；遗留：是否按A+B一起开工待确认。
+  [L4 61f8a3c7] 意图：执行A并将4_000提为配置项
+     结果：完成，已合并main（commit `8c13c8e`），推送受阻于connection reset，本地领先origin三个commit待网络恢复后推送；`serializeForRecall`全量序列化器（src/util.ts）输出格式与pi同款但toolResult不截断，共享`stripThinking`+`imageToTextMarkers`管道；`executeRecall`改用新序列化器，`maxTokensPerEntry`截断逻辑保留为唯一预算线；新增配置项`recallMaxTokensPerEntry`（默认4000，越界回退默认），README配置表+jsonc示例+已知限制三处同步，承诺改为「单条4000 token内逐字全量，超出部分截断」；验证254 passed/1 skipped（+5），tsc干净；潜在风险：`serializeForRecall`为pi序列化器行为复刻，pi升级可能致格式漂移（仅影响观感不影响正确性）；Codex三连P1清零；B方案（分页）记录在案待需时开启。
+  [A 18字] 对比方案并实施recall上限配置项
+  [B 0字] 
+
+--- 组 40 ---
+  [L4 0f816ca7] 意图：评估B方案改动量大小
+     结果：改动小（比A小），约一小时工作量；核心为机械改动：recall.ts executeRecall 用 slice(offset, offset+N) 替换 slice(0,N) 并改截断提示（~10行）；executeRecallDual 透传 offset（1行）；index.ts schema 加 offset?: number 并透传（~5行）；测试加3-4例；README 更新2处；唯一设计裁定点：offset 与多 ID 共存，推荐方案A（offset 仅单 ID 时生效，多 ID+offset 返回提示文本），方案B（offsets 映射）复杂度高不取；无风险，recall 无状态、offset 不漂移，不碰 searchLedger/注入/降级；可立即做（TDD 半小时）或攒着下次做，解耦不急；待办：选A后按TDD实施，测试覆盖 offset 起点、超末尾、标记 Y 值、多 ID 行为。
+  [L4 1e15538a] 意图：将 recall 分页任务记为待办
+     结果：已记入待办（task-002）：recall 分页（offset 参数，单 ID 生效），含设计裁定和改动清单；本地 main 领先 origin 3 个 commit（2cb8864 降级恢复、433ebcf 动作 id 匹配、8c13c8e recall 全量序列化），连接恢复后需 git push origin main；三个 Codex P1 修复完成，254 passed / 1 skipped，工作区干净；剩余待办：图片透传观察（等真实含图 turn）、全局记忆（三设计点待讨论）、recall 分页（刚记入）
+  [A 19字] 评估并记录 recall 分页改动方案
+  [B 50字] 将 recall 分页（offset 参数，单 ID 生效）的改动评估及待办记录（task-002）
+
+--- 组 41 ---
+  [L4 e69021f6] 意图：告知模型当前可连接GitHub
+     结果：推送完成，远程main=本地main=`3df9441`，工作区干净；三个P1修复（降级恢复、动作id匹配、recall全量序列化）已上远程；顺带提交了项目记忆文件`.pi-compress/notes.json`（含task-001改写+task-002新增待办）的未提交改动；该文件随会话更新，可能持续产生小改动，可选择加入`.gitignore`变为纯本地存储，需确认是否处理。
+  [L4 44eeeb41] 意图：将剩余待办也记为待办
+     结果：已记入待办（task-003），剩余清单全部收拢；task-002：recall 分页（offset，单 ID 生效），已勘察，1 小时级；task-003：图片透传观察（等真实含图 turn）+ 全局记忆（三设计点待讨论，正餐）+ 四项锦上添花（cache 量化 / status 钳制透明化 / LLM-judge / 常量提取），混合性质；限制条件：无；待办/风险：下个正餐大概率是全局记忆，开工前需讨论原因文件结构、提炼时机、global 分支三个设计点。
+  [A 11字] 推送修复并整理待办事项
+  [B 145字] 围绕 commit `3df9441` 与 `.pi-compress/notes.json` 的待办收拢：完成推送和 P1 修复后的清理，将剩余事项记为 task-003，并确认 task-002（recall 分页）及全局记忆为下一正餐（待讨论文件结构、提炼时机、global 分支）。
+
+--- 组 42 ---
+  [L4 06749721] 意图：讨论L4压缩的修改想法
+     结果：分支 `discuss/l4-compress` 已建好（基于最新 main `3df9441`）；L4 现状：触发条件为 L3 渲染量超 `ledgerDegradeThresholdTokens`（40k）；合并粒度为 `planDegrade` 将相邻多个 turn 合成一条 L4 记录；生成方式为 `buildMergeDescriptionPrompt` 让摘要模型生成 `merged.description`；渲染为多 turn 折叠成一行组描述，组内每条 `merged.description` 可命中且标同一组范围；召回保留组内 ↩ID，可逐条 recall；待确认修改方向：合并粒度、描述质量、触发时机或渲染/召回形态。
+  [L4 65981b59] 意图：将L4折叠从合并改为丢弃工具过程仅保留意图和回复，并询问是否可将工具recall ID变为连续
+     结果：ID变连续不可行，因entry ID为随机值且字典序≠时间序，连续ID会违反T3确立的「无映射层」不变式；L4新形态改为丢工具动作行，仅保留意图行+回复行（各带两端entryId）；recall扩展为按turn召回——若ID所属turn处于L4，则返回整个turn原文（含工具过程），零映射、零新ID，是现有recall语义的自然扩展；待裁定点：1) 回复保留原文（推荐，L4与L3信息取向不同）还是摘要（严格递减）；2) 现有合并行顺延为L5（推荐，合并输入改为L4渲染）还是直接删掉（省LLM调用但失去兜底）。
+  [A 24字] 调整L4压缩策略：由合并改丢弃工具过程并扩展召回
+  [B 85字] 在分支 discuss/l4-compress（基于 main 3df9441）上调整 L4 压缩方案，改为丢弃工具过程、仅保留意图与回复，并按 turn 扩展召回语义。
+
+--- 组 43 ---
+  [L4 5eb72bbf] 意图：论证L4保留回复原文而非使用outcome的理由
+     结果：核心结论：L4应保留回复原文，推荐顺延L5并定为结论层；L4若用outcome则仅比L3少动作行，语义退化为一句话，失去信息取向转变（过程→结论）；回复原文含根因、修复方式、验证口径、commit hash等高价值信息，outcome仅一句话；体积上动作行占L1渲染90%+，回复原文约300 tok，砍动作行已得大头，保留原文代价小收益高；风险：巨型回复（几千tok）会使L4不够大，但罕见且L5 mergeDescribe可兜底，不建议加“回复超长降为摘要”护栏（阈值增复杂度）；待办：同意后写spec。
+  [L4 837a6108] 意图：确认压缩阶梯新设计方案
+     结果：采纳逐级删整类信息的方案，L3丢工具过程、L4丢两端原文并做摘要，L5合并边界；L4 变为纯渲染切换（0次 LLM 调用），LLM 调用次数与现状相同；L3 复用现有意图行+回复原文渲染，L5 的 mergeDescribe 吃 L4 文本；待写 spec
+  [A 15字] 确定L4保留原文及压缩阶梯方案
+  [B 68字] 确认压缩阶梯设计：L4保留回复原文并改为纯渲染（0次LLM调用），L5用mergeDescribe兜底，T85论证与T86方案合并定稿。
+
+--- 组 44 ---
+  [L4 8fcf5b7e] 意图：确认L2→L3降级为纯机械删除动作行的阶梯调整方案
+     结果：核心结论：L2→L3改为纯机械降级（只删动作行，不调LLM），L3→L4才调用compressEnds；L4顺延为意图+outcome摘要，L5合并；LLM调用次数不变但时机更晚；L3体积仍大幅缩小（丢动作行占渲染90%）；实现影响：renderTurnText改L3/L4分支、degrade.ts右移瀑布、compressEnds移到L3→L4、mergeDescribe输入换L4渲染；存量数据处理是唯一开放点（倾向按旧语义渲染旧条目或一次性重置旧L3+为对应低层）；测试需全量重写阶梯语义+存量兼容用例
+  [L4 3afe7dea] 意图：确认L3/L4召回按turn实现及存量数据渲染语义
+     结果：核心结论：存量数据无需按旧语义渲染，渲染函数统一按新阶梯写；L3/L4召回按turn实现；关键参数：LedgerData降级只改level字段和加summary，不删quotes；旧L3/L4数据完整保留userMessage.text/finalReply.text/action recallIds，新渲染零损失；旧L4唯一丢弃merged.description，下次降级到L5时重新生成；L3/L4召回按turn后，recall任一ID可经splitIntoTurns定位turn边界并serializeForRecall整段返回；L1/L2保持entry级；实现缺口：executeRecallDual目前未收到ledger层级信息，需将ledgersInBranchOrder结果或id→level查找传入，小改动；待办：spec中列明查证结论及recall传参改动；风险：无；遗留：无。
+  [A 20字] 确认阶梯降级方案与L3/L4按轮召回语义
+  [B 186字] 确认L2→L3纯机械降级与L3/L4按turn召回的整体实现：degrade.ts、compressEnds移至L3→L4、LedgerData降级仅改level加summary并保留quotes、executeRecallDual需补ledgersInBranchOrder/id→level经splitIntoTurns/serializeForRecall整段返回。
+
+--- 组 45 ---
+  [L4 ce7a08d8] 意图：确认L5层级是否不需要turn召回
+     结果：核心结论：L5不需要turn召回，视为终态不可恢复细节；L5合并组↩IDs仅并集堆叠为假可用性；修正召回边界：L1/L2 entry级（不变），L3/L4 turn级，L5拒绝召回并返回说明文案；L5组IDs渲染裁定：不渲染（推荐），可防误用及连环召回挤爆上下文；待办：确认后写spec闭环（阶梯+渲染+降级+三档召回+存量兼容）。
+  [L4 74b8cb0a] 意图：请审阅五级降级设计spec并确认是否进入实现计划编写
+     结果：核心结论：Spec已按六项裁定落定，等待用户确认后走writing-plans；关键标识：commit `3630bd8`，分支 `discuss/l4-compress`，文件 `docs/superpowers/specs/2026-09-16-five-level-degrade-design.md`；关键参数：L1全量→L2丢命令→L3丢过程→L4意图+outcome→L5合并（无IDs），LLM调用总次数不变，召回三档（L1/L2 entry级、L3/L4 turn级、L5拒绝），阈值40k/10k沿用无新配置；限制：L1/L2 entry级召回，L5无IDs+防御文案；遗留问题：`executeRecallDual` 目前不接收层级信息，实现时需传入 `id → level` 映射；明确不做：超长回复护栏、L1/L2改动、searchLedger改动；存量兼容：降级从不删quotes，旧数据天然满足，无迁移无新旧分支。
+  [A 15字] 确认五级降级设计并定稿召回边界
+  [B 180字] 围绕五级降级设计完成L5召回边界裁定并审阅spec，落定关键commit 3630bd8（分支discuss/l4-compress，文件docs/superpowers/specs/2026-09-16-five-level-degrade-design.md），召回边界为L1/L2 entry级、L3/L4 turn级、L5拒绝，阈值40k/10k沿用。
+
+--- 组 46 ---
+  [L4 63310b69] 意图：确认计划并选择执行方式
+     结果：核心结论：计划完成并已提交（`52d2ccc`），文件 `docs/superpowers/plans/2026-09-16-five-level-degrade.md`，含 5 任务（渲染层、降级层、recall 三档、接线、README）及两种执行方式（Subagent-Driven 推荐、Inline）；关键参数：阈值 40k/10k 原样复用、无新配置项、degradeCtx 缺省时 recall 行为逐字节不变、存量 legacy L3/L4 兼容用例；限制条件：无；待办：待用户选择执行方式（Subagent-Driven 或 Inline），遗留风险未提及。
+  [L4 69b1eb1d] 意图：向用户道别
+     结果：无核心结论、参数、限制或待办事项；仅表达再见和祝福。
+  [A 7字] 确认计划并道别
+  [B 108字] 完成 five-level-degrade 计划确认与提交（docs/superpowers/plans/2026-09-16-five-level-degrade.md，commit 52d2ccc）后向用户道别。
+
+--- 组 47 ---
+  [L4 08c25ef4] 意图：询问剩余待办事项
+     结果：工作区干净，main 与远程同步（`d16aa4f`），267 passed 基线；剩余待办：1. recall 分页（B 方案，task-002，offset 参数仅单 ID 生效，已勘察改动面 ~10 行 + schema + 3-4 测试，1 小时级，触发场景为看超长构建日志全量时）；2. 图片透传观察（task-003 部分，代码已闭环，等真实含图 turn 后确认 image 块进入后续请求，pi 不支持图片模型自动替换占位符已兜底）；3. 全局记忆（最大未开工项，task-003 正餐，三个设计点待讨论：原因分析文件结构、跨会话提炼时机、`/compress-remember global` 分支实现含正则误匹配小瑕疵）；4. 四项锦上添花（task-003 部分：notes 注入块 prompt cache 击穿量化、`/compress-status` 配置值→生效值不一致透明化、bench 加 LLM-judge 摘要保真度评测、`~1200 tok/张` 图片口径提为常量）；建议优先级：全局记忆为下一个正餐，先讨论三个设计点再走 spec → 计划 → SDD，小清理 PR 可攒着顺手做。
+  [L4 f6c7cae2] 意图：询问 minor 遗留问题的完整清单
+     结果：核心结论：共 9 条 minor，2 条已修（commit cbee882），7 条仍遗留，全部非正确性问题，可延迟处理；关键标识：spec §7、ledger.ts:133-141、degrade.ts:65/引擎、index.ts:258,271-272、recall.ts 多处、index.ts recall 统计；已修：M1 README 重复 bullet、M2 recall.ts 旧注释；遗留：M3 spec 内部矛盾需勘误；M4 相邻 L5 组聚合为一行（预存在，根治需新增 LLM 调用）；M5 L4→L5 合并组直接升 L5 边角（预存在）；M6 类型断言无运行时防护（纯防御）；M7 splitIntoTurns 执行 3 次（微秒级，挂 task-002）；M8 测试观感/注释精度（无行为影响）；M9 L5 拒绝召回计入 hits（一行可改）；更早轮次遗留：/compress-remember global 分支正则误匹配（挂 task-003）、notesQueue 跨 session_start 理论竞态（已声明接受）；限制：M4/M5 不值得加 LLM 调用去修；待办：M3+M9 半小时 PR、M7 挂 task-002、M4/M5 观察实际影响、M6/M8 顺手修；风险：无
+  [A 9字] 汇总待办与遗留问题
+  [B 71字] 盘点待办与 minor 遗留问题，涉及基线 d16aa4f、已修 cbee882、task-002/003 规划及 9 条 minor 分类。
+
+--- 组 48 ---
+  [L4 f7fe1d2a] 意图：新建一条任务记录
+     结果：已记入 task-005：五级阶梯遗留 Minor 清单（M3–M9 七条），含修法建议和收口时机；待办全景：task-002（recall 分页，offset，单 ID 生效，顺手带 M7）、task-003（图片透传观察+全局记忆+四项锦上添花+global 正则瑕疵）、task-005（M3+M9 可进小清理 PR；M4/M5 观察后再修；M6/M8 顺手）；遗留：待定下次开工方向（做 M3+M9 小清理 PR 或直接进全局记忆设计讨论）。
+  [L4 2abf59e7] 意图：判断M4问题是否存在
+     结果：M4确认存在，可真实触发；关键参数：ledger.ts:135-143（聚合逻辑），degrade.ts:147（描述逐条落盘），recall.ts:207-210（聚合段）；触发场景：两轮降级产生相邻L5组（如T5-T8、T9-T12），渲染时聚合只显示组内第一条描述，导致后组描述丢失；后果：searchLedger对L5聚合段命中语义错位；缓解：数据无损（描述完整存于每条LedgerData），不影响召回正确性；待办：低成本修复方案为聚合时检测描述唯一性，不唯一则渲染成两行，同步修改recall.ts；需更新spec勘误及task-005记忆。
+  [A 16字] 记录M3-M9任务，确认M4问题
+  [B 88字] 围绕 task-005 的 Minor 清单（M3–M9），确认 M4 问题真实存在，定位 ledger.ts、degrade.ts、recall.ts 相关聚合逻辑及修复方向
+
+--- 组 49 ---
+  [L4 356902c3] 意图：解释merged.description是什么及其在数据中的存放与消费方式
+     结果：merged.description是L5合并行的描述文本，由摘要模型生成的一句话主题概括；mergeDescribe（degrade-llm.ts:32-51）将多轮历史压缩成该描述；数据存放上，组内每个LedgerData各存一份相同描述（degrade.ts:147-149），每条记录自包含，渲染/重建无需跨条目状态；消费位置：ledger.ts:138（L5聚合段渲染，只取第一条描述）、ledger.ts:84（孤立L5单条渲染）、recall.ts:213（检索命中与snippet）；L5区域仅剩该描述作为唯一信息载体，M4问题（后到的组描述被组内第一条覆盖显示）值得重视；
+  [L4 41fcd779] 意图：确认L5多轮融合是否调用LLM
+     结果：核心结论：L5合并调用了LLM（mergeDescribe，1次/组）；上一轮'零LLM修法'指修复M4无需额外调用，非合并本身；关键标识：degrade-llm.ts:32-51，buildMergeDescriptionPrompt，≤25字JSON输出；限制：每级降级仅一次LLM调用预算；待办：无；风险：无。
+  [A 22字] L5合并描述：解释生成、存储消费与LLM调用
+  [B 153字] merged.description 由 mergeDescribe 调用 LLM 生成（degrade-llm.ts:32-51），并在 degrade.ts:147-149 存储、ledger.ts:138/84 与 recall.ts:213 消费，同时确认 L5 合并每级仅一次 LLM 调用预算。
+
+--- 组 50 ---
+  [L4 138c6e38] 意图：明确根治方案中相邻组合并的范围与失败兜底策略
+     结果：核心结论：方案为整段连续 L5 run 一次合并，非相邻两组；关键点：合并单位是整段连续 L5 run（无论组数），判断标准为描述字符串是否相同；实现要点：输入需按 L4 语义渲染（因降级不删 quotes），触发点在 DegradeEngine 内（渲染层为同步纯函数不可异步调用），旧描述将被覆盖（一次性损耗）；失败兜底：合并失败时退为机械分行（零 LLM、描述不丢），而非现状静默吞掉描述；待裁定：合并范围（整段一次 vs 渐进式）与失败兜底（接受机械分行 vs 维持现状）；待办：更新 spec（M4 改为重新合并方案）并走计划。
+  [L4 fbca4b3f] 意图：确认按“L5相邻且描述相同”作为聚合边界修复M4；
+     结果：核心结论：采纳新修法，放弃整段run重新合并；M4聚合规则由「L5相邻」改为「L5相邻且描述相同」，描述变则断行渲染各组；关键参数：ledger.ts:135-143聚合边界、recall.ts:207-210同构段、各补跨组测试；限制条件：零LLM调用、同组内描述全同，两组描述相同合成一行无损；待办/风险：推进小清理PR，改动面含ledger.ts+recall.ts+测试，半小时级。
+  [A 18字] 确定M4聚合边界为L5相邻且描述相同
+  [B 52字] 确定M4聚合规则：L5相邻且描述相同才合并一行，否则断行渲染；涉及ledger.ts、recall.ts
+
+--- 组 51 ---
+  [L4 24345e4b] 意图：询问零LLM调用修复法中第二句描述生成的时点
+     结果：第二句描述在第二轮降级时生成（周日10:00），由DegradeEngine调mergeDescribe将T5-T7合并后写入merged.description；核心结论：问题源于渲染层仅取组首描述且按相邻性聚合，修复为按描述断行；关键参数：degrade.ts:139-143、147-149，T1-T7；限制条件：无；待办/风险：无
+  [L4 33823943] 意图：确认M4修复工作开工
+     结果：M4修复完成并合并main（`ff9809e`+记忆同步`016cdf4`）；核心修复：L5聚合边界改为「相邻且`merged.description`相同」；改动`src/ledger.ts`/`src/recall.ts`两处聚合循环加描述相等条件；测试+4（跨组分断、同描述聚合无损、L4打断、检索分组），既有2个编码旧行为测试期望更新；验证271 passed/1 skipped（267→271），tsc干净，工作区干净；零LLM调用、零新配置；待办：M3+M9可做（约十分钟），M7挂recall分页，M5/M6/M8按原计划
+  [A 18字] M4修复：描述生成时点与聚合边界调整
+  [B 83字] 零LLM调用修复法：M4修复描述聚合边界（src/ledger.ts、src/recall.ts，commit ff9809e/016cdf4，271 passed）
+
+--- 组 52 ---
+  [L4 9e4dac0e] 意图：完成M3和M9修复任务
+     结果：M3+M9完成并合并main（b42b03a），但推送被connection reset阻断，本地领先origin 2个commit；M3补勘误注记，M9新增rejected字段并拆分统计；272 passed/1 skipped（+2测试），tsc干净；M7挂起，M5待观察，M6/M8顺带处理；待办：网络恢复后推送
+  [L4 5cf01be5] 意图：检测M5是否真实
+     结果：M5确认真实存在，已用真实代码复现；核心结论：三条件同时满足才触发，裁定维持“观察到再修”；关键参数：planDegrade双跳、L4层16tok/条、40k阈值、a>6k字符原文、levels a=5 big=4、warning“保持L3”、a.merged含1条合并、mergeDescribe输入含a独有原话；限制条件：需双跳×压缩失败×巨L4驱动同时发生概率极低；待办/风险：修复便宜（L5组过滤level!==4或mergeGroups执行期重算）但不值得现在动，触发条件和修法已记入task-005详情，数据无损但L3条目语义失真且mergeDescribe输入被污染
+  [A 17字] 完成M3/M9修复并验证M5真实性
+  [B 44字] 完成M3/M9修复合并（b42b03a）并确认真实M5触发条件（双跳×压缩失败×巨L4）
+
+--- 组 53 ---
+  [L4 0829f427] 意图：确认项目记忆未出现在dump输出中是否属于bug
+     结果：判定：Needs Fix——确认是Bug，根因是dump链路缺少applyNotesInjection调用；关键证据：dump.ts:95调用assembleContext后直接返回，未执行index.ts:204的真实链路中的applyNotesInjection；配置projectNotes.enabled=true、notes.json有5条tasks均正常；限制：dump消息数比真实请求少1条且头部结构不同；修法：dumpContext增加可选notesStore参数并调用applyNotesInjection，补一个enabled=false时不注入的测试，改动约5行，TDD半小时内；待确认：是否实施修复。
+  [L4 403ce36d] 意图：修复dumpContext缺少applyNotesInjection的问题
+     结果：核心结论：修复完成，已合并main并推送（65f42f6 + 记忆同步91046c8）；关键参数：dumpContext加可选notesStore参数（缺省null），index.ts的/compress-dump传入notesStore，测试+3（275 passed / 1 skipped），tsc干净；限制条件：无；待办/风险：无，但提及同类问题（T45编号漂移）已连带修复。
+  [A 34字] 确认并修复dump缺少applyNotesInjection的Bug
+  [B 59字] 修复 dumpContext 缺少 applyNotesInjection 的 bug（commit 65f42f6）
+
+--- 组 54 ---
+  [L4 00f83923] 意图：确认 Codex 审查发现的 P3 批次合并计数矛盾问题是否属实
+     结果：属实，已复现并修复（commit 89ebfca，已推送 main）；根因：mergeDescribe 后缀按本批条数生成，两批各含 2 条时后缀相同且描述相同导致误合并，输出范围 4 条 vs 计数 2 矛盾；修复：渲染聚合时 >1 条重写后缀计数，单条保留原描述；searchLedger 同构段无此问题；验证：277 passed / 1 skipped（+2），tsc 干净，工作区干净；风险：初版无条件重写会改错单条历史信息，已通过条件重写规避
+  [L4 374bf8cd] 意图：确认原生压缩结果被覆盖问题的存在性
+     结果：问题属实，从未处理过pi原生compaction与插件重组的交互面；关键参数：agent-session.js:1820-1823、session-manager.d.ts:153-158、src/index.ts:183-184；原因：getBranch()返回全量分支含已压缩旧条目，toMessageEntries仅保留type==="message"导致compaction条目被过滤；后果：健康路径下压缩白做摘要被丢弃，病理路径下旧历史原文回归触发压缩-膨胀循环并反复烧LLM调用；修法：context处理器与dump改用buildContextEntries()，compaction entry的summary作为user消息插入最前，recall/backfill保持全量branch；待办：构造含compaction entry的测试fixture，TDD半天级
+  [A 16字] 确认压缩/合并缺陷并给出修复方案
+  [B 125字] 修复 P3 批次合并计数矛盾（commit 89ebfca）并确认原生压缩结果被覆盖问题（涉及 agent-session.js:1820-1823、session-manager.d.ts:153-158、src/index.ts:183-184）
+
+--- 组 55 ---
+  [L4 b74c859a] 意图：确认开工并获取修复进展摘要
+     结果：Codex 第四个 P1（原生压缩被覆盖）修复完成，已合并 main（commit `8f5d725`）；本地 main 领先 origin 1 个 commit，网络恢复后需 `git push origin main`；修复引入新函数 `util.compactionAwareEntries`（与 pi 原生压缩裁剪语义同源，无 compaction 时与 getBranch 逐字节等价），context 处理器换源并恢复 compaction 摘要（内联同款包裹文案），`/compress-dump` 同步换源，recall/search 仍走全量 branch 不受影响；验证 280 passed / 1 skipped（+3 项回归测试），tsc 干净；遗留风险：推送被 connection reset 阻塞，需重推；实现注意：fixture 需 parentId 链（真实会话不受影响），探针确认 `session_before_compact` 提交的 ledger 文本可走恢复路径，pre-compaction 内容可 recall；四轮审查累计 4 P1 + 1 P3 已清零，task-001 已更新。
+  [L4 c4d40868] 意图：询问网络恢复后pi原生压缩与插件压缩的上下文处理关系
+     结果：核心结论：网络恢复后pi-compress接管，原生压缩不丢弃，作为一条user消息保留在最前代表旧历史，插件只负责压缩点之后部分；修复前（P1）原生摘要被过滤丢弃导致上下文膨胀震荡，修复后（commit 8f5d725）走compactionAwareEntries裁剪；限制条件：降级前未生成ledger的旧历史在恢复后仅存在于pi摘要中不可召回；待办/风险：压缩点之前的旧历史不会再进ledger体系，细节不可召回是让位兜底固有代价；补充：降级让位暂时，恢复后插件在pi压缩基础上继续工作，两者接力不覆盖。
+  [A 16字] 修复原生压缩覆盖并说明恢复后处理
+  [B 145字] 完成 Codex 第四个 P1（原生压缩被覆盖）修复并合并 main（commit 8f5d725），引入 util.compactionAwareEntries 恢复压缩语义，确认网络恢复后 pi-compress 与插件压缩接力关系，验证 280 passed / 1 skipped。
+
+--- 组 56 ---
+  [L4 2d50e805] 意图：确认超大turn的主要痛点（巨工具结果还是巨用户输入）以确定处理方案
+     结果：工作中的超大turn当前无法被agent_settled降级瀑布覆盖，每步LLM调用全额携带其原文，代价大；现有兜底不理想（pi压缩响应式且摘要质量差，赌不爆窗风险高）；提供A（原位裁剪）、B（阈值触发版A）、C（pi压缩）、D（recall直读branch）四个选项，推荐B的触发条件+A的机制，阈值复用keepRecentTokens；裁剪细节：只裁toolResult（保留最近2-3条原文，其余替换占位符），不动assistant/user，占位符带toolCall target和体积；遗留问题：turn未落盘前recall查不到，需接受或连带D一起做；待办：确认巨工具结果还是巨用户输入主导，前者A/B覆盖，后者需另议；涉及修复8f5d725
+  [L4 ed59d245] 意图：询问模型对问题的理解并判断是否有必要做
+     结果：核心结论：现在不必做，先观察；关键参数与标识：方案A/B、pi中途压缩（_compactBeforeNextAssistantResponse）、commit 8f5d725、lastStats观察计数、/compress-status、keepRecentTokens阈值；限制条件：触发频率未知，且最坏路径是质量问题而非正确性问题；待办/风险：建议在lastStats加观察计数（零行为变更、几行代码），计数增长则按B方案开工，否则记入task-005遗留清单；方案复杂度高，需处理占位符渲染、保留最近K条口径、图片块/去重逻辑交互、未落盘时recall缺口
+  [A 18字] 讨论超大turn方案，结论暂缓先观察
+  [B 71字] 评估超大 turn 降级兜底方案（A/B、pi 压缩、commit 8f5d725），结论为暂不实施，先用 lastStats 观察触发频率。
+
+--- 组 57 ---
+  [L4 4ef9d389] 意图：确认超大turn提前压缩方案的设计细节
+     结果：核心结论：方案可行，本质是将现有摘要管线扩展至进行中的turn；注意力降低有实证但40k非临界点，不以此为修改依据，真正依据是token成本和噪声稀释；三个裁定点待确认：①切分后原文侧保留严格keepRecentTokens还是留缓冲，倾向严格预算；②用户消息永远保留在原文侧，溢出只从toolCall对切；③溢出段按L1全量动作行渲染；设计包含：事件装配时对溢出段建ledger数据入队summarizer，渲染成动作日志行，enforceForcePoint既有逻辑等摘要完成，agent_settled后整turn落盘摘要覆盖临时条目；顺带好处：溢出段进store使recall立即可用、失败时保持原文放行、不加新配置项复用keepRecentTokens；限制：测试验证后置；待办：确认三点后开分支写spec，不合并main。
+  [L4 d7d4ab04] 意图：确认对超大turn溢出处理机制的理解并讨论实现方案
+     结果：核心结论：采用零新机制，溢出片段作为正常ledger条目入store，由现有瀑布接管；关键参数：40k（keepRecentTokens）、L1/L2/L3降级瀑布、agent_settled；限制条件：turn结束时整turn摘要与片段条目key不同会共存；待办/风险：需选择处理方案（A删除片段条目/ B共存接受重复/ C跳过整turn摘要），倾向A但需处理片段条目在摘要队列中的竞态；后续步骤：确认后开分支走spec→计划→实施，不合并main。
+  [A 17字] 确认超大turn压缩与溢出处理方案
+  [B 141字] 超大 turn 提前压缩与溢出处理方案设计：采用零新机制，溢出片段作为 ledger 条目入 store 由 L1/L2/L3 瀑布接管，关键参数 keepRecentTokens=40k 与 agent_settled 共同决定落盘，确认后开分支写 spec（不合并 main）。
+
+--- 组 58 ---
+  [L4 bd4cba66] 意图：确认A在turn结束后是否删除大turn片段并重新整turn走L1
+     结果：核心结论：是，整turn重新从L1走一遍瀑布，行为确认；关键参数：agent_settled时照常生成整turn摘要（key=turn.startEntryId，从L1起步），删除该turn所有溢出片段条目，队列中片段摘要跑完再删（幂等）；限制条件：无特殊形态，终态一条ledger条目，动作行完整，recall语义统一；待办/风险：片段已降到L4时compressEnds的LLM调用白花（概率低），删除瞬间渲染体积短暂回升（机械降级免费），白跑队列调用可改为直接清待办但增加队列操作逻辑，倾向简单版；确认后开分支走spec。
+  [L4 84242bbd] 意图：确认 spec 内容并推动下一步写实施计划
+     结果：Spec 已提交（commit `a90a08f`，分支 `feat/inflight-turn-degrade`，文件 `docs/superpowers/specs/2026-09-17-inflight-turn-degrade-design.md`）；核心结论：零新机制，溢出片段作为一等公民 ledger 条目，L1 走瀑布，recall/降级/渲染免费继承；切分规则：context 装配时检查，超 `keepRecentTokens` 从最旧完整工具对切出冻结片段，连续溢出切 F1、F2；三个实现层发现：片段必须冻结边界（enqueue 按 startEntryId 去重）；装配对最后 turn 用裁剪视图，assembler 零改动；删除必须用墓碑（`absorbed` 字段）防 rebuild 复活；收敛流程：turn 结束→整 turn 摘要落盘（L1 重走）→队列跑完→片段墓碑化；恢复：coveredEnd 从 store 推导（片段 `turnEndEntryId` 最大值），重启零内存依赖；影响面：改动集中在 util/ledger/store/index 四处，README 已知限制需改写；待办：走 writing-plans 写实施计划（TDD + 用户选执行方式）。
+  [A 19字] 确认大轮溢出片段降级方案并推进实施计划
+  [B 184字] 确认 inflight turn degrade 方案：turn 结束后整 turn 重新走 L1 瀑布并墓碑化溢出片段，Spec 已提交（commit a90a08f，分支 feat/inflight-turn-degrade，文件 docs/superpowers/specs/2026-09-17-inflight-turn-degrade-design.md）
+
+--- 组 59 ---
+  [L4 ccda884c] 意图：讨论溢出片段是采用现瀑布方案还是保持L1
+     结果：核心结论：建议采用瀑布+L5豁免方案（片段L1→L4照常，L5跳过，turn结束后墓碑化重走L1）；全程L1导致体积无界膨胀且需特例；纯瀑布在长任务后段片段可能撞L5拒绝墙（实害），且同turn片段被压缩语义怪；豁免仅需在L5组成员筛选处加`absorbed !== true`式判断（小特例），每片段L4仅2行~50tok，20片段约1k tok体积压力已消除；待办：用户裁定后更新spec §3裁定表和§5边界情况再进计划。
+  [L4 8d2a1413] 意图：确认 spec 更新并询问是否开始写实施计划
+     结果：核心结论：Spec 已更新并提交（`7fe2dc0`），L5 豁免正式落为裁定 7；关键改动：裁定表新增裁定 7（turn 结束前片段最多降到 L4），§5 新增边界情况（key ≠ turn.startEntryId 且属于进行中 turn），§7 测试计划补豁免断言；片段生命周期已明确（切出 F1→L1 渲染→瀑布 L2→L4→L5 豁免→turn 结束落盘→队列跑完→墓碑）；记忆已同步；待办：写实施计划（writing-plans），完成后供选择执行方式（SDD 子代理 / 内联）。
+  [A 19字] 讨论溢出片段方案并更新spec待写计划
+  [B 99字] 溢出片段处理方案定稿：采用瀑布+L5豁免（关键commit `7fe2dc0`，裁定7），片段生命周期明确为切出→L1→L2→L4→L5豁免→turn结束落盘→墓碑，spec已同步更新，待写实施计划
+
+--- 组 60 ---
+  [L4 3c039ceb] 意图：用户要求开始执行计划，模型询问选择哪种执行方式
+     结果：计划已提交（`5bb1df6`）：`docs/superpowers/plans/2026-09-17-inflight-turn-degrade.md`；8 个任务概览：absorbed 墓碑字段 + `store.delete`（rebuild 跳过防复活）；`Turn.isFragment` 标记（片段摘要跳过 finalReply）；`planInflightTrim` 纯函数（覆盖推导 + 裁剪视图 + 溢出切分，4 个用例含零变化防护）；assembleContext 接 extraLedgers + dump 同口径（只读不切分）；context 事件接线（failed 守卫 + 安全窗口）；降级瀑布接入 + L5 豁免（`holdAt4`，跳过 toLevel=5）；turn 结束收敛墓碑化（waitIdle 后幂等守卫，放 return 前）；README 已知限制改写（「单 turn 超大整体保留」更新）；关键设计已锁定：fixture parentId 成链、`collectFragmentKeys` 抽公共函数、收敛逻辑与 agent_settled 早退守卫顺序；两种执行方式可选：Subagent-Driven（推荐，每任务派独立子代理）或 Inline 执行（本会话逐任务带检查点）；待用户选择执行方式。
+  [L4 50a27076] 意图：询问分支合并方式的选择
+     结果：SDD 全部完成，final review clean，分支 `feat/inflight-turn-degrade`（11 commits，`5bb1df6..21d102c`），301 passed / 1 skipped，tsc 干净，工作区干净；核心裁定：spec 优先于 brief（新切片段原文放行、planInflightTrim 只裁已落盘覆盖前缀）、dump 同源化、墓碑守卫加 `turnEndEntryId !== last.endEntryId`、searchLedger 与 session_before_compact 补 collectFragmentEntries；遗留非阻断项：豁免片段计入 reserve、README:307 措辞、意图占位、偶发测试失败待观察、超大 user 消息不收敛（已放行）；工作区已删除，待办为选合并方式（ff 合并 main / 推远程 / 留分支观察）。
+  [A 11字] 计划执行与合并方式选择
+  [B 180字] 执行并收尾 inflight-turn-degrade 计划（docs/superpowers/plans/2026-09-17-inflight-turn-degrade.md，分支 feat/inflight-turn-degrade 11 commits，5bb1df6..21d102c，301 passed / 1 skipped），待选择合并方式。
+
+--- 组 61 ---
+  [L4 7379bb65] 意图：询问当前有哪些遗留问题
+     结果：无阻塞正确性的遗留问题；待收尾：origin落后1个commit（8f5d725，需git push origin main），特性分支feat/inflight-turn-degrade（14 commits，5bb1df6..21d102c，301 passed，待选合并方式）；deferred minors（全部非load-bearing）：豁免片段计入reserve计量、README:307措辞、意图未知占位、一次偶发测试失败（无法复现，建议CI观察）、超大user消息不收敛（已裁定放行）；跨特性待办：task-005（M5观察，M6/M8顺手做）、task-002（recall分页，顺手带M7）、task-003（图片透传观察，全局记忆最大未开工正餐，三项锦上添花，global正则瑕疵）；最紧迫动作：给特性分支选合并方式并推送推平origin。
+  [L4 a4cdcf1e] 意图：确认合并并同步代码
+     结果：合并完成，feat/inflight-turn-degrade 已 ff 合并 main 并删除分支，本地=远程=755a3ad，工作区干净；全量测试 301 passed / 1 skipped，tsc 干净；8f5d725 compaction 修复 + 特性 + 记忆同步全部上远程（14 commits 上线）；task-003 已标记完成；剩余待办：全局记忆（三设计点待讨论）、recall 分页（task-002）、图片透传观察、几条 Minor 卫生项
+  [A 13字] 梳理遗留问题并完成合并同步
+  [B 117字] 完成 inflight-turn-degrade 特性合并（ff 至 main，755a3ad，301 passed）并同步远程，清理遗留问题（8f5d725、task-003 完成），剩余全局记忆/recall 分页等锦上添花待办。
+
+--- 组 62 ---
+  [L4 ebe31b3a] 意图：复盘全局记忆历史讨论的结论与悬空点
+     结果：全局记忆讨论未收敛，定性为「后面再讨论」，三个设计点均开放；已实现：两个开关、/compress-remember 命令（global 参数预留未实现，且正则误匹配边界瑕疵）、notes 工具三表、注入与 recall；全局记忆侧全部悬空；结构性差异：写入方式为跨会话提炼（从项目记忆上升）、范围跨项目、溯源要求「原因分析文件」（记为什么记、有什么用，可召回）；悬空点1：原因文件结构（独立文件 vs 嵌入 reason 字段 vs 两者结合）未定；悬空点2：提炼时机（A.session_start 全自动，B.手动命令，C.攒批触发，D.A+B 组合（推荐，用户未选））未选；悬空点3：/compress-remember global 分支（写入位置、locked 语义、是否强制写原因）未定；已确认边界：关闭状态后台收集照常、开关只控装配；不带 scope 时默认 project 零调用风格，global 侧待定；待办：按原因文件结构→提炼时机→remember global 顺序逐个裁定后走 spec→计划→SDD。
+  [L4 800f862e] 意图：确认全局记忆从pi-compress移出并新开项目实现
+     结果：核心结论：pi-compress收敛为单一职责（上下文压缩+项目记忆），全局记忆移出新项目；待办（task-006规划中，task-003全局记忆部分移出）；关键参数：无；限制条件：无；待办/风险：task-002 recall分页、四项锦上添花、M6/M8卫生项、图片透传观察；两项连带裁定：删除/保留`/compress-remember global`预留分支（倾向删除）、新插件与pi-compress双装时需定注入位置协调；新项目可复用讨论资产：T17（原始需求）、T18（提炼时机四选项+D方案）、pi-compress notes三表实践；当前pi-compress无未收尾事项，main与远程同步。
+  [A 28字] 全局记忆方案决策：从pi-compress移出新项目实现
+  [B 82字] 全局记忆设计悬空点裁定与从 pi-compress 移出新开项目实现，涉及 /compress-remember global 分支去留及 task-006 规划。
+
+--- 组 63 ---
+  [L4 8acb087c] 意图：删除 global 预留分支并同步相关文件
+     结果：已删除并推送（a6515a9 + 记忆同步 fbe9bb1，main 与远程同步）；src/index.ts 删掉 global 正则分支（4 行，含误匹配边界瑕疵），tests/extension.test.ts 移除 global 断言（用例③）并同步标题，README.md 删掉 global 预留行，docs/.../2026-09-10-project-notes-design.md 更新命令签名及非目标/测试计划；验证：301 passed / 1 skipped（无新增），tsc 干净；/compress-remember 语义纯粹（<内容> → 写 prefs，locked=true），全局记忆语法入口消失，将来由新项目提供（命名可作 /remember-global）；pi-compress 待办只剩：recall 分页（task-002）、四项锦上添花、M6/M8 卫生项、图片透传观察
+  [L4 9de84bb8] 意图：选择计划执行方式（Subagent-Driven 或 Inline）
+     结果：Spec 与计划已提交（`bd3c69a` spec、`7acc4ab` 计划）；关键 fixture 数学经探针核对：`ledger(id,3,21000)` L3 渲染 21013 tok，两条 42026 > 40000 触发降级，L4 渲染 ~30 tok 实证片段降级路径不可达；计划含 7 个任务（truncateToTokens 纯函数、recall 截断改 token + offset 分页、isFragment + 片段专用渲染、降级上限 L3、planAssembly 抽出 + T 同源、工程配置、文档同步），每任务带「缺省路径逐字节不变」用例，无新配置项；两种执行方式：Subagent-Driven（推荐，每任务派独立子代理并审查）或 Inline（本会话按 executing-plans 逐任务执行）；待定：执行方式选择。
+  [A 26字] 推进 pi-compress：清理分支并制定执行计划
+  [B 208字] compress-remember（pi-compress）清理 global 预留分支并规划 recall 截断/分页等 7 项后续任务（提交 a6515a9/fbe9bb1、bd3c69a/7acc4ab；src/index.ts、tests/extension.test.ts、README.md 等已同步；Subagent-Driven/Inline 执行方式待定；301 passed/1 skipped）
+
+--- 组 64 ---
+  [L4 c65b93a9] 意图：审查项目并给出下一步优化方案
+     结果：核心结论：发现4个真实问题（3个代码级、1个工程卫生），基线 main=`fbe9bb1`，301 passed / 1 skipped，tsc 干净；A【中高】recall 截断按字符而非 token，CJK 超预算4倍（src/recall.ts:62,90），修法改 countTokensText 二分；B【中】进行中片段降级至 L3 后头部只剩一行零信息，动作行与 ↩ID 全丢（src/ledger.ts:99-110），修法二选一：B1 片段 holdAt2（推荐）或 B2 专用渲染，需同步改 spec §3 裁定 3/7；C【中】query 的 T 编号与日志头 T 编号错位（index.ts:322-325 vs recall.ts:228），修法抽公共可见 ledger 列表；D【低】工程卫生：vitest 误跑 bench、一次性脚本入库、无 CI，建议加 vitest.config + GitHub Actions；已证伪：巨 L1 条目饿死片段降级、片段压缩时模型编造用户意图（修 B 后需复测后者）；待办：建议四项一起做（A~1h、B~1-2h、C~1h、D~1h），先写 spec 增补再出计划；审查详情已记入 task-007。
+  [L4 2c7eeee5] 意图：询问计划是否四个任务一次做完
+     结果：核心结论：是的，四项审查发现一次做完，同一分支 `fix/review-findings-2026-09-20`（基线 `bd3c69a`），拆成 7 个任务；关键参数：Task 1-2 处理 A（`truncateToTokens` 纯函数、换口径+`offset`分页）、Task 3-4 处理 B（`isFragment` 显式字段、L3 保留↩ID 机械标记行、`holdAt4`→`holdAt3`）、Task 5 处理 C（抽 `planAssembly` 共用列表）、Task 6 处理 D（`vitest.config.ts` 排除 bench+CI+清 4 脚本）、Task 7 收尾（README 四处+旧 spec 勘误 3/7）；选 SDD 则一次派发跑完 7 任务，符合 T126 判断（A/C 动 recall 链路、B 改 spec 和渲染层，一轮全量回归最省事）；限制条件：Global Constraints 写「不合并 main」需用户确认是否沿用；待办/风险：需确认是否拆开（最小可拆 Task 1-2+6，但 B/C 依赖 Task 2 后 recall 结构，拆开多做一次回归，不建议）；遗留：待用户确认第 1 点后按 SDD 开工
+  [A 18字] 审查发现问题并制定一次做完的优化计划
+  [B 93字] 围绕审查发现的A/B/C/D四项问题制定修复方案，确定在同一分支 fix/review-findings-2026-09-20（基线 fbe9bb1/bd3c69a）拆为7个任务一次实施
+
+--- 组 65 ---
+  [L4 b78db564] 意图：确认不合并main，直接开工
+     结果：终审通过，Ready to merge（不合并main）；分支 fix/review-findings-2026-09-20，16 commits（bd3c69a..40afddc），324 passed / 1 skipped，tsc 干净，工作区干净，未触碰 main；四项裁定全部落地：A 截断按 token（二分+countTokensText，链式续取段首尾严格衔接覆盖全量，maxTokensPerEntry*4 已绝迹）；B 降级上限 L3（holdAt4→holdAt3，isFragment 显式标记，L4 存量片段不动）；C T 编号同源（抽 planAssembly，query 改用 compactionAwareEntries，端到端逐一相等）；D 工程配置（vitest 与 CI 自包含，干净 HOME 下同样 324 passed）；8 条裁定中 Task 5/6 标记 Important（query 改用 compactionAwareEntries；CI 自包含）；待裁定：合并方式、5 个已跟踪报告文件是否 git rm --cached（删 2026-09-05-current-context-dump.md 会断 bench）；遗留 Minor：offset=NaN 输出「剩余 NaN」、src/recall.ts 中「单 notes ID+offset」offset 静默忽略、README「≈4 字符/token」出现在测试用例名（合法）；限制：多 ID+offset 不召回不计数（skipped 字段），spec 优先
+  [L4 2c9aadba] 意图：确认 holdAt 参数从 holdAt2 改为 holdAt3 的原因及是否应改回 L2
+     结果：核心结论：落地采用 holdAt3（上限 L3），而非审查 B1/B2 的 L2；holdAt2 在仓库中不存在，系 spec 写作时擅自替换，流程问题已认；L3 因裁定 4 片段专用渲染（机械标记行保留动作数+↩IDs）而使 B1 的 L2 理由消失，且 L3 体积归零、L4 语义为空（compressEnds 会编造意图），故 L3 为自然天花板；代价：L3 标记行丢 target/detail，旧片段需靠 query 或 recall 定位；改回 L2 仅需一行改动（to >= 4 → to >= 3）+ spec/测试/文案同步约半小时，但作者判断 L3 更对；待办：无论选哪个，spec 应补记「原审查 B1/B2 均以 L2 为上限，本 spec 改为 L3，理由见 §2 裁定 3」以记录偏离，待用户裁定是否添加
+  [A 15字] 确认审查修复落地与降级上限L3
+  [B 94字] 在分支 fix/review-findings-2026-09-20（16 commits，324 passed）上落地四项裁定，并确认降级上限采用 holdAt3（L3）而非改回 L2。
+
+--- 组 66 ---
+  [L4 743573e2] 意图：询问 L3 格式是否只适用于溢出片段
+     结果：只对溢出片段是这种格式；`src/ledger.ts:97-127` 中 `l.isFragment` 分支独立于整 turn 分支；L3 下同一日志头里两种形态并存（整 turn 保留两端原文，溢出片段用单行机械标记 `### T{n} · 片段（k 个动作） ↩id1,↩id2…`）；片段无两端（`userMessage`/`finalReply` 不存在），L3 沿用整 turn 骨架会退化成零信息（问题 B）；判断依据是显式字段 `isFragment`（由 `SummarizerEngine` 透传写入），非靠 `userMessage` 缺失推断（只含图片的用户消息也会令其为 undefined）；已知残留：升级前旧片段条目无 `isFragment` 字段，按整 turn 语义渲染（旧行为 `用户意图：（未知）`），直到墓碑化吸收，spec §4.1 记录不迁移。
+  [L4 e8ef98c7] 意图：确认 threshold 40000→20000 是否改了产品参数
+     结果：产品参数未改，`src/config.ts` diff 0 行，默认值仍为 `ledgerDegradeThresholdTokens: 40000`/`ledgerReserveTokens: 10000`；改动仅限测试 fixture `tests/degrade.test.ts` 中 `DegradeEngine` config 字面量 40000→20000，因 Task 3 后 L3 片段渲染体积从 21013 tok 降至约 10 tok，旧 fixture 无法触发降级，新值使 L3 层总量 21023>20000 触发；同时修正了原恒真断言，新增 `mergeGroups` 长度断言防空数组恒真；该改动在 SDD 中作为实现者偏离 brief 已独立复核成立；待办：是否将测试局部阈值提为具名常量（如 `TEST_THRESHOLD = 20000`），仅可读性优化不影响行为。
+  [A 14字] L3 片段格式与降级阈值调整
+  [B 87字] L3 降级片段格式（isFragment 分支）与测试阈值调整（40000→20000，src/ledger.ts、tests/degrade.test.ts，产品默认未改）
+
+--- 组 67 ---
+  [L4 c50941d8] 意图：确认当前生效的keepRecentTokens值及20000的来源
+     结果：运行时生效值为40000（项目级.pi/settings.json覆盖默认值）；代码默认值DEFAULT_CONFIG.keepRecentTokens=20000（src/config.ts:26，仅未配置时用）；tests/degrade.test.ts中20000为ledgerDegradeThresholdTokens的测试局部值，与keepRecentTokens无关；loadConfig（src/config.ts:55-61）用项目配置覆盖全局配置，有值即用；20000出现在两个场合均为默认值或测试fixture，非运行时值；可通过/compress-status或读取.pi/settings.json确认生效值（该文件仅含keepRecentTokens:40000一项）。
+  [L4 250d56e6] 意图：确认/compress-status功能现状并选择后续实现方案
+     结果：核心结论：/compress-status未实现配置值→生效值对照，此前描述为待办事项混淆；限制条件：当前仅能手动对照settings.json或查看日志获取生效值；待办风险：钳制不透明（如recallMaxTokensPerEntry设100被静默钳至500），方案A（钳制透明化，~20行+1测试）与方案B（生效配置全览，~40行+测试且存在双份真相风险），倾向方案A；遗留问题：完整配置清单属于README职责
+  [A 27字] 确认配置生效值并评估compress-status方案
+  [B 110字] 核查配置生效值（keepRecentTokens运行时40000、默认20000）与/compress-status缺失对照，选定方案A以透明化recallMaxTokensPerEntry钳制（100被静默钳至500）
+
+--- 组 68 ---
+  [L4 e1f5b503] 意图：请求摘要模型回复内容，并输出为JSON
+     结果：Stash 已清，`fix/review-findings` 分支引用已复原到 `40afddc`；`fix/review-findings` 状态为 16 commits、324 passed / 1 skipped、tsc 干净、终审 Ready to merge，可 ff 合并；合并冲突实测仅 `src/index.ts` 1 处 import 行机械叠加，其余自动合并，解决后 334 passed / 1 skipped；建议合并顺序为先 ff 合并 fix 分支再 rebase feat 分支；待裁定项包括 fix 分支是否合并，以及 `e2e/reports/` 下 5 个已跟踪文件是否 `git rm --cached`（其中 `2026-09-05-current-context-dump.md` 为 bench 输入 fixture，删了会断）；无残留 worktree，工作区干净。
+  [L4 a2b2d7dc] 意图：请求对 .gitignore 中 e2e/reports/ 规则与已跟踪文件冲突的处理方案进行裁定，并按指定顺序合并执行
+     结果：核心结论：需要用户裁定 A（最小方案）或 B（彻底方案）处理 fixture 文件，以及两个 rpc-driver 脚本命运；关键参数：`.gitignore` 已有 `e2e/reports/`，5 个文件在规则生效前已被跟踪；`2026-09-05-current-context-dump.md`（87KB）被 `bench/real-model-e2e.test.ts:88` 作为输入 fixture，`git rm --cached` 会导致 CI/新克隆 bench 失败；`2026-09-01-summary-before-after.md`（10KB）被 `e2e/rpc-driver2.mjs:134` 硬编码读取，`--cached` 后新克隆脚本会 file not found；`2026-09-01-context-before-after.md`（149KB）仅被 spec 文档文字引用，删则证据链接悬空；`2026-09-05-performance.md`（8.8KB）和 `2026-09-06-recall-window-e2e.md`（2.2KB）无代码引用；`rpc-driver.mjs` 内容疑似损坏（单行乱码）；限制：A 方案保留 fixture 但达成产物不入库，B 方案需移动 fixture 并修改 bench 路径一行；待办：用户需裁定 A/B 及两个 rpc-driver 脚本处理方式（清理或保留观察），可先删 3 个纯产物但第三个需处理 spec 引用悬空
+  [A 18字] 合并分支与e2e报告文件跟踪冲突裁定
+  [B 160字] 处理 fix/review-findings 分支（40afddc，16 commits，334 passed）合并及 e2e/reports/ 已跟踪文件与 .gitignore 冲突，需裁定 A/B 方案与 rpc-driver 脚本（涉及 2026-09-05-current-context-dump.md 等）
+
+--- 组 69 ---
+  [L4 d87ecce0] 意图：确认合并策略并继续执行
+     结果：合并完成：fbe9bb1→40afddc（16 commits）、40afddc rebase main（2 commits，1 处 import 冲突）、0d92dc7 已推送；336 passed / 1 skipped，tsc 干净，特性分支已删除；e2e 产物方案 B：87KB 输入 mv 至 bench/fixtures/ 加 README，4 个纯产物 --cached 移除，新增 2 条守卫测试；rpc-driver.mjs 保持现状并注明本地产物依赖；项目记忆文件被 rebase 覆盖，已从 dangling commit e0dd73a 找回重建，nextId/seq 一致；风险：notes 文件入 git 参与 rebase 冲突面（第二个论据支持 gitignore）；待办：task-005（M5/M6/M8）、task-003（图片透传/cache/LLM-judge/常量提取）、task-006（新项目）；本地领先 origin 1 个 commit（78bc2d2），网络恢复后 push origin main。
+  [L4 2dd48f80] 意图：告知网络已恢复，请求继续推送同步
+     结果：推送成功，本地 main = 远程 main = 78bc2d2，工作区干净；本轮上远程 fbe9bb1..78bc2d2 共 19 个 commit（含 fix 分支 16 项修复、配置修正、e2e 产物分离、项目记忆同步）；测试基线 336 passed / 1 skipped，tsc 干净；待办：task-005（M5 观察、M6/M8 顺手做）、task-003（图片透传观察、cache 量化等锦上添花）、task-006（新项目独立仓库）；风险：CI 首次在真实环境运行（.github/workflows/ci.yml 为 fix 分支新增），需去 Actions 确认是否绿灯，此前仅本地干净 HOME 模拟验证。
+  [A 23字] 完成分支合并推送与记忆同步，确认测试基线和待办
+  [B 151字] 完成 fbe9bb1→78bc2d2 的合并、rebase main 与远程推送（共 19 commits），main 同步至 78bc2d2，测试基线 336 passed / 1 skipped，tsc 干净；e2e 产物分离方案 B 落地，项目记忆文件已从 dangling commit 恢复。
+
+--- 组 70 ---
+  [L4 8795fb60] 意图：执行方案A并提交实现
+     结果：核心结论：方案A已实现并提交，分支 `feat/config-adjustment-report`，未合并main；关键参数：`src/config.ts` 新增 `loadConfigWithReport()`（返回 `{config, adjustments}`），`src/index.ts` 的 `session_start` 存下 `configAdjustments`，`/compress-status` 仅在修正时显示配置修正行；验证：差分探针零差异（18种取值×多个字段），测试 311 passed / 1 skipped（+7），tsc 干净；限制条件：`readNum` 仅在默认值且用户值≠默认值时记 `out-of-range`（显式设默认值不误报，但值恰为默认值时不会报越界）；待办/风险：分支合并需先裁定 `fix/review-findings-2026-09-20`（16 commits）去留再rebase解冲突；`stash@{1}` 建议 drop，待确认；`task-007` 四项已补录项目记忆
+  [L4 e167bf07] 意图：询问两个脚本的作用
+     结果：推送成功（第4次）；合并完成：fbe9bb1→40afddc（fix/review-findings-2026-09-20，16 commits）→main，40afddc rebase到main（feat/config-adjustment-report，2 commits，1处import冲突）；冲突仅1处（src/index.ts），与预测一致；验证：324→334→336 passed/1 skipped，tsc干净；分支已删除，工作区干净；e2e方案B：87KB的2026-09-05-current-context-dump.md是bench输入（readFileSync真读），git mv到bench/fixtures/，其余4个纯产物git rm --cached，新增2条守卫测试，悬空引用清理（spec加勘误注记、rpc-driver2.mjs注明依赖本地产物、README补分工）；本地与干净HOME均336 passed，git ls-files e2e/reports为空，fixture在gitignore外可分发；更正误判：rpc-driver.mjs未损坏（node --check通过，173/149行），两个脚本保留且tests/tooling.test.ts锁定driver2能力；待决定：rpc-driver.mjs与rpc-driver2.mjs取舍（均手动工具，driver2依赖本地产物），选项：保持现状／合并／删除driver1；待办：recall分页已done，图片透传观察、三项锦上添花、M6/M8卫生。
+  [A 20字] 实现方案A并推送合并分支，处理e2e产物
+  [B 115字] 配置调整报告功能的实现与合并（分支 feat/config-adjustment-report，涉及 src/config.ts、src/index.ts，commit fbe9bb1→40afddc，含 e2e 产物清理与验证）
+
+--- 组 71 ---
+  [L4 9ce75a4e] 意图：查看 CI 验证结果
+     结果：CI 状态全绿，3 次运行全部成功（35528306555/78bc2d2、35525426678/0d92dc7、35523212306/3f83639），步骤全过（checkout→setup-node→npm ci→typecheck→test），测试结果 336 passed / 1 skipped（19 文件，跳过需 LANFENG_SMOKE=1 的用例）；验证了 CI 环境可跑（依赖 settings.json 的用例已修对）且 bench 未混入 npm test（本地 23 files → CI 19 files）；两条非阻塞告警：Node.js 20 弃用（actions/checkout@v4 和 setup-node@v4 需升至 @v5，一行改动）、ubuntu-latest 将于 2026-10-19 迁移到 Ubuntu 26（无需动作）；待办/风险：可选升 @v4→@v5 消除弃用告警，不影响 CI 通过。
+  [L4 6c989c33] 意图：用户同意并指示按建议修改CI配置
+     结果：核心结论：完成并验证通过；关键标识：commit `420213e`，CI运行 `35529759961` 通过（30s），本地测试 337 passed / 1 skipped，tsc 干净；变更内容：actions/checkout 与 setup-node 升至 @v7，消除 Node 20 弃用告警；版本选择依据：@v5/@v6/@v7 均用 node24，选 v7 因含 ESM 迁移与安全修复；兼容性核实：checkout 无参数、setup-node 只用 node-version + cache，input 在 v7 中存在，无 packageManager 字段影响；顺带加的守卫：tests/tooling.test.ts 新增禁止 @v0-v4、要求 @v5+ 的测试，并用变异测试验证有效；遗留：只剩 Ubuntu 26 迁移通知（纯信息）；风险：无
+  [A 20字] 查看CI验证结果并升级actions版本
+  [B 154字] 完成 GitHub Actions CI 配置升级：actions/checkout 与 setup-node 升至 v7，消除 Node 20 弃用告警，commit 420213e，CI 运行 35529759961 通过，337 passed，并新增 tests/tooling.test.ts 守卫。
+
+--- 组 72 ---
+  [L4 c2b9a101] 意图：询问各等级摘要的存储方式
+     结果：五级摘要不各存一份，而是每条LedgerData一个条目+level字段；降级只改level数字，从不删除字段；L1时数据含全部字段，L3→L4补写userIntent/outcome，L4→L5补写merged.description；userMessage/finalReply原文从L1起完整存在、任何层级不删；落盘位置为会话文件自定义条目LEDGER_CUSTOM_TYPE="context-compress:ledger"，append-only；store为内存Map，session_start时由rebuildFromEntries重建；生成时机：L1由SummarizerEngine 1次/turn，L1→L2/L2→L3机械0次，L3→L4由compressEnds 1次/turn，L4→L5由mergeDescribe 1次/组并写入组内每一条；降级先改level再调LLM，失败回滚；片段用墓碑标记而非物理删除；动作行ID直接复用entry ID；限制：会话文件可能短暂出现level=4但userIntent未写的中间态；待办/风险：无
+  [L4 c665bd5a] 意图：讨论L5按任务聚合的可行性及召回内容选择
+     结果：核心结论：方向对、诊断准，但建议拆成两步：先做L5可召回（小、独立，直接解决数据坟墓），再做按任务聚合（可用折中方案：mergeDescribe 内部分段，跨批同任务需方案B单独立项）；L5召回默认应返回整组turn的原始全文（逐字分页），L3视图可作为可选模式（需加schema复杂度），L4视图无用排除；任务边界检测以L4（意图+outcome）为主输入（现成mergeDescribe就用它），L3用户原话为备选（若边界质量差再加）；限制：任务边界只有结束后才看得全，但降级是随会话增量跑的，可能同一任务被拆成两条L5行（比M4更糟）；待办/风险：L5可召回后需改写spec §7、README、M9的拒绝机制，删除rejected统计与防御文案；跨批同任务合并（方案B）需额外LLM判断，成本高；需用探针量化L4边界检测质量；先落L5可召回（半天级），再用探针测L4边界质量再决定第二步。
+  [A 15字] 多级摘要存储与L5聚合召回设计
+  [B 72字] 围绕上下文压缩摘要的level字段存储模型与L5聚合召回设计，明确L5返回整组原文、以L4为任务边界输入，后续需更新spec/README/M9
+
+--- 组 73 ---
+  [L4 09d141e8] 意图：讨论并裁定L5召回与任务边界标记的方案
+     结果：核心结论：L5召回返回L3视图（同意），任务边界改为每turn布尔`startsNewTask`（不标记结束，因结束需下一任务出现才可知）；`compressEnds`输入已有L3原文，零额外成本解掉task-008输入选择问题；残留难点：跨批同任务拆两行（v1接受拆分，先测频率）、存量L5无标记（回退到M4描述相同即同组）、L5行需带任务锚点ID（首turn的entryId）；连带改动：recall.ts的L5拒绝分支改为任务级L3视图、删除rejected字段与相关计数、重写spec §7与README、`mergeDescribe`输入改为一个任务；待裁定三点：是否同意`startsNewTask`方案、跨批同任务是否接受拆分、L5锚点是否同意；待办：task-008（意图大小讨论）、跑探针测边界判断准确率；限制：L3视图约1-2k tokens/5-turn任务、需补上一轮userIntent（≤20字）上下文；遗留：模型不知任务是否结束、避免猜测导致标不准
+  [L4 3c452692] 意图：确认三点修改意见并讨论L5按任务分组的实现障碍与方案
+     结果：核心结论：方向同意，但L5按任务分组存在结构性障碍，需先调整时机；建议v1只做L5分组按任务；②选(a)整个ledger最后一个任务不合并；③接受超限；关键参数：mergeGroups在planDegrade时定死（degrade.ts:60-96），任务标记在L3→L4 compressEnds产出；限制条件：planDegrade只出steps，L3→L4后新纯函数groupByTask(ledgers)现算合并组；待办：确认①范围（小方案L5分组按任务 vs 大方案降级单位变任务）、②(a)/(b)、③接受超限后写spec（含startsNewTask字段、groupByTask、mergeGroups移出plan、L5召回改L3粒度）；风险：存量无标记fallback（默认视为边界）、被排除任务残留plan.steps需过滤；建议先跑探针测startsNewTask准确率
+  [A 18字] 讨论并确定L5召回与任务边界标记方案
+  [B 117字] 围绕L5召回与任务边界标记，确定采用startsNewTask标记任务边界，L5按任务分组并返回任务级L3视图，mergeGroups改为按groupByTask现算，涉及degrade.ts、spec §7与compressEnds
+
+--- 组 74 ---
+  [L4 c819fe47] 意图：确认 L4→L5 压缩算法的设计方案
+     结果：核心结论：算法从「最旧优先、压到刚好够」改为「从尾部按任务累计，边界任务整任务保留，更旧任务全部升 L5；分组时机需移到 L3→L4 之后，拆成两段 planning/execution；此改动顺带消除 M5；待确认 ①全压语义（同意）②调用次数 A 每任务一次（倾向）或 B 批量 ③边界任务自身超阈时强制压最新（建议照搬守卫）④无标记 L4 按连续段视为同一任务（建议）；存量无标记数据按相邻即同组；代价：DegradePlan.mergeGroups 字段移除，degrade.test.ts 有断言需更新；L4→L5 为极低频路径，建议保持低复杂度，选 A；确认后写 spec 含 startsNewTask 字段、planMergeGroups 纯函数、mergeGroups 移出 plan、L5 召回改任务级 L3 视图、spec §7/README/rejected 统计改写；待办：用户裁定 ①-④，之后实施。
+  [L4 1f37b602] 意图：对比新旧方案在跨批同任务拆分问题上的差异
+     结果：核心结论：新方案（task 边界）从根上消除跨批同任务拆分，旧方案（per-turn 边界）结构性必然拆分；新方案无需跨批重合并，零修复代价；组身份来源从 merged.description 字符串相等改为任务标记；每轮压所有旧任务，头部压完即稳定；残留风险从结构问题变为 startsNewTask 标记准确率问题：假阳性导致真任务碎成两行（等价旧拆分），假阴性导致任务并成一行且召回混叠（更糟），故 task-008 探针从可选升级为前置；附带红利：可顺手修掉 P3 根，渲染聚合改按任务标记断行，存量无标记老数据走描述相等回退；对 spec 影响：删除跨批同任务拆分待裁定项与跨批重合并选项，新增渲染聚合改按任务边界（待裁定），升级 task-008 为前置依赖；限制条件：假阴性率偏高则需重新考虑按任务聚合前提，可能加一轮 LLM 复核边界；待办：先跑边界标记准确率探针再决定是否写 spec；
+  [A 20字] L4→L5压缩算法方案设计与跨批拆分对比
+  [B 79字] L4→L5 压缩算法设计：确认按任务边界（startsNewTask）替代 per-turn 边界，消除跨批同任务拆分，升级 task-008 探针为前置依赖
+
