@@ -21,6 +21,20 @@ function ledgerFor(turn: { startEntryId: string; endEntryId: string }): LedgerDa
   };
 }
 
+/** L1/L2/L3 形态：summary 只有 entries（无 userIntent/outcome），但有全量 userMessage */
+function ledgerL3For(
+  turn: { startEntryId: string; endEntryId: string },
+  userText = "这一轮用户问了什么",
+): LedgerData {
+  return {
+    turnStartEntryId: turn.startEntryId,
+    turnEndEntryId: turn.endEntryId,
+    summary: { entries: [] },
+    userMessage: { text: userText, entryId: turn.startEntryId },
+    level: 3,
+  };
+}
+
 describe("dumpContext", () => {
   it("turns 标注窗口归属：窗外有摘要 replaced（附 ledger 摘要），窗口内 lead", () => {
     const big = "z".repeat(4000);
@@ -37,6 +51,59 @@ describe("dumpContext", () => {
     expect(dump.turns[1].ledger).toBeUndefined();
     // stats 与 assembleContext 同源：替换 1、窗口 1
     expect(dump.stats).toEqual({ windowTurns: 1, replacedTurns: 1, passthroughTurns: 0 });
+  });
+
+  it("l3Summary 回退：无 userIntent 但有 userMessage 时，turns 表显示用户消息首段（不再空白）", () => {
+    const big = "z".repeat(4000);
+    const branch = [
+      msg("a", "user", big), msg("b", "assistant", big), // turn1：L3 形态（无 userIntent）
+      msg("c", "user", "q2"), msg("d", "assistant", "a2"),
+    ];
+    const cache = new Map([
+      ["a", ledgerL3For({ startEntryId: "a", endEntryId: "b" }, "那按 turn 逐条从最旧选")],
+    ]);
+    const dump = dumpContext(branch, cache, { ...DEFAULT_CONFIG, keepRecentTokens: 100 });
+    expect(dump.turns[0].lead).toBe("replaced");
+    expect(dump.turns[0].ledger?.userIntent).toBeUndefined();
+    expect(dump.turns[0].ledger?.l3Summary).toBe("那按 turn 逐条从最旧选");
+
+    const md = renderMarkdown(dump);
+    expect(md).toContain("那按 turn 逐条从最旧选");
+  });
+
+  it("l3Summary 与 userIntent 互斥：有 userIntent 时不产生 l3Summary（L4 行为不变）", () => {
+    const big = "z".repeat(4000);
+    const branch = [msg("a", "user", big), msg("b", "assistant", big), msg("c", "user", "q2"), msg("d", "assistant", "a2")];
+    const l4: LedgerData = {
+      turnStartEntryId: "a", turnEndEntryId: "b",
+      summary: { userIntent: "意图", outcome: "结论", entries: [] },
+      userMessage: { text: "原始用户消息", entryId: "a" }, level: 4,
+    };
+    const dump = dumpContext(branch, new Map([["a", l4]]), { ...DEFAULT_CONFIG, keepRecentTokens: 100 });
+    expect(dump.turns[0].ledger?.userIntent).toBe("意图");
+    expect(dump.turns[0].ledger?.l3Summary).toBeUndefined();
+  });
+
+  it("l3Summary 回退：超长用户消息截断到 60 字 + 省略号", () => {
+    const big = "z".repeat(4000);
+    const long = "一二三四五六七八九十".repeat(20); // 200 字
+    const branch = [msg("a", "user", big), msg("b", "assistant", big), msg("c", "user", "q2"), msg("d", "assistant", "a2")];
+    const cache = new Map([["a", ledgerL3For({ startEntryId: "a", endEntryId: "b" }, long)]]);
+    const dump = dumpContext(branch, cache, { ...DEFAULT_CONFIG, keepRecentTokens: 100 });
+    const s = dump.turns[0].ledger?.l3Summary ?? "";
+    expect(s.length).toBeLessThanOrEqual(61); // 60 + 省略号
+    expect(s.endsWith("…")).toBe(true);
+  });
+
+  it("l3Summary 回退：无 userMessage（如仅图片）时保持空白，不抛错", () => {
+    const big = "z".repeat(4000);
+    const branch = [msg("a", "user", big), msg("b", "assistant", big), msg("c", "user", "q2"), msg("d", "assistant", "a2")];
+    const noUser: LedgerData = {
+      turnStartEntryId: "a", turnEndEntryId: "b", summary: { entries: [] }, level: 2,
+    };
+    const dump = dumpContext(branch, new Map([["a", noUser]]), { ...DEFAULT_CONFIG, keepRecentTokens: 100 });
+    expect(dump.turns[0].ledger?.l3Summary).toBeUndefined();
+    expect(renderMarkdown(dump)).toContain("replaced");
   });
 
   it("窗外无摘要 → passthrough 标注，原文照发进 messages", () => {

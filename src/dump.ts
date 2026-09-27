@@ -33,7 +33,8 @@ export interface DumpTurn {
   tokens: number;
   /** lead = 窗口内原文；replaced = 窗外已折叠进 ledger；passthrough = 窗外无摘要原文照发 */
   lead: "lead" | "replaced" | "passthrough";
-  ledger?: { userIntent?: string; outcome?: string };
+  /** L4 及以下：摘要意图/结论。L1/L2/L3 无此二字段时改用 l3Summary 回退 */
+  ledger?: { userIntent?: string; outcome?: string; l3Summary?: string };
 }
 
 export interface ContextDump {
@@ -73,6 +74,16 @@ function messageText(m: AgentMessage): string {
   return parts.join("\n");
 }
 
+/** L1/L2/L3 条目无 userIntent/outcome（那是 L3→L4 才写入的），turns 表会整列空白。
+ *  回退用 userMessage 首段，让审计者看得出这一轮讲什么；L4 有 userIntent 时不产生。 */
+const L3_SUMMARY_MAX = 60;
+function l3SummaryOf(cached: LedgerData): string | undefined {
+  const text = cached.userMessage?.text?.trim();
+  if (!text) return undefined;
+  const flat = text.replace(/\s+/g, " ");
+  return flat.length > L3_SUMMARY_MAX ? `${flat.slice(0, L3_SUMMARY_MAX)}…` : flat;
+}
+
 /** 与真实装配同一次 turn 划分（基于 trimmedBranch，与 assembleContext 同源）：
  *  窗外有摘要 → replaced（附 ledger 摘要），其余按窗口归属标注。
  *  已知瞬态：fragment≠null（新切片段尚未落盘）时，片段条目仍在 trimmedBranch 中（原文
@@ -91,7 +102,11 @@ function dumpTurns(turns: Turn[], window: Turn[], cache: Map<string, LedgerData>
       tokens: turnTokens(t),
       lead,
       ...(cached && lead === "replaced"
-        ? { ledger: { userIntent: cached.summary.userIntent, outcome: cached.summary.outcome } }
+        ? {
+            ledger: cached.summary.userIntent
+              ? { userIntent: cached.summary.userIntent, outcome: cached.summary.outcome }
+              : { l3Summary: l3SummaryOf(cached) },
+          }
         : {}),
     };
   });
@@ -178,7 +193,7 @@ export function renderMarkdown(d: ContextDump): string {
   lines.push(`|---|---|---|---|---|`);
   d.turns.forEach((t, i) => {
     const ledger = t.ledger
-      ? [t.ledger.userIntent, t.ledger.outcome].filter(Boolean).join(" / ")
+      ? [t.ledger.userIntent, t.ledger.outcome, t.ledger.l3Summary].filter(Boolean).join(" / ")
       : (t.lead === "passthrough" ? "（窗外无摘要 → 原文照发）" : "");
     lines.push(`| ${i + 1} | ${t.startEntryId} | ${t.lead} | ${t.tokens} | ${ledger} |`);
   });
