@@ -42,7 +42,7 @@ L5 是当前唯一的「合并终态」层：`planDegrade` 把本轮升 L5 的�
 | 3 | **失败兜底 = 单条重跑**。某条返回 null/空 → 该条单独调一次 | 用户裁定。避免整批重试的放大成本 |
 | 4 | **步长 2 分组取消**。原 T158「固定步长 2」不再需要——逐条即天然粒度为 1 | 裁定 1 的下推结论 |
 | 5 | **L5 可召回 = 与 L3/L4 完全一致，返回该 turn 的整段原文** | 用户裁定（2026-09-27）。取消合并后 L5 与 L3/L4 同为「单 turn 降级形态」，无理由区别对待；「L3 视图」是合并形态下的折中（一组含多 turn 时整段原文会爆），取消合并后该折中失去依据 |
-| 6 | **L5 行渲染锚点 ↩ID**（复用 `turnStartEntryId`），使召回有入口 | 当前 L5 行无任何 ID，用户无从召回 |
+| 6 | **L5 行渲染锚点 ↩ID**（复用 `turnStartEntryId`），使召回有入口 | 当前 L5 行无任何 ID，用户无从召回。一 turn 一行后锚点即该行的唯一 ID |
 | 7 | **不做 L6+**，L5 不限制大小 | T159 原裁定，维持 |
 | 8 | **只管 L4→L5**，不改 L1→L4 选择粒度 | `2026-09-21` 裁定 8，维持 |
 
@@ -63,7 +63,7 @@ L5 是当前唯一的「合并终态」层：`planDegrade` 把本轮升 L5 的�
 
 **不再有组**：每条 L5 条目恰好对应一个 turn，`merged.description` 只属于它自己。
 
-**兼容存量**：旧数据里一组多条共享同一 `merged.description`。渲染时按「相邻 + 描述相同」继续聚合（M4 逻辑保留），但**新产生的数据不再出现这种情况**（描述各不相同）。存量 L5 条目无锚点需求变化（`turnStartEntryId` 一直存在）。
+**兼容存量**：旧数据里一组多条共享同一 `merged.description`。**不做数据迁移** —— 旧描述与旧后缀原样保留，仅渲染形态随聚合分支的删除而改变（由「合并成一行」变为「每条各占一行，各带自己的 ↩ID」）。存量 L5 条目的 `turnStartEntryId` 一直存在，锚点无需补写。
 
 ### 3.2 计划期（`degrade.ts`）
 
@@ -94,6 +94,10 @@ L4→L5 从「逐组」改为「**先把所有 toLevel=5 的条目收集起来 �
 ```
 
 **失败语义**：单条失败 → 该条保持 L4（下次 agent_settled 重试）。**不再有「整组回滚」**（因为没有组）。
+
+**时序约束（必须遵守）**：`compressMany` 必须在写 `level = 5` **之前**调用 —— 与现状 `mergeDescribe` 同理（`degrade.ts:142` 注释）。若先置 L5，则 `summary` 输入路径会读到已降级状态，且重入时描述已被覆盖。
+
+**输入可用性依赖**：`compressMany` 读 `summary.userIntent` / `summary.outcome`，这两个字段由 L3→L4 的 `compressEnds` 写入。`planDegrade` 可在单次调用内双跳（L3→L4→L5，`degrade.ts:73-80` 就地修改 `working`），此时**执行顺序保证** `compressEnds`（`129-140`）先于 L5（`141+`）跑完。这个保证来自代码顺序，**不是类型系统**——重构执行顺序时必须重新验证。
 
 ### 3.4 LLM 接口（`degrade-llm.ts`）
 
@@ -146,18 +150,43 @@ export function buildBatchRecompressPrompt(items: LedgerData[]): string
 只输出 JSON：{"items": [{"index": number, "description": string}, ...]}
 ```
 
-输入文本用 `ledger.summary.userIntent` / `ledger.summary.outcome`（**不是** `renderTurnText`——因为输入要求是「已完成的摘要」，且探针就是喂的这两个字段）。
+**输入文本格式**：用 `ledger.summary.userIntent` / `ledger.summary.outcome` 拼成 `意图：…\n结果：…`，**不用 `renderTurnText`**。
+
+⚠️ **这是一处对现状的偏离，实施前必须补验证**。现状 `mergeDescribe`（`degrade-llm.ts:37`）喂的是 `renderTurnText(l, 0)`，输出形如：
+
+```
+### T0 · 意图：xxx ↩abc123
+- 最终回复（摘要）：yyy ↩def456
+```
+
+而探针喂的是**干净文本**（`意图：…\n结果：…`，无 `T0` 标记、无 ↩ID）。两者不等价，**探针的「N=20 稳定、无串位」结论不能直接外推到现状格式**。
+
+选干净文本的理由：输入语义是「已完成的摘要」，`T0` 与 ↩ID 是渲染噪声（且 `T0` 编号本身是占位符）。
+
+**实施前的前置任务**：用 `renderTurnText` 格式重跑一次 N=20 对照探针，确认不串位；若串位则改用干净文本（即本 spec 的方案），并记录差异。
 
 ### 3.6 渲染（`ledger.ts`）
 
-**L5 单条渲染**（`renderTurnText` 的 `lvl === 5` 分支）：加锚点 ↩ID。
+**一个 turn = 一条 L5 行 = 一条描述**（裁定 1 的直接结果）。
+
+**渲染单条**（`renderTurnText` 的 `lvl === 5` 分支）：加锚点 ↩ID。
 
 ```ts
 // 旧：lines.push(`T${n} · ${desc}`);
 lines.push(`T${n} · ${desc} ↩${l.turnStartEntryId}`);
 ```
 
-**L5 聚合渲染**（`renderActionLedger`）：逻辑保留（相邻 + 描述相同），但由于新数据描述各不相同，实际每行一条。存量旧数据（一组多条的共享描述）继续正确聚合成一行。
+**聚合渲染**（`renderActionLedger` 的 L5 段，`ledger.ts:170-192`）：**整块删除**。
+
+删掉的依据：
+
+- 聚合条件是「相邻 + `merged.description` 相同」。新数据**每条描述各不相同** → 循环永远只切出 1 条 → 永远走 `group.length === 1` 路径
+- 而 `group.length === 1` 的输出是 `### T{n} · {desc}`，与 `renderTurnText` 的 `T{n} · {desc} ↩{id}` **只差一个 `### ` 前缀** —— 而新方案要的正是带 ↩ID 的形态，聚合分支成了纯负担
+- 删除后 L5 条目走通用路径（`renderTurnText(l, i+1)`），与 L3/L4 一致
+
+**「（N 条已合并）」后缀取消**：`compressMany` / `compressOne` 不再追加此后缀（现状 `degrade-llm.ts:51` 会加）。一个 turn 一条描述，「N 条」无意义。**存量旧数据的后缀保留原样**（不回溯改写）。
+
+**连带消失**：Codex P3 的计数重写逻辑（`ledger.ts:181-187`）一并删除 —— 它修的问题（两个批次碰巧生成同一描述而被误聚合）在「一 turn 一描述」下不存在。
 
 ### 3.7 召回（`recall.ts`）
 
@@ -191,7 +220,7 @@ lines.push(`T${n} · ${desc} ↩${l.turnStartEntryId}`);
 | `src/degrade.ts` | `DegradePlan.mergeGroups` 删除；`planDegrade` 切段循环删除；`DegradeEngine.run` 的 L5 段重写为分片批量 |
 | `src/degrade-llm.ts` | `mergeDescribe` → `compressMany` + `compressOne` |
 | `src/prompts.ts` | `buildMergeDescriptionPrompt` → `buildBatchRecompressPrompt` |
-| `src/ledger.ts` | L5 渲染加锚点 ID（1 行） |
+| `src/ledger.ts` | L5 渲染加锚点 ID（1 行）；删除 `renderActionLedger` 的 L5 聚合分支（`170-192`，含 P3 计数重写逻辑） |
 | `src/recall.ts` | L5 拒绝分支删除，分支条件 `lvl >= 3 && lvl <= 4` → `lvl >= 3`（1 处）；`rejected` 字段删除 |
 | `src/index.ts` | recall 统计去掉 rejected |
 | `README.md` | L5 描述、召回行为、已知限制 |
@@ -212,7 +241,8 @@ lines.push(`T${n} · ${desc} ↩${l.turnStartEntryId}`);
 | 该 turn 无 `userMessage`/`finalReply` | 输入为空串；模型可能返回空 → 单条重跑 → 仍空则保持 L4 |
 | L5 turn 被 recall | 返回该 turn 整段原文（同 L3/L4） |
 | L5 turn 无 userMessage（纯图片 turn） | 整段原文路径不依赖 userMessage，正常返回 |
-| 存量旧 L5（一组多条共享描述） | 渲染仍按「相邻+描述相同」聚合成一行；召回按 turn 级，各自返回自己的整段原文 |
+| 新数据描述碰巧与相邻旧 L5 相同 | 聚合分支已删除 → 不可能误聚合（该风险随 3.6 一并消失） |
+| 存量旧 L5（一组多条共享描述） | 聚合分支已删除 → 每条各占一行（含自己的 ↩ID 与旧后缀）；召回按 turn 级，各自返回整段原文 |
 
 ---
 
@@ -222,6 +252,7 @@ lines.push(`T${n} · ${desc} ↩${l.turnStartEntryId}`);
 - 不改 L1→L4 的选择粒度与阈值（裁定 8）
 - 不恢复 `startsNewTask` / `taskAnchorId` / 按任务聚合（已被否证）
 - 不为 L5 描述加字数硬限制（L4 探针已证明硬限制会砍掉关键信息）
+- 不为存量旧 L5 做数据迁移（描述与旧后缀原样保留，仅渲染形态改变）
 - 不改 `searchLedger` 的检索字段（当前只检索 `userMessage.text` / `finalReply.text` / 动作 target+detail / `merged.description`，L5 描述仍可被检索到）
 
 ---
@@ -240,8 +271,8 @@ lines.push(`T${n} · ${desc} ↩${l.turnStartEntryId}`);
 | 8 | `DegradeEngine`：单条重跑仍失败 → 该条保持 L4 + warning，其余升 L5 | 单元（新） |
 | 9 | `DegradeEngine`：25 条待降级 → 2 次调用（20 + 5） | 单元（新） |
 | 10 | 渲染：L5 单条行含 `↩{turnStartEntryId}` | 单元（新） |
-| 11 | 渲染：存量旧 L5（描述相同）仍聚合成一行 | 单元（改既有） |
-| 12 | 渲染：新 L5（描述各不相同）各占一行 | 单元（新） |
+| 11 | 渲染：存量旧 L5（多条共享描述）→ 各占一行，不再聚合 | 单元（改既有） |
+| 12 | 渲染：L5 行含 ↩ID；不再出现 `（N 条已合并）` 新后缀 | 单元（新） |
 | 13 | 召回：L5 的 ID → 返回该 turn 整段原文（含工具过程，与 L3/L4 一致） | 单元（新） |
 | 14 | 召回：L5 的 ID → 不再返回「不可恢复」文案 | 单元（改既有） |
 | 15 | 召回：L5 turn 整段原文超预算 → 截断 + offset 续取 | 单元（新） |
@@ -249,6 +280,7 @@ lines.push(`T${n} · ${desc} ↩${l.turnStartEntryId}`);
 | 17 | 统计：`rejected` 字段移除后 calls/hits 计数正确 | 单元（改既有） |
 | 18 | 提示词：`buildBatchRecompressPrompt` 含逐条对应契约与条数声明 | 单元（新） |
 | 19 | 缺省路径：不含 L5 的会话，装配渲染逐字节不变 | 单元（防护） |
+| 20 | **前置探针**：用 `renderTurnText` 格式重跑 N=20，确认不串位（见 3.5 ⚠️） | 探针（实施前） |
 
 ---
 
@@ -256,7 +288,7 @@ lines.push(`T${n} · ${desc} ↩${l.turnStartEntryId}`);
 
 | 项 | 说明 |
 |---|---|
-| **成本** | 900 条 L4 → 约 45 次调用（N=20），实测 10–52s/批 → 约 5–20 分钟后台。比现状（约 15 次）贵 3 倍，换来标识保留与正确性 |
+| **成本** | 900 条 L4 → 约 45 次调用（N=20）。实测 N=20 两批 10s / 52s，取中位约 30s → **约 20 分钟后台**（乐观 8 分钟、悲观 40 分钟）。比现状（约 15 次）贵 3 倍，换来标识保留与正确性 |
 | **耗时波动** | 实测同规模批次 39s vs 99s（2.5 倍）。reasoning 模型固有特性，无法控制 |
 | **未测更大批量** | N=40 通过（8/8），N=80/100 未测。保守取 20 |
 | **L4 层增长** | L5 现在是逐条压缩，压缩率 0.40，L5 层体积比现状（合并 0.43 但组更少）**更大**。这是换取信息保留的代价 |
