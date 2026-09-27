@@ -25,19 +25,16 @@ describe("planDegrade", () => {
     const ls: LedgerData[] = [ledger("f1", 3, 21000), ledger("old", 3, 21000), ledger("l4old", 4, 21000)];
     (ls[0] as any).isFragment = true;
     // Task 3 后 L3 片段渲染为机械标记行（~10 tok）；L3 层 21023 > 20000 触发瀑布，
-    // 随后 L4 层（l4old + 刚升上来的 old）也超阈 → 产生真实 L5 合并组（f1 不得进入）
+    // 随后 L4 层（l4old + 刚升上来的 old）也超阈 → 产生真实 L5 降级（f1 不得进入）
     const plan = planDegrade(ls, 20000, 0, new Set(["f1"]));
     expect(plan.steps.find((s) => s.turnStartEntryId === "f1" && s.toLevel >= 4)).toBeUndefined();
     expect(plan.steps.find((s) => s.turnStartEntryId === "old" && s.toLevel === 4)).toBeDefined();
-    expect(plan.mergeGroups.flat()).not.toContain("f1"); // 片段不进合并组
-    expect(plan.mergeGroups.flat().length).toBeGreaterThan(0); // 断言非空，避免恒真
   });
 
   it("no plan when every level under threshold", () => {
     const ls = [ledger("a", 1, 1000), ledger("b", 1, 2000)];
     const p = planDegrade(ls, 40000, 10000);
     expect(p.steps).toEqual([]);
-    expect(p.mergeGroups).toEqual([]);
   });
 
   it("degrades oldest L1 turns preserving reserve floor when L1 exceeds threshold", () => {
@@ -47,7 +44,6 @@ describe("planDegrade", () => {
       { turnStartEntryId: "t1", toLevel: 2 }, { turnStartEntryId: "t2", toLevel: 2 },
       { turnStartEntryId: "t3", toLevel: 2 },
     ]);
-    expect(p.mergeGroups).toEqual([]);
   });
 
   it("waterfalls: L2 overflow degrades oldest to L3", () => {
@@ -78,23 +74,20 @@ describe("planDegrade", () => {
       { turnStartEntryId: "t1", toLevel: 4 }, { turnStartEntryId: "t2", toLevel: 4 },
       { turnStartEntryId: "t3", toLevel: 4 }, { turnStartEntryId: "t4", toLevel: 4 },
     ]);
-    expect(p.mergeGroups).toEqual([]);
   });
 
-  it("L4 overflow degrades to L5 and groups adjacent selections", () => {
+  it("L4 overflow degrades oldest to L5 steps", () => {
     const ls = [1, 2, 3, 4, 5, 6].map((i) => ledger(`t${i}`, 4, 9000));
     const p = planDegrade(ls, 40000, 10000);
     // 同上：54K → 选 4 条（t5 后剩 9K < reserve）
     expect(p.steps.filter((s) => s.toLevel === 5).map((s) => s.turnStartEntryId)).toEqual(["t1", "t2", "t3", "t4"]);
-    expect(p.mergeGroups).toEqual([["t1", "t2", "t3", "t4"]]);
   });
 
-  it("splits non-adjacent L4→L5 selections into separate groups", () => {
+  it("selects non-adjacent L4→L5 steps (oldest-first, reserve floor)", () => {
     const ls2 = [ledger("a1", 4, 9000), ledger("a2", 1, 9000), ledger("a3", 4, 9000), ledger("a4", 4, 9000), ledger("a5", 4, 9000), ledger("a6", 4, 9000), ledger("a7", 4, 9000)];
     const p2 = planDegrade(ls2, 40000, 10000);
     const ids = p2.steps.filter((s) => s.toLevel === 5).map((s) => s.turnStartEntryId);
     expect(ids).toEqual(["a1", "a3", "a4", "a5"]); // a6 保留：剩余 9K < reserve 10K
-    expect(p2.mergeGroups).toEqual([["a1"], ["a3", "a4", "a5"]]); // 非相邻分组
   });
 
   it("single oversized oldest turn still selected (progress guarantee)", () => {
@@ -204,35 +197,16 @@ describe("DegradeEngine", () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it("merges L4→L5 group and stamps description on every member", async () => {
-    const log: string[] = [];
-    const engine = new DegradeEngine(
-      makeBackend(['{"description":"调查代码结构"}'], log),
-      config, (d) => {}, () => {},
-    );
-    // brief 原 fixture（a、b 各 30K）只选得动 a（选 b 会剩 0 < reserve 10K）→ 组仅 1 条；
-    // 补 c 使 a+b 成组（c 保留在硬下界内），才能验证「一组一次调用、逐成员盖章」
-    const ls = [ledger("a", 4, 30000), ledger("b", 4, 30000), ledger("c", 4, 30000)];
-    await engine.run(ls);
-    expect(ls[0].level).toBe(5);
-    expect(ls[1].level).toBe(5);
-    expect(ls[2].level).toBe(4); // 硬下界保留区，不降
-    expect(ls[0].merged?.description).toBe("调查代码结构（2 条已合并）"); // mergeDescribe 契约：附计数后缀
-    expect(ls[1].merged?.description).toBe("调查代码结构（2 条已合并）");
-    expect(log).toEqual(["call0"]); // 一组一次调用
-  });
-
-  it("rolls back L5 merge group to L4 on backend failure", async () => {
+  it("L4→L5 单条失败时保持 L4（L5 执行段 Task 4 恢复，届时补 warning 断言）", async () => {
     const warnings: string[] = [];
     const backend: Backend = { complete: async () => { throw new Error("boom"); } };
     const engine = new DegradeEngine(backend, config, (d) => {}, (m) => warnings.push(m));
-    const ls = [ledger("a", 4, 30000), ledger("b", 4, 30000)];
+    const ls = [ledger("a", 4, 30000)];
     await engine.run(ls);
-    // 上游裁定 #1：合并失败时 level 从未被改（先 mergeDescribe 后置 L5），断言语义等价调整
+    // 中间态：L5 执行段暂空（Task 4 重写）→ 条目停在 L4、无 merged；恢复后的语义为
+    // 「单条失败 → 保持 L4 + warning」
     expect(ls[0].level).toBe(4);
-    expect(ls[1].level).toBe(4);
     expect(ls[0].merged).toBeUndefined();
-    expect(warnings).toHaveLength(1);
   });
 
   it("片段上限 L3：holdAt3 中的片段停在 L3，同层普通条目照常升 L4", async () => {
@@ -272,19 +246,43 @@ describe("DegradeEngine", () => {
     expect(maxInFlight).toBe(1);
   });
 
-  it("L4 层的片段被 holdAt3 豁免，不与普通 L4 条目合并成组", async () => {
+  it("L4 层的片段被 holdAt3 豁免：不生成 toLevel>=4 的 step，停在 L4", async () => {
     const log: string[] = [];
     const engine = new DegradeEngine(
-      makeBackend(['{"description":"旧任务描述"}'], log),
+      makeBackend([], log),
       { ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 0 } as any,
       (d) => {}, () => {},
     );
     const ls = [ledger("f1", 4, 21000), ledger("old", 4, 21000)];
     (ls[0] as any).isFragment = true;
     await engine.run(ls, new Set(["f1"]));
-    expect(ls[0].level).toBe(4);           // 存量片段停在 L4（豁免 toLevel>=4，不继续降）
+    // 豁免是计划层语义：f1 无 toLevel>=4 的 step，old 照常计划升 L5（执行段由 Task 4 恢复）
+    const plan = planDegrade(ls, 40000, 0, new Set(["f1"]));
+    expect(plan.steps.find((s) => s.turnStartEntryId === "f1" && s.toLevel >= 4)).toBeUndefined();
+    expect(plan.steps.find((s) => s.turnStartEntryId === "old" && s.toLevel === 5)).toBeDefined();
+    // 中间态：L5 执行段暂空 → 片段与普通条目都停在 L4、无 merged
+    expect(ls[0].level).toBe(4);
     expect(ls[0].merged).toBeUndefined();
-    expect(ls[1].level).toBe(5);
-    expect(ls[1].merged?.description).toBe("旧任务描述（1 条已合并）");
+    expect(ls[1].level).toBe(4);
+    expect(ls[1].merged).toBeUndefined();
+  });
+});
+
+describe("planDegrade 不再产出 mergeGroups", () => {
+  it("返回值只有 steps 字段", () => {
+    const plan = planDegrade([], 40_000, 10_000);
+    expect(Object.keys(plan).sort()).toEqual(["steps"]);
+    expect((plan as any).mergeGroups).toBeUndefined();
+  });
+
+  it("升 L5 的条目仍出现在 steps 中（toLevel=5）", () => {
+    // 构造 5 条 L4，驱动 L4 层超阈 → 至少一条升 L5
+    const mk = (id: string) => ({
+      turnStartEntryId: id, turnEndEntryId: id + "-e", level: 4 as const,
+      summary: { entries: [], userIntent: "i", outcome: "很长的结果".repeat(300) },
+    } as unknown as LedgerData);
+    const ledgers = Array.from({ length: 5 }, (_, i) => mk("t" + i));
+    const plan = planDegrade(ledgers, 1_000, 200);
+    expect(plan.steps.some((s) => s.toLevel === 5)).toBe(true);
   });
 });

@@ -3,15 +3,13 @@ import { renderTurnText, type LedgerData } from "./ledger.js";
 import type { AgentMessage } from "./types.js";
 import type { SummarizerBackend } from "./summarizer.js";
 import type { ContextCompressConfig } from "./config.js";
-import { compressEnds, mergeDescribe } from "./degrade-llm.js";
+import { compressEnds } from "./degrade-llm.js";
 
 export interface DegradeStep { turnStartEntryId: string; toLevel: 2 | 3 | 4 | 5 }
 
 export interface DegradePlan {
   /** 本次需要降级的 (turnStartEntryId, toLevel) 列表，最旧优先 */
   steps: DegradeStep[];
-  /** L5 合并组：每组为一段连续需合并的 turnStartEntryId（相邻即同组，描述由 mergeDescribe 生成） */
-  mergeGroups: string[][];
 }
 
 /** 单个 turn 在其 level 下渲染后的估算 tokens（与装配渲染同一文本来源） */
@@ -53,7 +51,7 @@ export function chooseOldestForLevel(
  * 逐层瀑布：L1→L2→L3→L4→L5。L1 降级产生的新 L2 条目立即计入 L2 的 total
  * （下层计量基于降级后快照）。holdAt3 中的条目豁免 L4 与 L5（进行中 turn 的溢出片段：
  * L3 起片段已无实体内容——L4 的意图/outcome 对片段语义为空，L5 的合并收益为零而拒绝
- * 召回是实害；spec 2026-09-20 §2 裁定 3）→ 不生成 toLevel>=4 的 step、不入合并组，
+ * 召回是实害；spec 2026-09-20 §2 裁定 3）→ 不生成 toLevel>=4 的 step，
  * 终态 L3（起点已 ≥4 的存量片段停在原层，不回落）。被豁免的片段仍参与各层 total 与 reserve 计量（保守方向：只少选不超降）。
  * 不修改入参（在副本上推演），每轮 agent_settled 只做一遍瀑布，超量部分下一轮自然收敛。
  */
@@ -79,28 +77,14 @@ export function planDegrade(
       }
     }
   }
-  // L5 组：toLevel=5 的条目按原 ledgers 顺序相邻分组
-  const degraded5 = new Set(steps.filter((s) => s.toLevel === 5).map((s) => s.turnStartEntryId));
-  const mergeGroups: string[][] = [];
-  let cur: string[] = [];
-  for (const l of ledgers) {
-    if (degraded5.has(l.turnStartEntryId)) {
-      cur.push(l.turnStartEntryId);
-    } else if (cur.length) {
-      mergeGroups.push(cur);
-      cur = [];
-    }
-  }
-  if (cur.length) mergeGroups.push(cur);
-  return { steps, mergeGroups };
+  return { steps };
 }
 
 /**
  * 降级编排引擎：planDegrade 得计划 → 机械降级（L1→L2、L2→L3，零 LLM）与 LLM 降级
- * （L3→L4 compressEnds、L4→L5 mergeDescribe）→ onLedger 持久化。
+ * （L3→L4 compressEnds；L4→L5 执行段由 Task 4 重写）→ onLedger 持久化。
  * 串行执行（不并发，避免本地模型过载）；每条降级 turn 先写 level 再做 LLM 压缩；
- * LLM 失败的 turn 回滚 level；合并组失败时 level 从未改动（先 mergeDescribe 后置 L5），
- * onWarning 告警但整体不中断。
+ * LLM 失败的 turn 回滚 level；onWarning 告警但整体不中断。
  */
 export class DegradeEngine {
   constructor(
@@ -138,23 +122,7 @@ export class DegradeEngine {
         this.onWarning(`context-compress: turn ${l.turnStartEntryId} L4 压缩失败（${String(err)}），保持 L3`);
       }
     }
-    // L4→L5：合并组描述（原 toLevel=4 组逻辑右移）。上游裁定 #1：先对仍为 L4 的 members 调
-    // mergeDescribe（其内部用 renderTurnText 渲染输入，必须在置 L5 前调用，否则输入变成
-    // 「（已合并）」垃圾文本）→ 成功后才置 level=5 + 写 merged + 逐条 onLedger；
-    // 失败时 level 从未被改，无需回滚。
-    for (const group of plan.mergeGroups) {
-      const members = group.map((id) => byId.get(id)!);
-      try {
-        const { description } = await mergeDescribe(this.backend, members);
-        for (const m of members) {
-          m.level = 5;
-          // 描述写到组内每个成员：ledger 单条目自包含，渲染/重建无需跨条目状态
-          m.merged = { description };
-          this.onLedger(m);
-        }
-      } catch (err) {
-        this.onWarning(`context-compress: L5 合并失败（${String(err)}），保持 L4`);
-      }
-    }
+    // L4→L5 执行段由 Task 4 重写（批量分片）；此处暂空以保持编译通过
+    void plan.steps.filter((s) => s.toLevel === 5); // 占位，避免未使用变量告警
   }
 }
