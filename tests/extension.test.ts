@@ -224,11 +224,12 @@ describe("extension entry wiring", () => {
       },
       modelRegistry: {
         find: () => ({ provider: "FakeBig", model: "big" }),
-        // 按 prompt 路由：整 turn 摘要（动作记录员）与 L5 合并描述走不同 schema
+        // 按 prompt 路由：整 turn 摘要（动作记录员）与 L5 批量二次压缩走不同 schema
         complete: async (_model: any, req: any) => {
           const prompt: string = req.messages[0].content[0].text;
-          if (prompt.includes("合并为一行主题描述")) {
-            return { content: [{ type: "text", text: JSON.stringify({ description: "早期排查与修复" }) }] };
+          if (prompt.includes("二次摘要")) {
+            // 批量 [o1, o2]：逐条输出描述（index 一一对应），不再有合并后缀
+            return { content: [{ type: "text", text: JSON.stringify({ items: [{ index: 1, description: "o1 二次压缩描述" }, { index: 2, description: "o2 二次压缩描述" }] }) }] };
           }
           return { content: [{ type: "text", text: JSON.stringify({ entries: [] }) }] };
         },
@@ -240,10 +241,12 @@ describe("extension entry wiring", () => {
       while (Date.now() < deadline && !writes.some((d) => d.level === 5)) {
         await new Promise((r) => setTimeout(r, 50));
       }
-      // 普通 old turn：正常合并为 L5 行
+      // 普通 old turn：逐条二次压缩为 L5 行（各自一条描述，无合并后缀）
       const l5 = writes.filter((d) => d.level === 5).map((d) => d.turnStartEntryId).sort();
       expect(l5).toEqual(["o1", "o2"]);
-      expect(writes.find((d) => d.turnStartEntryId === "o1")?.merged?.description).toContain("（2 条已合并）");
+      expect(writes.find((d) => d.turnStartEntryId === "o1")?.merged?.description).toBe("o1 二次压缩描述");
+      expect(writes.find((d) => d.turnStartEntryId === "o2")?.merged?.description).toBe("o2 二次压缩描述");
+      expect(writes.find((d) => d.turnStartEntryId === "o1")?.merged?.description).not.toContain("（2 条已合并）");
       // 片段：参与降级但被 holdAt3 豁免 → 不进 L4→L5 合并（fixture 起点已是 L4，故停在 4；
       // 真实片段从 L1 起步，上限 L3）
       expect(writes.some((d) => (d.turnStartEntryId === "a_n1" || d.turnStartEntryId === "a_n2") && d.level === 5)).toBe(false);
@@ -287,11 +290,11 @@ describe("extension entry wiring", () => {
     expect(out).toContain("未中 1 个");  // gone 未命中
   });
 
-  it("compress-status 统计口径：L5 拒绝计入「L5 拒绝」不计入取回（M9）", async () => {
+  it("compress-status：L5 不再拒绝，正常计入取回", async () => {
     const { tools, handlers, commands } = harness();
     const notifyCalls: string[] = [];
     // 复用 recall 路由测试的 withLedger 形状：branch + L5 ledger → session_start 重建 store →
-    // recall 走 L5 拒绝路径，随后 status 应显示「L5 拒绝 1 个」且取回不含该 ID
+    // recall 走 L5 取回路径，status 应不含「L5 拒绝」且取回数含该 ID
     const branch = [
       { id: "u1", type: "message", message: { role: "user", content: [{ type: "text", text: "修一下排序" }] } },
       { id: "lg1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: mkLedger({ turnStartEntryId: "u1", level: 5 as any }) },
@@ -305,8 +308,8 @@ describe("extension entry wiring", () => {
     await tools.recall.execute("tc1", { ids: ["u1"] }, undefined, undefined, fakeCtx);
     await commands["compress-status"].handler("", fakeCtx);
     const out = notifyCalls.join("\n");
-    expect(out).toContain("L5 拒绝 1 个");
-    expect(out).not.toContain("取回 1 条"); // 旧行为：拒绝被计入取回
+    expect(out).not.toContain("L5 拒绝");
+    expect(out).toContain("取回 1 条"); // L5 的 ID 正常计入取回
   });
 
   it("compress-status 统计口径：多 ID + offset 用法提示不计入「调用」与「取回」（spec §7）", async () => {
@@ -984,16 +987,17 @@ describe("extension entry wiring", () => {
       expect(text).not.toContain("【r1 的原文】"); // 不再是 entry 级头
     });
 
-    it("L5 的 ID 拒绝召回：返回终态说明，不泄原文", async () => {
+    it("L5 的 ID 正常召回：返回整段原文（与 L3/L4 同构）", async () => {
       const { tools, handlers } = harness();
       const branch = withLedger(mkBranch(), 5);
       const fakeCtx: any = mkCtx(branch);
       await handlers.session_start({}, fakeCtx);
       const out = await tools.recall.execute("tc1", { ids: ["u1"] }, undefined, undefined, fakeCtx);
       const text = out.content[0].text;
-      expect(text).toContain("已合并为终态摘要");
-      expect(text).not.toContain("修一下排序");
-      expect(text).not.toContain("3 passed");
+      expect(text).toContain("【u1 所在 turn（L5）的整段原文】");
+      expect(text).toContain("修一下排序");
+      expect(text).toContain("npm test");
+      expect(text).toContain("3 passed");
     });
 
     it("L1/L2 与无 ledger（未摘要 turn）均回退 entry 级不变", async () => {

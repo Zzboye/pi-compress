@@ -100,7 +100,7 @@ export default function (pi: ExtensionAPI): void {
   let degradeEngine: DegradeEngine | null = null;
   let degraded = false;
   let lastStats: AssembleStats | null = null;
-  let recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0, notesHits: 0, rejected: 0 };
+  let recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0, notesHits: 0 };
   // 校准观察：最近一次装配的「估算（CJK 感知）vs 真实 usage」并排记录。
   // 差值 = system prompt + 工具定义 + 模板开销 + 估算误差；长期稳定偏差即可推出校准系数。
   let lastCalibration: { estimated: number; actual: number } | null = null;
@@ -174,7 +174,7 @@ export default function (pi: ExtensionAPI): void {
     store.rebuildFromEntries(ctx.sessionManager.getBranch() as unknown as SessionEntryLike[]);
     engine = makeEngine(ctx);
     degraded = false;
-    recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0, notesHits: 0, rejected: 0 };
+    recallStats = { calls: 0, hits: 0, missing: 0, searches: 0, searchHits: 0, notesHits: 0 };
     if (engine) {
       // 补摘：历史会话恢复时，无 ledger 的旧 turn 重新入队（最旧优先，上限防雪崩）
       const turns = splitIntoTurns(toMessageEntries(ctx.sessionManager.getBranch()));
@@ -345,7 +345,7 @@ export default function (pi: ExtensionAPI): void {
       }
       if (params.ids && params.ids.length > 0) {
         // 双源 recall：notes 条目 ID（fb-/task-/pref-）优先查项目记忆，其余走 branch 原文路径；
-        // 层级上下文驱动三档路由（L3/L4 turn 级、L5 拒绝、L1/L2 entry 级，spec §7）。
+        // 层级上下文驱动三档路由（L3/L4/L5 turn 级、L1/L2 entry 级，spec §7）。
         // ledgers 与 turns 同源自当前 branch（同一 entries 传入 splitIntoTurns / ledgersInBranchOrder），
         // turnStartEntryId 恒对齐 Turn.startEntryId；分支回退残留的旧 ledger 因起点不在任何 turn 上
         // 而自然回退 entry 级（不误路由）。
@@ -357,12 +357,11 @@ export default function (pi: ExtensionAPI): void {
         const skipped = r.skipped ?? 0;
         if (skipped < params.ids.length) {
           recallStats.calls += 1;
-          // 取回数 = 传入数 − 未中 − L5 拒绝 − 未执行
-          recallStats.hits += params.ids.length - r.missing.length - (r.rejected ?? 0) - skipped;
+          // 取回数 = 传入数 − 未中 − 未执行
+          recallStats.hits += params.ids.length - r.missing.length - skipped;
         }
         recallStats.missing += r.missing.length;
         recallStats.notesHits += r.notesHits;
-        recallStats.rejected += r.rejected ?? 0;
         parts.push(r.text);
         if (r.images.length > 0) imageBlocks.push(...r.images.map((i) => i.block));
       }
@@ -502,7 +501,7 @@ export default function (pi: ExtensionAPI): void {
         `失败未摘：${engine?.failed().size ?? 0}`,
         `降级状态：${degraded ? "已降级（pi 原生压缩接管中）" : "正常"}`,
         `最近装配：${lastStats ? `窗口 ${lastStats.windowTurns} turns / 替换 ${lastStats.replacedTurns} / 原文放行 ${lastStats.passthroughTurns}` : "无"}`,
-        `召回：调用 ${recallStats.calls} 次 / 取回 ${recallStats.hits} 条 / 未中 ${recallStats.missing} 个 ID / L5 拒绝 ${recallStats.rejected} 个 / 搜索 ${recallStats.searches} 次 / 记忆召回 ${recallStats.notesHits} 条`,
+        `召回：调用 ${recallStats.calls} 次 / 取回 ${recallStats.hits} 条 / 未中 ${recallStats.missing} 个 ID / 搜索 ${recallStats.searches} 次 / 记忆召回 ${recallStats.notesHits} 条`,
       // 项目记忆行：启用 = enabled 且 notesStore 已构造（enabled=false 时即使已收集条目也显示未启用，
       // 与用户预期一致：关=看不到记忆功能生效）；条目数从三表取，召回数 = notesHits
         notes
