@@ -1,3 +1,5 @@
+import type { LedgerData } from "./ledger.js";
+
 export interface ToolActionInfo { action: string; target: string; entryIds: string[] }
 
 export function buildSummarizePrompt(turnText: string, actions: ToolActionInfo[]): string {
@@ -53,14 +55,25 @@ ${replyText}
 只输出 JSON：{"userIntent": string, "outcome": string}`;
 }
 
-export function buildMergeDescriptionPrompt(turnTexts: string[]): string {
-  return `把以下 ${turnTexts.length} 轮已压缩的动作日志合并为一行主题描述。
+/**
+ * 批量二次压缩（L4→L5）：一次提交 N 条 L4，逐条输出一条描述，序号一一对应。
+ * 正文为用户给定提示词（2026-09-27 探针验证：2 批各 20 条，零缺失、零串位、压缩率 0.492）。
+ * 见 docs/evidence/l5-prompt-verify.txt。
+ */
+export function buildBatchRecompressPrompt(items: LedgerData[]): string {
+  const blocks = items
+    .map((l, i) => `[#${i + 1}]\n意图：${l.summary.userIntent ?? ""}\n结果：${l.summary.outcome ?? ""}`)
+    .join("\n\n");
+  return `请对以下已经完成过一次摘要的内容做二次摘要。
+要求：
+1. 剔除冗余细节（commit哈希、具体文件路径、零散函数名等），保留核心结论、关键变更、产出物、待办事项
+2. 按原有顺序梳理逻辑，不新增信息，不丢失主线节点
+3. 语言凝练，篇幅压缩到原文的1/2以内
 
-规则：
-1. 概括这 ${turnTexts.length} 轮共同做了什么，≤25 字
-2. 不输出条数（系统会追加"（N 条已合并）"）
-3. 只输出 JSON：{"description": string}
+下面是 ${items.length} 条独立内容，每条以 "[#序号]" 开头：
 
-各轮日志：
-${turnTexts.map((t, i) => `--- 第 ${i + 1} 轮 ---\n${t}`).join("\n")}`;
+${blocks}
+
+逐条输出，每条各占一项，必须与输入条数相同（共 ${items.length} 条），序号一一对应。
+只输出 JSON：{"items": [{"index": number, "description": string}, ...]}`;
 }

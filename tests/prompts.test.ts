@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildSummarizePrompt, buildIntentOutcomePrompt, buildMergeDescriptionPrompt, type ToolActionInfo } from "../src/prompts.js";
+import { buildSummarizePrompt, buildIntentOutcomePrompt, buildBatchRecompressPrompt, type ToolActionInfo } from "../src/prompts.js";
+import type { LedgerData } from "../src/ledger.js";
 import { parseLedgerOutput } from "../src/ledger.js";
 import { splitIntoTurns, serializeTurn, type MessageEntry } from "../src/util.js";
 
@@ -151,10 +152,45 @@ describe("degrade prompts", () => {
     expect(p).toContain('"userIntent"');
     expect(p).toContain('"outcome"');
   });
-  it("buildMergeDescriptionPrompt embeds each turn text", () => {
-    const p = buildMergeDescriptionPrompt(["T1 块", "T2 块"]);
-    expect(p).toContain("T1 块");
-    expect(p).toContain("T2 块");
-    expect(p).toContain("2 轮"); // schema 中的条数说明字段
+});
+
+describe("buildBatchRecompressPrompt", () => {
+  const mk = (intent: string, outcome: string): LedgerData => ({
+    turnStartEntryId: "a1", turnEndEntryId: "a2", level: 4,
+    summary: { entries: [], userIntent: intent, outcome },
+  } as unknown as LedgerData);
+
+  it("包含用户给定提示词正文（逐字）", () => {
+    const p = buildBatchRecompressPrompt([mk("意图甲", "结果甲")]);
+    expect(p).toContain("请对以下已经完成过一次摘要的内容做二次摘要。");
+    expect(p).toContain("1. 剔除冗余细节（commit哈希、具体文件路径、零散函数名等），保留核心结论、关键变更、产出物、待办事项");
+    expect(p).toContain("2. 按原有顺序梳理逻辑，不新增信息，不丢失主线节点");
+    expect(p).toContain("3. 语言凝练，篇幅压缩到原文的1/2以内");
+  });
+
+  it("按 [#序号] 编号，逐条给出「意图：/结果：」", () => {
+    const p = buildBatchRecompressPrompt([mk("意图甲", "结果甲"), mk("意图乙", "结果乙")]);
+    expect(p).toContain("[#1]\n意图：意图甲\n结果：结果甲");
+    expect(p).toContain("[#2]\n意图：意图乙\n结果：结果乙");
+    expect(p).toContain("共 2 条");
+  });
+
+  it("JSON 契约含 index 与 description", () => {
+    const p = buildBatchRecompressPrompt([mk("a", "b")]);
+    expect(p).toContain('{"items": [{"index": number, "description": string}, ...]}');
+  });
+
+  it("不出现旧的字数硬上限与「条已合并」措辞", () => {
+    const p = buildBatchRecompressPrompt([mk("a", "b")]);
+    expect(p).not.toContain("≤25 字");
+    expect(p).not.toContain("条已合并");
+  });
+
+  it("outcome 缺失时降级为空串而非 undefined", () => {
+    const l = mk("只有意图", "");
+    delete (l.summary as any).outcome;
+    const p = buildBatchRecompressPrompt([l]);
+    expect(p).toContain("意图：只有意图\n结果：");
+    expect(p).not.toContain("undefined");
   });
 });
