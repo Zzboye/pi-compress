@@ -1,7 +1,6 @@
 import type { LedgerData } from "./ledger.js";
-import { renderTurnText } from "./ledger.js";
 import type { SummarizerBackend } from "./summarizer.js";
-import { buildIntentOutcomePrompt, buildMergeDescriptionPrompt } from "./prompts.js";
+import { buildIntentOutcomePrompt, buildBatchRecompressPrompt } from "./prompts.js";
 
 /** 输出 JSON 解析：容错剥 ``` 围栏（同 parseLedgerOutput 风格），非对象即抛错 */
 function parseJson(raw: string): any {
@@ -29,24 +28,46 @@ export async function compressEnds(
   return { userIntent: p.userIntent, outcome: p.outcome };
 }
 
-/** L4→L5：多条 turn 合并为一行主题描述，形如 "调查代码结构与配置逻辑（5 条已合并）"。 */
-export async function mergeDescribe(
-  backend: SummarizerBackend, ledgers: LedgerData[], signal?: AbortSignal,
-): Promise<{ description: string }> {
-  // turn 号在合并行中由渲染层统一编号，这里传 0 仅取正文
-  const texts = ledgers.map((l) => renderTurnText(l, 0));
-  const raw = await backend.complete(buildMergeDescriptionPrompt(texts), signal);
-  // 容错：模型可能只回一个裸字符串（JSON string）而非对象——非 JSON string 视为缺 description
-  let parsed: any;
+/** L5 批量大小（探针实测 N=20 稳定：2 批各 20 条，零缺失、零串位；见 docs/evidence/l5-prompt-verify.txt） */
+export const L5_BATCH_SIZE = 20;
+
+/** 剥 ``` 围栏后解析为 JSON；失败返回 undefined（不抛错） */
+function parseJsonLoose(raw: string): any {
   try {
-    parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim());
+    return JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g, "").trim());
   } catch {
-    throw new Error("degrade output is not valid JSON");
+    return undefined;
   }
-  const p = typeof parsed === "string" ? { description: parsed } : parsed;
-  if (typeof p.description !== "string" || p.description === "") {
-    throw new Error("degrade output missing description");
+}
+
+/**
+ * L4→L5 批量二次压缩：一次调用提交 N 条，逐条输出描述，index 一一对应。
+ * 返回数组**长度与入参等长**，缺失/解析失败项为 null（不抛错，由调用方决定单条重跑）。
+ */
+export async function recompressBatched(
+  backend: SummarizerBackend, ledgers: LedgerData[], signal?: AbortSignal,
+): Promise<Array<string | null>> {
+  if (ledgers.length === 0) return [];
+  const raw = await backend.complete(buildBatchRecompressPrompt(ledgers), signal);
+  const parsed = parseJsonLoose(raw);
+  const out: Array<string | null> = new Array(ledgers.length).fill(null);
+  const arr = Array.isArray(parsed) ? parsed : parsed?.items;
+  if (!Array.isArray(arr)) return out;
+  for (const it of arr) {
+    const idx = Number(it?.index);
+    const desc = typeof it === "string" ? it : it?.description;
+    if (!Number.isFinite(idx) || idx < 1 || idx > ledgers.length) continue;
+    out[idx - 1] = typeof desc === "string" && desc.trim() ? desc.trim() : null; // 重复 index 后者覆盖
   }
-  const desc = p.description.replace(/（\d+ 条已合并）$/, "").trim();
-  return { description: `${desc}（${ledgers.length} 条已合并）` };
+  return out;
+}
+
+/** 单条二次压缩（批量中某条缺失时的兜底重跑）。失败抛错，由调用方回滚。 */
+export async function recompressOne(
+  backend: SummarizerBackend, ledger: LedgerData, signal?: AbortSignal,
+): Promise<string> {
+  const out = await recompressBatched(backend, [ledger], signal);
+  const desc = out[0];
+  if (typeof desc !== "string" || desc === "") throw new Error("degrade output missing description");
+  return desc;
 }
