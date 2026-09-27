@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nextId": 10,
+  "nextId": 11,
   "prefs": [],
   "feedback": [],
   "tasks": [
@@ -100,11 +100,22 @@
       "updatedAt": "2026-09-27T03:40:38.130Z",
       "source": "会话讨论 T145-T153 + 2026-09-21 探针（L5 分组/调用方式）",
       "locked": false
+    },
+    {
+      "id": "task-010",
+      "table": "tasks",
+      "text": "思考泄漏修复：pi 偶发把思考同时写进 thinking+text 块，extractFinalReply 误当回复落盘；已加 isThinkingLeak 判据并清理旧脏数据",
+      "detail": "【问题】dump 里 T150 的「最终回复（原文）」装的是 60080 字符英文思考过程。\n\n【根因】数据源故障（非插件渲染逻辑）：pi 偶发把思考内容同时写进 thinking 和 text 两个块，两块逐字完全相同。实测会话 2026-09-12 的 entryId=5faaaf41：blocks=[thinking(60080), text(60080)]。真实经过：该轮模型思考超长后未产出正式回复，用户随后发「继续」催促。stripThinking 只删 thinking 块，text 块原样通过 → extractFinalReply 把整段思考当「最终回复」→ 写入 LedgerData.finalReply.text 落盘 → 经装配进入后续所有请求 + 进 mergeDescribe 输入。\n\n【修复】src/util.ts 新增 isThinkingLeak(content)：同一条消息内 thinking 块拼接与 text 块拼接逐字相同即判泄漏，extractFinalReply 跳过该消息继续向前找。+5 测试（泄漏跳过 / 无其他 text 时 undefined / 前缀相似零误伤 / 多块拼接判定 / 无 thinking 块不受影响）。343 passed / 1 skipped。commit 9e0b40a，已 ff 合并 main。\n\n【稀有度】3877 条 assistant 消息中仅命中此 1 条（孤例，非系统性问题）。\n\n【旧数据清理】已手工清理 session 文件 2026-09-12T10-31-27-390Z_01a0952c-....jsonl 的 3 条脏 ledger 记录（同一 turn 的 L1/L2/L3 三次落盘，均删除 finalReply 字段）。备份：同目录 *.jsonl.bak-20260927-120207（17,958,373 bytes，md5 67594b0e2c4279ea133b03d1421ce325）。文件 17,958,373 → 17,785,510 bytes。验证：逐行 JSON 可解析、渲染输出仅剩意图行无思考。注意 rebuildFromEntries 直读 data.finalReply 不重算，故必须清文件；改后需重启会话才生效（内存 store 是启动时加载的）。\n\n【流程教训·重要】清理时该会话文件正在被写入（就是当时活跃的会话）——实测 5 秒内文件从 5988 行涨到 6006 行。改一个活跃 session 文件有并发写冲突风险，本次侥幸无损。教训：动 session 文件前必须先查 mtime / 监控是否在增长，必要时先停会话。",
+      "status": "已完成",
+      "date": "2026-09-27",
+      "updatedAt": "2026-09-27T04:19:03.622Z",
+      "source": "会话诊断；commit 9e0b40a；src/util.ts isThinkingLeak",
+      "locked": false
     }
   ],
   "seq": {
     "prefs": 0,
     "feedback": 0,
-    "tasks": 9
+    "tasks": 10
   }
 }
