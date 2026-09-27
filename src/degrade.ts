@@ -3,7 +3,7 @@ import { renderTurnText, type LedgerData } from "./ledger.js";
 import type { AgentMessage } from "./types.js";
 import type { SummarizerBackend } from "./summarizer.js";
 import type { ContextCompressConfig } from "./config.js";
-import { compressEnds } from "./degrade-llm.js";
+import { compressEnds, recompressBatched, recompressOne, L5_BATCH_SIZE } from "./degrade-llm.js";
 
 export interface DegradeStep { turnStartEntryId: string; toLevel: 2 | 3 | 4 | 5 }
 
@@ -82,9 +82,9 @@ export function planDegrade(
 
 /**
  * 降级编排引擎：planDegrade 得计划 → 机械降级（L1→L2、L2→L3，零 LLM）与 LLM 降级
- * （L3→L4 compressEnds；L4→L5 执行段由 Task 4 重写）→ onLedger 持久化。
+ * （L3→L4 compressEnds；L4→L5 recompressBatched 批量逐条，N=L5_BATCH_SIZE）。
  * 串行执行（不并发，避免本地模型过载）；每条降级 turn 先写 level 再做 LLM 压缩；
- * LLM 失败的 turn 回滚 level；onWarning 告警但整体不中断。
+ * L4 失败的 turn 回滚 level；L5 单条失败保持 L4 + warning，不中断整体；onWarning 告警但整体不中断。
  */
 export class DegradeEngine {
   constructor(
@@ -122,7 +122,28 @@ export class DegradeEngine {
         this.onWarning(`context-compress: turn ${l.turnStartEntryId} L4 压缩失败（${String(err)}），保持 L3`);
       }
     }
-    // L4→L5 执行段由 Task 4 重写（批量分片）；此处暂空以保持编译通过
-    void plan.steps.filter((s) => s.toLevel === 5); // 占位，避免未使用变量告警
+    // L4→L5：逐条二次压缩（不再有合并组）。按 L5_BATCH_SIZE 分片，一次调用产出 N 条描述；
+    // 某条缺失 → 该条单独重跑；仍失败 → 保持 L4 + warning（不整批重试）。
+    // 时序约束：必须在写 level=5 之前取描述（输入读 summary.userIntent/outcome）。
+    const l5Steps = plan.steps.filter((s) => s.toLevel === 5);
+    for (let i = 0; i < l5Steps.length; i += L5_BATCH_SIZE) {
+      const slice = l5Steps.slice(i, i + L5_BATCH_SIZE).map((s) => byId.get(s.turnStartEntryId)!);
+      const descs = await recompressBatched(this.backend, slice);
+      for (let j = 0; j < slice.length; j++) {
+        const m = slice[j];
+        let desc = descs[j];
+        if (desc === null) {
+          try {
+            desc = await recompressOne(this.backend, m);
+          } catch (err) {
+            this.onWarning(`context-compress: turn ${m.turnStartEntryId} L5 压缩失败（${String(err)}），保持 L4`);
+            continue;
+          }
+        }
+        m.level = 5;
+        m.merged = { description: desc };
+        this.onLedger(m);
+      }
+    }
   }
 }

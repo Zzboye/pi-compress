@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { planDegrade, chooseOldestForLevel, turnRenderTokens, DegradeEngine } from "../src/degrade.js";
 import type { LedgerData } from "../src/ledger.js";
+import type { ContextCompressConfig } from "../src/config.js";
 
 /** 撑体积 helper：L1/L2/L3 渲染含 finalReply 全文，L4 渲染 intent/outcome（短），L5 渲染 merged 行（短） */
 function ledger(id: string, level: 1 | 2 | 3 | 4, tokens: number): LedgerData {
@@ -197,16 +198,26 @@ describe("DegradeEngine", () => {
     expect(warnings).toHaveLength(1);
   });
 
-  it("L4→L5 单条失败时保持 L4（L5 执行段 Task 4 恢复，届时补 warning 断言）", async () => {
+  it("L4→L5 单条失败时保持 L4 + warning（真实失败分支）", async () => {
     const warnings: string[] = [];
-    const backend: Backend = { complete: async () => { throw new Error("boom"); } };
-    const engine = new DegradeEngine(backend, config, (d) => {}, (m) => warnings.push(m));
+    let call = 0;
+    const backend: Backend = {
+      complete: async () => {
+        call++;
+        return call === 1 ? "不是JSON" : "{ 仍不是JSON }"; // 批量缺失 → 单条重跑也失败 → recompressOne 抛错
+      },
+    };
+    const engine = new DegradeEngine(
+      backend,
+      { ledgerDegradeThresholdTokens: 20000, ledgerReserveTokens: 0 } as any,
+      (d) => {}, (m) => warnings.push(m),
+    );
     const ls = [ledger("a", 4, 30000)];
     await engine.run(ls);
-    // 中间态：L5 执行段暂空（Task 4 重写）→ 条目停在 L4、无 merged；恢复后的语义为
-    // 「单条失败 → 保持 L4 + warning」
-    expect(ls[0].level).toBe(4);
+    expect(call).toBeGreaterThanOrEqual(2); // 批量 + 单条重跑都真实发生（确实经过失败分支，非中间态平凡成立）
+    expect(ls[0].level).toBe(4);   // 单条失败 → 保持 L4
     expect(ls[0].merged).toBeUndefined();
+    expect(warnings.some((w) => w.includes("L5"))).toBe(true);
   });
 
   it("片段上限 L3：holdAt3 中的片段停在 L3，同层普通条目照常升 L4", async () => {
@@ -249,22 +260,24 @@ describe("DegradeEngine", () => {
   it("L4 层的片段被 holdAt3 豁免：不生成 toLevel>=4 的 step，停在 L4", async () => {
     const log: string[] = [];
     const engine = new DegradeEngine(
-      makeBackend([], log),
+      makeBackend(['{"items":[{"index":1,"description":"old 的二次摘要"}]}'], log),
       { ledgerDegradeThresholdTokens: 40000, ledgerReserveTokens: 0 } as any,
       (d) => {}, () => {},
     );
     const ls = [ledger("f1", 4, 21000), ledger("old", 4, 21000)];
     (ls[0] as any).isFragment = true;
-    await engine.run(ls, new Set(["f1"]));
-    // 豁免是计划层语义：f1 无 toLevel>=4 的 step，old 照常计划升 L5（执行段由 Task 4 恢复）
+    // 计划层断言：豁免语义在计划阶段生效（f1 无 toLevel>=4 的 step，old 照常计划升 L5）
+    // 注意须在 engine.run 之前评估——run 会把 old 写成 level=5，再对同一数组 planDegrade 将看不到 L5 step
     const plan = planDegrade(ls, 40000, 0, new Set(["f1"]));
     expect(plan.steps.find((s) => s.turnStartEntryId === "f1" && s.toLevel >= 4)).toBeUndefined();
     expect(plan.steps.find((s) => s.turnStartEntryId === "old" && s.toLevel === 5)).toBeDefined();
-    // 中间态：L5 执行段暂空 → 片段与普通条目都停在 L4、无 merged
+    await engine.run(ls, new Set(["f1"]));
+    // 执行层：old 成功升 L5 并写入 merged.description；f1 因豁免停在 L4、无 merged
     expect(ls[0].level).toBe(4);
     expect(ls[0].merged).toBeUndefined();
-    expect(ls[1].level).toBe(4);
-    expect(ls[1].merged).toBeUndefined();
+    expect(ls[1].level).toBe(5);
+    expect(ls[1].merged?.description).toBe("old 的二次摘要");
+    expect(log).toEqual(["call0"]); // 仅 old 一条进入 L5 批量调用
   });
 });
 
@@ -284,5 +297,73 @@ describe("planDegrade 不再产出 mergeGroups", () => {
     const ledgers = Array.from({ length: 5 }, (_, i) => mk("t" + i));
     const plan = planDegrade(ledgers, 1_000, 200);
     expect(plan.steps.some((s) => s.toLevel === 5)).toBe(true);
+  });
+});
+
+describe("DegradeEngine L5 逐条压缩", () => {
+  // 注意：reserve 须为 0——brief 原值 200 在 2 条 fixture（各 ~617 tok）下会因「选第 2 条后剩余 0 < 200」
+  // 只选中 1 条，批量 n=1，永远走不到「批内缺失 → 单条重跑」分支（call 恒为 1）
+  const cfgOf = (): ContextCompressConfig => ({
+    ledgerDegradeThresholdTokens: 1_000, ledgerReserveTokens: 0,
+    keepRecentTokens: 20_000, recallMaxTokensPerEntry: 4_000,
+  } as ContextCompressConfig);
+
+  const mk = (id: string, n = 0): LedgerData => ({
+    turnStartEntryId: id, turnEndEntryId: id + "-e", level: 4 as const,
+    summary: { entries: [], userIntent: "意图" + n, outcome: "结果".repeat(300) },
+  } as unknown as LedgerData);
+
+  const collect = () => {
+    const out: LedgerData[] = [];
+    const warns: string[] = [];
+    return { out, warns, onLedger: (d: LedgerData) => out.push(d), onWarning: (m: string) => warns.push(m) };
+  };
+
+  it("每条 L5 获得独立描述（不含「条已合并」后缀）", async () => {
+    const ledgers = Array.from({ length: 3 }, (_, i) => mk("t" + i, i));
+    const backend = { complete: async (p: string) => {
+      const n = (p.match(/\[#\d+\]/g) ?? []).length;
+      return JSON.stringify({ items: Array.from({ length: n }, (_, i) => ({ index: i + 1, description: "描述" + i })) });
+    } } as any;
+    const { out, onLedger, onWarning } = collect();
+    const eng = new DegradeEngine(backend, cfgOf(), onLedger, onWarning);
+    await eng.run(ledgers, undefined);
+    const l5 = out.filter((d) => d.level === 5);
+    expect(l5.length).toBeGreaterThan(0);
+    for (const d of l5) {
+      expect(d.merged?.description).toBeTruthy();
+      expect(d.merged!.description).not.toContain("条已合并");
+    }
+    // 同一批内描述各不相同（逐条对应，非组共享）
+    const descs = l5.map((d) => d.merged!.description);
+    expect(new Set(descs).size).toBe(descs.length);
+  });
+
+  it("批内某条缺失 → 单独重跑该条（不整批重试）", async () => {
+    const ledgers = Array.from({ length: 2 }, (_, i) => mk("t" + i, i));
+    let call = 0;
+    const backend = { complete: async (p: string) => {
+      call++;
+      const n = (p.match(/\[#\d+\]/g) ?? []).length;
+      if (n > 1) return JSON.stringify({ items: [{ index: 1, description: "批内第一条" }] }); // 第二条缺失
+      return JSON.stringify({ items: [{ index: 1, description: "单条补跑" }] });
+    } } as any;
+    const { out, onLedger, onWarning } = collect();
+    const eng = new DegradeEngine(backend, cfgOf(), onLedger, onWarning);
+    await eng.run(ledgers, undefined);
+    const descs = out.filter((d) => d.level === 5).map((d) => d.merged!.description);
+    expect(descs).toContain("单条补跑");
+    expect(call).toBeGreaterThanOrEqual(2);
+  });
+
+  it("单条重跑仍失败 → 保持 L4 + warning，其他条不受影响", async () => {
+    const ledgers = Array.from({ length: 2 }, (_, i) => mk("t" + i, i));
+    let call = 0;
+    const backend = { complete: async () => { call++; return call === 1 ? "不是JSON" : "也不是"; } } as any;
+    const { out, warns, onLedger, onWarning } = collect();
+    const eng = new DegradeEngine(backend, cfgOf(), onLedger, onWarning);
+    await eng.run(ledgers, undefined);
+    expect(out.some((d) => d.level === 5)).toBe(false);
+    expect(warns.some((w) => w.includes("L5"))).toBe(true);
   });
 });
