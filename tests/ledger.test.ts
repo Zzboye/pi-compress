@@ -143,21 +143,6 @@ describe("renderActionLedger levels（五级阶梯）", () => {
     expect(text).not.toContain("旧合并描述");             // merged.description 是 L5 产物，L4 忽略
   });
 
-  it("L5 renders one merged line without any recall ids", () => {
-    const mk = (id: string): LedgerData => ({ ...full, level: 5 as any, turnStartEntryId: id,
-      merged: { description: "调查代码结构与配置逻辑" },
-      summary: { entries: [
-        { action: "bash", target: "x", detail: "d", recallIds: ["e1"], phase: "investigate" },
-      ] } });
-    const text = textOf(renderActionLedger([mk("a"), mk("b")]));
-    expect(text).toContain("T1-T2 · 调查代码结构与配置逻辑");
-    // 行尾不渲染任何 IDs：断言限定在合并行内（RECALL_HINT 本身含 ↩ 字样，不能对全文断言）
-    const mergedLine = text.split("\n").find((l) => l.includes("T1-T2 · 调查代码结构与配置逻辑"));
-    expect(mergedLine).toBeDefined();
-    expect(mergedLine!).not.toContain("↩");
-    expect(text).not.toContain("用户：「");
-  });
-
   it("legacy L4 (merged group data) renders as new L4 per-entry from intent/outcome", () => {
     // 存量旧 L4：经过旧 compressEnds，userIntent/outcome 都在；无新代码分支，直接按 L4 渲染
     const legacy: LedgerData = { ...full, level: 4, summary: { ...full.summary, userIntent: "修复降级bug", outcome: "已修复推送" }, merged: { description: "旧的组描述" } };
@@ -175,45 +160,13 @@ describe("renderActionLedger levels（五级阶梯）", () => {
     expect(text).not.toContain("调查：");
   });
 
-  it("孤立 L5 单条渲染：单行 T1 · 描述，无组范围也无 ↩IDs", () => {
-    // Task 1 审查移交：单条 level=5 不与任何相邻 L5 聚合 → 渲染为 T1 · 描述（无 T1-T2 式组范围）
+  it("孤立 L5 单条渲染：单行 T1 · 描述，带 ↩锚点", () => {
+    // L5 每 turn 独立一条描述（Task 1-4 后 merged.description 逐条互异），
+    // 渲染为 T{n} · 描述 ↩turnStartEntryId（与 L3/L4 同为可召回层）
     const l5: LedgerData = { ...full, level: 5 as any, merged: { description: "调查代码结构" } };
     const text = textOf(renderActionLedger([l5]));
-    expect(text).toContain("T1 · 调查代码结构");
+    expect(text).toContain("T1 · 调查代码结构 ↩e001");
     expect(text).not.toContain("T1-T");
-    const line = text.split("\n").find((l) => l.includes("调查代码结构"));
-    expect(line).toBeDefined();
-    expect(line!).not.toContain("↩");
-  });
-
-  it("跨组 L5 渲染：相邻 L5 描述不同时按组分断，各组显示各自描述（M4）", () => {
-    // 两批降级产生的两个组（描述 A/B 不同）相邻：旧行为聚合为一行只显 group[0] 描述；
-    // 新行为：组身份标记 = merged.description，描述不同即断行，各组渲染各自的范围与描述
-    // （后缀由 mergeDescribe 生成时写入 description，fixture 同形状）
-    const g1a: LedgerData = { ...full, level: 5 as any, merged: { description: "调查修复降级排序 bug（2 条已合并）" } };
-    const g1b: LedgerData = { ...full, turnStartEntryId: "e101", level: 5 as any, merged: { description: "调查修复降级排序 bug（2 条已合并）" } };
-    const g2a: LedgerData = { ...full, turnStartEntryId: "e201", level: 5 as any, merged: { description: "重构 recall 召回路由（2 条已合并）" } };
-    const g2b: LedgerData = { ...full, turnStartEntryId: "e301", level: 5 as any, merged: { description: "重构 recall 召回路由（2 条已合并）" } };
-    const text = textOf(renderActionLedger([g1a, g1b, g2a, g2b]));
-    expect(text).toContain("T1-T2 · 调查修复降级排序 bug（2 条已合并）");
-    expect(text).toContain("T3-T4 · 重构 recall 召回路由（2 条已合并）");
-  });
-
-  it("跨组 L5 渲染：相邻 L5 描述碰巧相同则仍聚为一行（无损）", () => {
-    const g1a: LedgerData = { ...full, level: 5 as any, merged: { description: "同主题（2 条已合并）" } };
-    const g1b: LedgerData = { ...full, turnStartEntryId: "e101", level: 5 as any, merged: { description: "同主题（2 条已合并）" } };
-    const text = textOf(renderActionLedger([g1a, g1b]));
-    expect(text).toContain("T1-T2 · 同主题（2 条已合并）");
-  });
-
-  it("跨组 L5 渲染：L5 组与 L4 条目相邻不互相影响", () => {
-    const l5a: LedgerData = { ...full, level: 5 as any, merged: { description: "描述甲" } };
-    const l5b: LedgerData = { ...full, turnStartEntryId: "e101", level: 5 as any, merged: { description: "描述甲" } };
-    const l4: LedgerData = { ...sample, turnStartEntryId: "e201", level: 4 as any };
-    const l5c: LedgerData = { ...full, turnStartEntryId: "e301", level: 5 as any, merged: { description: "描述乙" } };
-    const text = textOf(renderActionLedger([l5a, l5b, l4, l5c]));
-    expect(text).toContain("T1-T2 · 描述甲");
-    expect(text).toContain("T4 · 描述乙"); // L4 在中间打断聚合，T4 是孤立 L5
   });
 });
 
@@ -268,27 +221,6 @@ describe("图片占位行", () => {
     const noImg = turnRenderTokens(withImgs(1) as any, 0);
     const hasImg = turnRenderTokens(withImgs(1, [{ mimeType: "image/png", bytes: 1 }]) as any, 0);
     expect(hasImg).toBeGreaterThan(noImg);
-  });
-});
-
-describe("L5 聚合行计数重写（Codex P3）", () => {
-  it("两批描述相同（含相同后缀计数）聚合为一行时，后缀计数按真实条数重写", () => {
-    // 两批各 2 条、模型碰巧生成同一句正文 → 全串相同 → 聚合为一行；
-    // 旧行为显示「（2 条已合并）」但范围 T1-T4 有 4 条 → 范围与计数矛盾
-    const g = (id: string) => ({ ...full, turnStartEntryId: id, level: 5 as any, merged: { description: "修复测试失败（2 条已合并）" } });
-    const text = textOf(renderActionLedger([g("e001"), g("e101"), g("e201"), g("e301")]));
-    expect(text).toContain("T1-T4 · 修复测试失败（4 条已合并）");
-    expect(text).not.toContain("（2 条已合并）");
-  });
-
-  it("单条 L5 与同描述多条聚合均计数正确（不重写单条的已有后缀）", () => {
-    const g = (id: string) => ({ ...full, turnStartEntryId: id, level: 5 as any, merged: { description: "调试降级（3 条已合并）" } });
-    // 单条（独立行）：保持原后缀 3（描述里记录的就是它所在原批次的条数）
-    const single = textOf(renderActionLedger([g("e001")]));
-    expect(single).toContain("T1 · 调试降级（3 条已合并）");
-    // 3 条同描述聚合 → 计数仍是 3，无需变
-    const agg = textOf(renderActionLedger([g("e001"), g("e101"), g("e201")]));
-    expect(agg).toContain("T1-T3 · 调试降级（3 条已合并）");
   });
 });
 
@@ -373,5 +305,42 @@ describe("片段专用渲染（isFragment）", () => {
     }, 1);
     expect(t).toContain("用户意图：看图");
     expect(t).not.toContain("片段");
+  });
+});
+
+describe("L5 渲染：单条 + 锚点", () => {
+  const mk5 = (id: string, desc: string): LedgerData => ({
+    turnStartEntryId: id, turnEndEntryId: id + "-e", level: 5,
+    merged: { description: desc }, summary: { entries: [] },
+  } as unknown as LedgerData);
+
+  it("renderTurnText 输出含 ↩锚点", () => {
+    const t = renderTurnText(mk5("abc123", "重构压缩管线"), 7);
+    expect(t).toContain("T7 · 重构压缩管线");
+    expect(t).toContain("↩abc123");
+  });
+
+  it("无 merged 时用占位描述，仍带锚点", () => {
+    const l = mk5("abc123", "");
+    delete (l as any).merged;
+    const t = renderTurnText(l, 1);
+    expect(t).toContain("（已合并）");
+    expect(t).toContain("↩abc123");
+  });
+
+  it("相邻 L5 描述相同也不再聚合（各占一行、各带自己的锚点）", () => {
+    const msg = renderActionLedger([mk5("id1", "同一描述"), mk5("id2", "同一描述")]);
+    const text = ((msg as any).content as any[])[0].text as string;
+    expect(text).toContain("↩id1");
+    expect(text).toContain("↩id2");
+    expect(text).not.toContain("（2 条已合并）");
+    expect(text).not.toContain("T1-T2");
+  });
+
+  it("L5 行不再出现「N 条已合并」计数后缀", () => {
+    const msg = renderActionLedger([mk5("id1", "旧格式描述（3 条已合并）")]);
+    const text = ((msg as any).content as any[])[0].text as string;
+    expect(text).toContain("旧格式描述（3 条已合并）"); // 存量原样保留
+    expect(text).not.toContain("（3 条已合并）（3 条已合并）"); // 不重复追加
   });
 });

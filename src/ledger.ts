@@ -35,7 +35,7 @@ export interface LedgerData {
   userMessage?: LedgerQuote;  // 全量：用户原话
   finalReply?: LedgerQuote;   // 全量：最终回复
   level?: LedgerLevel;
-  /** level=5 时有效：合并行描述；turn 范围由渲染时相邻 level=5 条目聚合得出 */
+  /** level=5 时有效：单 turn 的二次压缩描述；渲染输出 `T{n} · 描述 ↩turnStartEntryId`（一 turn 一行） */
   merged?: { description: string };
   /** 溢出片段被整 turn 条目吸收后的墓碑标记：rebuild 时删除同名缓存条目（append-only 文件中
    *  原条目在前，仅跳过会复活），渲染侧防御性过滤 */
@@ -85,10 +85,10 @@ export function renderImagesLine(l: LedgerData): string | undefined {
 export function renderTurnText(l: LedgerData, n: number): string {
   const lines: string[] = [];
   const lvl = l.level ?? 1;
-  // L5：合并终态行，无任何 ↩IDs（拒绝召回语义，spec §7）
+  // L5：单 turn 的二次压缩描述，带 ↩锚点供召回（与 L3/L4 同为可召回层）
   if (lvl === 5) {
     const desc = l.merged?.description ?? "（已合并）";
-    lines.push(`T${n} · ${desc}`);
+    lines.push(`T${n} · ${desc} ↩${l.turnStartEntryId}`);
     return lines.join("\n") + "\n";
   }
   // L4：意图 + outcome 摘要（两端 ID 仍可见，recall 走 turn 级）
@@ -166,30 +166,6 @@ export function renderActionLedger(rawLedgers: LedgerData[]): AgentMessage {
   const lines: string[] = ["<action-ledger>", "## 会话历史（动作日志，细节已压缩）", "", RECALL_HINT];
   for (let i = 0; i < ledgers.length; i++) {
     const l = ledgers[i];
-    if ((l.level ?? 1) === 5) {
-      // 聚合连续 level=5 条目为一行（终态无任何 ↩IDs，拒绝召回语义）。
-      // M4 修复：组身份标记 = merged.description（同一批组的描述逐字相同）。
-      // 相邻 L5 描述不同 = 不同降级批次的不同任务，必须分断各行，
-      // 否则后组描述被 group[0] 覆盖而丢失（跨组行数极微，任务边界优先）。
-      let end = i;
-      while (
-        end + 1 < ledgers.length &&
-        (ledgers[end + 1].level ?? 1) === 5 &&
-        ledgers[end + 1].merged?.description === l.merged?.description
-      ) end++;
-      const group = ledgers.slice(i, end + 1);
-      // 计数重写（Codex P3）：描述后缀由 mergeDescribe 按原批次条数生成；两个条数相同的
-      // 批次若模型碰巧生成同一句正文，全串相同会聚合为一行——此时旧后缀计数 < 真实范围。
-      // 仅在真正聚合（>1 条）时剥旧后缀、按真实条数重写；单条保留原描述（原批次计数仍真实）。
-      const rawDesc = group[0].merged?.description ?? "（已合并）";
-      const desc = group.length > 1
-        ? `${(rawDesc.replace(/（\d+ 条已合并）$/, "").trim() || "（已合并）")}（${group.length} 条已合并）`
-        : rawDesc;
-      const range = group.length > 1 ? `T${i + 1}-T${end + 1}` : `T${i + 1}`;
-      lines.push(`### ${range} · ${desc}\n`);
-      i = end;
-      continue;
-    }
     lines.push(renderTurnText(l, i + 1).trimEnd());
     lines.push("");
   }
