@@ -136,6 +136,21 @@ describe("degrade prompts", () => {
     expect(p).toContain('"userIntent"');
     expect(p).toContain('"outcome"');
   });
+  it("buildIntentOutcomePrompt 不再限制字数（V6：条目化 + 保留标识）", () => {
+    const p = buildIntentOutcomePrompt("用户原文", "回复原文");
+    // 旧口径：硬字数上限（已弃用——实测模型不听，且砍掉关键定位信息）
+    expect(p).not.toContain("≤20 字");
+    expect(p).not.toContain("≤30 字");
+    // V6 契约：条目化 + 保留标识 + 保留列表结构
+    expect(p).toContain("关键参数与标识");
+    expect(p).toContain("列表/分条目结构");
+    expect(p).toContain("不要合并成一段总述");
+    // V6 的剔除项（探针实测：这句是「不要退化成原文重排」的关键）
+    expect(p).toContain("过程叙述");
+    // 契约保留：输出仍是 userIntent/outcome 两个字段的 JSON
+    expect(p).toContain('"userIntent"');
+    expect(p).toContain('"outcome"');
+  });
   it("buildMergeDescriptionPrompt embeds each turn text", () => {
     const p = buildMergeDescriptionPrompt(["T1 块", "T2 块"]);
     expect(p).toContain("T1 块");

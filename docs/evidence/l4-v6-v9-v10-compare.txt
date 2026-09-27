@@ -1,0 +1,127 @@
+==========================================================================================
+样本[0] short | 原文 2011 字符
+用户: 你是修复子代理。工作目录：D:/Pi/pi-compress（Windows）。分支 fix/review-findings-2026-09-20（不要切分支/合并/push）。当前 HEAD 应为 `ddf6360`（Task 2 实现提交）。 背景：Task 2 已实现 `recall` 的 token 口径截断 + `offset` 分页。审查发现下列问题，需要修复。设计 spec 在 `docs/superpowers/specs/2026-09-20-review-fixes-desi
+
+--- V6 (intent 41 + outcome 546 = 587 字) ---
+intent: 修复 recall 的 offset 参数规整与多 ID+offset 不计数问题
+outcome: 判定：Needs Fix（修复未完成，正按 TDD 运行测试确认失败）；关键参数：分支 fix/review-findings-2026-09-20，HEAD ddf6360，涉及 src/recall.ts、src/index.ts、tests/recall.test.ts、tests/extension.test.ts，目标提交信息 'fix(recall): offset 参数规整与用法提示不计数（spec §7）'；限制条件：不切分支/合并/push，不改 .pi-compress/，仅改四个文件，保持 offset=0 路径逐字节不变，现有 8 个 Task 2 用例与全部既有测试必须通过；待办/风险：实现 offset 规整为 Math.max(0, Math.floor(offset))，为 RecallResult 增加 skipped 字段使多 ID+offset 不增 calls/hits（hits 中再减 skipped 兜底），修正旧注释为 token 口径，运行 vitest tests/recall.test.ts tests/extension.test.ts、npm test、npx tsc --noEmit，提交并报告 hash 与逐条偏差。
+
+--- V9 (intent 43 + outcome 106 = 149 字) ---
+intent: 修复 recall 的 offset 参数规整与多 ID+offset 不计入统计问题
+outcome: 代理尚未完成修复，仅回复“Now run the tests to confirm they fail:”，表示按 TDD 先运行测试确认失败。未给出实现改动、验证结果或 commit hash，任务仍在进行中。
+
+--- V10 (intent 56 + outcome 47 = 103 字) ---
+intent: 修复 recall 的 offset 参数规整与多 ID+offset 用法提示不计入统计，并按 TDD 验证。
+outcome: 子代理进入 TDD 流程，先运行测试以确认新增用例失败；尚未给出修复实现、验证结果或提交信息。
+
+==========================================================================================
+样本[1] short | 原文 2869 字符
+用户: 你是最终审查子代理（全分支终审）。工作目录：D:/Pi/pi-compress。分支 fix/review-findings-2026-09-20。 **你必须在最后输出完整文字报告。上一轮有两个同类子代理因未输出报告而失败。** 审查对象：整个特性分支（16 commits，`fbe9bb1..40afddc`）。审查包（完整 diff，含全部 commit 列表与改动）：`.superpowers/sdd/2026-09-20-review-fixes/review-fbe9bb1..40a
+
+--- V6 (intent 65 + outcome 305 = 370 字) ---
+intent: 终审 fix/review-findings-2026-09-20 特性分支（fbe9bb1..40afddc）并输出完整文字报告
+outcome: 核心结论：未完成终审，未给出 Ready to merge 或 Needs Fix，需先修正探针 harness bug 后重新验证 assembleContext 缺省路径的逐字节一致性；关键参数：涉及 assembleContext default-path byte-identity，先前探针存在 harness bug；限制：当前回复未提供 Verdict、Findings、Evidence、清理确认（git status/worktree）等报告内容，也无测试数/配置值；待办/风险：需重新运行修正后的探针，确认缺省行为逐字节不变后输出完整终审报告，否则重蹈前两个子代理因未输出报告而失败的覆辙。
+
+--- V9 (intent 67 + outcome 155 = 222 字) ---
+intent: 要求对 fix/review-findings-2026-09-20 分支做最终代审，输出含裁定、分组发现、证据与清理确认的完整报告。
+outcome: 模型没有给出最终审查结论，只表示需要先更谨慎地复核 assembleContext 缺省路径的逐字节一致性，并承认之前的探针存在测试框架（harness）缺陷。回复属于过程性说明而非交付报告：未包含 Verdict、Findings、Evidence 或 git 清理确认；需待重新验证后才能继续输出完整报告。
+
+--- V10 (intent 19 + outcome 87 = 106 字) ---
+intent: 对特性分支执行全分支终审并输出完整报告
+outcome: 模型未输出最终报告，仅表示需要重新验证 assembleContext 默认路径的字节一致性，因为之前的探针存在 harness bug；审查尚未完成，需继续验证后补充报告。
+
+==========================================================================================
+样本[2] mid | 原文 1186 字符
+用户: 通常什么时候创建新分支比较好？
+
+--- V6 (intent 12 + outcome 410 = 422 字) ---
+intent: 询问创建新分支的合适时机
+outcome: 核心结论：一个分支=一个可交付的完整工作单元（测试全绿、文档同步、能独立讲清楚改动），寿命与单元等长，做完即合；该开新分支：新功能、有设计方案的改动、实验性想法、改动面大的bug修复、当前分支未合又想做不相关的事；不必开分支：一两行typo/注释修正、纯文档小补充、草稿期随意commit；本次教训：feat/ledger-merge混了四级降级、CJK计量、recall query三块独立工作，应拆为feat/ledger-degrade、feat/cjk-token-counting、feat/recall-query三个小PR，分支按主题切而非日历时间；经验法则：commit message中出现“另外”“顺带”“以及”连接不相关事时，就该开新分支；SDD习惯：计划文档定稿、开始写第一行代码时开分支，太早空转太久，太晚失去隔离意义；待办/风险：建议先落地CJK计量再动Task 2，避免大PR难审查难回滚。
+
+--- V9 (intent 12 + outcome 220 = 232 字) ---
+intent: 询问创建新分支的合适时机
+outcome: 应在一个分支对应一个可交付的完整工作单元时创建，做完即合并。该开分支的场景包括：新功能、有设计方案后才动手的改动、实验性想法、可能影响面大的 bug 修复，以及当前分支尚未合并但要做不相关的事。一两行的 typo、纯文档补充或草稿期则不必单独开分支。分支应按主题而非时间切分，避免把多块独立工作混在一个大分支里，便于审查、回滚和定位问题。经验法则是：当 commit message 需用“另外”“顺带”等词连接不相关事项时，就该开新分支。
+
+--- V10 (intent 14 + outcome 258 = 272 字) ---
+intent: 用户询问创建新分支的合适时机
+outcome: 创建分支应遵循一个分支等于一个可交付的完整工作单元，做完即合。该开分支的场景包括：新功能、有明确设计方案的改动、实验性想法、可能影响面大的bug修复，以及当前分支未合又想做不相关的事；而一行typo、纯文档小补充或尚未定向的草稿期则不必开分支。分支应按主题而非日历时间切分，避免把多项独立工作混入同一分支，拆成多个小PR更易审查和回滚。经验法则是当commit message需要用“另外”“顺带”连接不相关事情时，就该开新分支。配合SDD流程，应在计划文档定稿、开始写第一行代码时开分支，太早或太晚都失去隔离意义。
+
+==========================================================================================
+样本[3] mid | 原文 1186 字符
+用户: 通常什么时候创建新分支比较好？
+
+--- V6 (intent 10 + outcome 474 = 484 字) ---
+intent: 询问创建新分支的时机
+outcome: 核心结论：一个分支 = 一个可交付的完整工作单元，测试全绿、文档同步、能独立讲清，做完即合；该开新分支的场景：新功能、有设计/方案的改动、实验性想法、改动面可能大的 bug 修复、当前分支未合又想做不相关的事；不必开分支的场景：一两行 typo/注释修正、纯文档小补充、方向未定的草稿期；关键标识：本次 feat/ledger-merge 有 14 个 commit，实际混入四级降级、CJK 计量、recall query 三块独立工作；更理想拆分为 feat/ledger-degrade、feat/cjk-token-counting、feat/recall-query 三个独立 PR，其中 recall-query 依赖前两者，应从最新 main 切出；分支应按主题切，不按日历时间切；经验法则：commit message 要用“另外/顺带/以及”连接不相关事情时即应开新分支；配合 SDD：计划文档定稿、写第一行代码时开分支；遗留风险：当前大 PR 难审查/回滚/定位，建议先落地 CJK 计量再动 Task 2，并拆分为独立 PR。
+
+--- V9 (intent 30 + outcome 233 = 263 字) ---
+intent: 用户希望了解何时应当创建新分支，以及如何判断分支划分的合理性
+outcome: 模型提出核心原则是一个分支对应一个可交付的完整工作单元，分支寿命与该单元等长。该开分支的场景包括新功能、有设计方案、实验性想法、可能大改的bug、当前分支未合时做不相关事；不必开分支的场景包括一行两行的typo、文档小补充、草稿期。结合用户仓库实例，指出分支应按主题而非时间切，应将相对独立的工作拆成多个小PR，并给出经验法则：当commit message需要用'另外''顺带'连接不相关事情时，就应开新分支；配合SDD流程，计划文档定稿开始写第一行代码时开分支。
+
+--- V10 (intent 12 + outcome 169 = 181 字) ---
+intent: 询问创建新分支的合适时机
+outcome: 回复解释了创建新分支的时机：核心原则是一个分支对应一个可交付的完整工作单元。该开分支的场景包括新功能、有设计方案的改动、实验性想法、可能影响面大的bug修复、当前分支未合并且需要做不相关任务时；而一两行typo、小文档补充、未想清楚的草稿期则不必开分支。还强调分支应按主题切分而非按时间顺序，建议在计划文档定稿、开始写第一行代码时开分支。
+
+==========================================================================================
+样本[4] long | 原文 5641 字符
+用户: 你是复审子代理。工作目录：D:/Pi/pi-compress。分支 fix/review-findings-2026-09-20。 背景：Task 2（recall token 口径截断 + offset 分页）首轮审查判定 Needs Fix，给出 1 个 Important + 4 个 Minor： - [Important] 多 ID + offset 的用法提示被计入 `calls`/`hits`，违反 spec §7「不召回、不计数」（src/index.ts） - [Minor] 负
+
+--- V6 (intent 8 + outcome 929 = 937 字) ---
+intent: 对复审报告做摘要
+outcome: Verdict: Approved；首轮finding 1 [Important] ADDRESSED：src/recall.ts:42-44,145-147+src/index.ts:346-353，多ID+offset时calls/hits均不增；首轮finding 2 [Minor] ADDRESSED：src/recall.ts:27,142，负offset规整为0且输出一致；首轮finding 3 [Minor] ADDRESSED：src/recall.ts:27,142，小数offset向下取整且提示无小数；首轮finding 4 [Minor] ADDRESSED：src/recall.ts:145，守卫在过滤notes前按原始ids.length判定，全notes多ID+offset触发提示；首轮finding 5 [Minor] ADDRESSED：tests/recall.test.ts:108,117,342，旧注释已改；新问题：无Critical/Important；遗留Minor：src/recall.ts:27 NaN边界（JSON调用不可达，仅程序内直调），src/recall.ts:145 单notes ID+offset时offset静默忽略（可接受，未文档化），src/index.ts:351 hits公式中- skipped为死代码；重点核查：offset=0路径SHA256一致（fe901712），链式续取ASCII/CJK/混合均无重叠无空洞，skipped恒为0或ids.length且无双重计数，红灯验证成立（旧代码4+1测试失败）；测试：vitest 321 passed/1 skipped，tsc --noEmit通过，git status --porcelain为空；修复提交fab5831，基准ddf6360，spec docs/superpowers/specs/2026-09-20-review-fixes-design.md，审查包 .superpowers/sdd/2026-09-20-review-fixes/review-ddf6360..fab5831.diff
+
+--- V9 (intent 24 + outcome 306 = 330 字) ---
+intent: 对复审报告内容进行摘要，提炼结论、裁定与证据要点
+outcome: Verdict: Approved；首轮 5 条 finding（1 Important + 4 Minor）全部 ADDRESSED；多 ID+offset 路径 calls/hits 均不增，skipped 计数公式自洽（全/部分 skipped、missing、rejected 组合均正确）；offset=0 与修复前逐字节一致，offset>0 链式续取逐段拼接等于原文，无重叠空洞；测试红灯验证成立，新测试在旧源码上失败；发现 3 个 Minor 观察：NaN offset 在直调时未防护、单 notes ID+offset 静默忽略、hits 公式中 - skipped 为死代码，均可择机处理。
+
+--- V10 (intent 21 + outcome 314 = 335 字) ---
+intent: 复审修复提交fab5831并输出判定与要点
+outcome: 判定：Approved；首轮5条finding全部ADDRESSED，涉及src/recall.ts与src/index.ts的守卫、offset规整及tests注释更新；无新增Critical/Important，但有3个Minor观察（src/recall.ts:27的NaN offset未处理、单个notes ID+offset静默忽略、src/index.ts:351的hits公式死代码）；重点核查确认多ID+offset路径calls与hits均不增，skipped计数在全部/部分/含missing/rejected组合下自洽，offset=0与修复前逐字一致，链式续取无重叠无空洞，新测试在旧代码上能红灯失败。
+
+==========================================================================================
+样本[5] long | 原文 5693 字符
+用户: 你是审查子代理。工作目录：D:/Pi/pi-compress。分支 fix/review-findings-2026-09-20。 审查对象：Task 4 实现提交 `ffba837`。审查包：`.superpowers/sdd/2026-09-20-review-fixes/review-5c78c62..ffba837.diff`（先完整读取）。brief：`.superpowers/sdd/2026-09-20-review-fixes/task-4-brief.md`。计划：`docs/
+
+--- V6 (intent 22 + outcome 992 = 1014 字) ---
+intent: 审查并裁定Task 4实现提交ffba837
+outcome: Verdict: Approved；审查对象：commit ffba837，分支 fix/review-findings-2026-09-20；测试：npx vitest run tests/degrade.test.ts tests/extension.test.ts → 64 passed，npm test → 329 passed/1 skipped，tsc --noEmit exit 0；偏差1验证：renderTurnText + turnRenderTokens 对 ledger('f1',3,21000) isFragment=true 实测 token 数 10，合计 21023 不超 40000，brief 字面 threshold 会导致瀑布不触发，改为 20000 后用例在旧提交 5c78c62 失败、新提交 ffba837 通过，为真红→绿，未掩盖问题；豁免语义：holdAt3 内条目 L1/L2/L3 起点终态 L3、L4 起点终态 L4，仍可 L1→L2、L2→L3，非豁免条目照常到 L5；回归防护用例：在 5c78c62 和 ffba837 均通过，能捕获误降存量 L4 片段变异；no-op 变异：extension.test.ts 的 [3,4] 断言能捕获 holdAt3 实现成 no-op（no-op 下 frag.level=5 断言失败）；旧名 holdAt4 无残留，src/index.ts:140-148 中 ledgers.push 与 holdAt3.add 成对，无双轨不一致；Finding 1 [Minor] tests/degrade.test.ts:31 断言恒真，建议删除或改用能产生 L5 的 fixture；Finding 2 [Minor] src/degrade.ts:57 JSDoc 称终态 L3 未涵盖存量 L4 片段，建议补充例外说明；Finding 3 [Minor] tests/extension.test.ts:252 断言放宽为 [3,4]，但为 brief 明文要求且新增回归用例覆盖，净覆盖未削弱；Finding 4 [Minor] README.md:14,306 仍写旧逻辑，属 Task 7 范围不记入本提交；现场 git status --porcelain 为空。
+
+--- V9 (intent 26 + outcome 320 = 346 字) ---
+intent: 审查Task 4实现提交ffba837并输出审查报告
+outcome: Approved。发现4条Minor：[1] tests/degrade.test.ts:31 恒真断言，无法覆盖片段不进合并组，建议删除或改用能产生L5的fixture；[2] src/degrade.ts:57 JSDoc称豁免条目终态L3，未涵盖存量L4片段，建议补一句；[3] tests/extension.test.ts:252 断言放宽为[3,4]，但属brief要求且新增回归用例精确覆盖，净覆盖未削弱，无需修改；[4] README.md:14/306 仍写L4上限，与本实现矛盾，属Task7范围，仅登记。证据：探针实测豁免语义正确，偏差1成立（21023>20000），回归用例实现前后通过，旧名无残留，测试全部通过。
+
+--- V10 (intent 22 + outcome 472 = 494 字) ---
+intent: 审查 Task 4 实现提交并输出裁定与证据
+outcome: Verdict: Approved。Task 4 实现与 spec §2 裁定 3 一致，豁免语义正确；实现者报告的偏差 1（threshold 40000→20000）经独立验证成立（实测片段 L3 渲染 token 10，合计 21023 < 40000，改用 20000 后用例真红→绿），未掩盖问题。Findings: [Minor] tests/degrade.test.ts:31 恒真断言无法覆盖片段不进合并组，建议删除或改用能产生 L5 的 fixture；[Minor] src/degrade.ts:57 JSDoc 称终态 L3 未提存量 L4 片段停在原层，建议补充；[Minor] tests/extension.test.ts:252 [3,4] 放宽符合 brief 要求，且新回归用例 tests/degrade.test.ts:273 能捕获误降 L3 变异，净覆盖未削弱；[Minor] README.md:14,306 仍写旧语义，属 Task 7 范围，仅登记。无 Critical/Important。
+
+==========================================================================================
+样本[6] long | 原文 7020 字符
+用户: 你是复审子代理。工作目录：D:/Pi/pi-compress。分支 fix/review-findings-2026-09-20。 **重要：你必须在最后输出完整文字报告（Verdict + Findings + Evidence）。上一轮同类任务因未输出报告而失败。** 背景：Task 5（T 编号同源）首轮审查判定 Needs Fix，1 Important + 2 Minor： - [Important] query 分支用全分支 `toMessageEntries(getBranch()
+
+--- V6 (intent 18 + outcome 561 = 579 字) ---
+intent: 复审修复提交75193c6并输出报告
+outcome: Verdict: Approved；首轮3条finding均ADDRESSED；commit 75193c6；src/index.ts:332,335改为compactionAwareEntries（query compaction感知）；src/index.ts:317,348-351,288未改（ids路由/session_before_compact未受影响）；query分支仅7行变化；96/96无compaction场景SHA256完全一致；compaction场景差异符合修复预期；变异测试临时改回query全分支后回归用例红灯；loadConfig(1000)=1000、loadConfig(100)=20000；tests/extension.test.ts:1500 keepRecentTokens改为1000；tests/extension.test.ts:1516/1519/1533断言真实覆盖；tests/extension.test.ts:1558 firstKeptEntryId指向compaction之后布局不写实（Minor）；README.md:307仍宣称search全量branch已被修复推翻，需Task7文档同步（Minor）；无新增Critical/Important
+
+--- V9 (intent 25 + outcome 385 = 410 字) ---
+intent: 对修复提交75193c6执行复审并输出完整审查报告
+outcome: Verdict: Approved；首轮3条finding全部ADDRESSED；Important（query分支用全分支致T编号错位）已在src/index.ts:332-335改为compactionAwareEntries，独立探针与变异测试证实；Minor keepRecentTokens钳制在tests/extension.test.ts:1500改为1000，实测生效；Minor用例名已更正且断言与名称一致；新增2条Minor：README.md:307仍宣称search走全量branch，与修复不符，建议Task7更新；tests/extension.test.ts:1558的firstKeptEntryId布局不真实，建议调整；无Compaction场景96/96字节一致，变异测试红灯后已还原，git status为空且仅主worktree。
+
+--- V10 (intent 26 + outcome 400 = 426 字) ---
+intent: 复审指定修复提交，输出裁定、findings 与证据
+outcome: 复审通过，Verdict: Approved。首轮三条 finding 均裁定 ADDRESSED：query 分支改用 compactionAwareEntries，T 编号错位已解决（src/index.ts:332,335）；keepRecentTokens 用例改为 1000 且 loadConfig 实测生效（tests/extension.test.ts:1500）；用例名与实际覆盖一致（tests/extension.test.ts:1516）。新增两条 Minor：README.md:307 仍宣称 search 走全量 branch，已与修复后行为不符，建议文档同步时更新；tests/extension.test.ts:1558 的 firstKeptEntryId 指向 compaction 之后，布局不写实，建议调整，不阻塞。无 Critical/Important。
+
+==========================================================================================
+样本[7] long | 原文 7781 字符
+用户: 你是审查子代理。工作目录：D:/Pi/pi-compress。分支 fix/review-findings-2026-09-20。 审查对象：Task 6 实现提交 `b15cd43`。审查包：`.superpowers/sdd/2026-09-20-review-fixes/review-7600ba3..b15cd43.diff`（先完整读取）。brief：`.superpowers/sdd/2026-09-20-review-fixes/task-6-brief.md`。计划：`docs/
+
+--- V6 (intent 45 + outcome 1233 = 1278 字) ---
+intent: 审查 Task 6 实现提交 b15cd43 并给出 Verdict 和 Findings
+outcome: Verdict: Needs Fix；阻断项：新增 CI 在干净 runner 上会稳定失败，因 tests/extension.test.ts:845 依赖开发机全局 settings.json（os.homedir()/.pi/agent/settings.json），干净环境无此文件导致 makeEngine 返回 null，测试失败（证据：HOME=/tmp/ci-home-x npx vitest run → Test Files 1 failed | 17 passed | 1 skipped），建议该用例自包含（注入 summarizer 或 HOME 指向 fixture）后再启用 npm test；[Minor] tests/tooling.test.ts:38-41 测试名声称验证 rpc-driver2 独有能力但仅断言文件存在，建议断言实际能力字符串或改名；[Minor] tsconfig.json include 不含 vitest.config.ts/vitest.bench.config.ts，typecheck 不检查这两个配置文件，建议加入 include；[Minor/遗留] .gitignore:10 e2e/reports/ 与第 7 行重叠，已跟踪文件不受影响，已跟踪 e2e/reports/ 下文件有 2026-09-01-context-before-after.md、2026-09-01-summary-before-after.md、2026-09-05-current-context-dump.md（被 bench/real-model-e2e.test.ts 作为输入）、2026-09-05-performance.md、2026-09-06-recall-window-e2e.md，建议保留现状或收窄并单独处理；已核查通过：npm test 不含 bench（Test Files 18 passed | 1 skipped (19)，grep -c bench/ = 0），npm run test:bench 可用；删除的 3 个脚本确为编译产物/一次性脚本（_turnsize.mts/_asmstats.mts 仍在，.mjs 为 bundle 产物，scripts-dump-context.mjs 无引用）；rpc-driver2.mjs 保留理由成立（独有 --session/round()/statusOnce()/recall 轮次）；CI 写法正确（package-lock.json 存在且被跟踪，npm ci --dry-run 退出 0）；vitest config include 正确；package.json scripts 符合 brief，npm run typecheck 退出 0；清理确认：git status --porcelain 为空
+
+--- V9 (intent 26 + outcome 741 = 767 字) ---
+intent: 审查子代理对指定提交执行只读代码审查并输出判定与发现
+outcome: Verdict: Needs Fix。唯一阻断项：新增 CI 在干净 runner 上会失败，因 npm test 选中的既有测试依赖开发机全局设置。Findings: Important - .github/workflows/ci.yml:18（npm test）+ tests/extension.test.ts:845 用例依赖 src/index.ts:162 读取 os.homedir()/.pi/agent/settings.json 的 summarizer，干净环境无该文件导致 makeEngine 返回 null（src/index.ts:111），用例失败，建议先让用例自包含再启用 CI；Minor - tests/tooling.test.ts:38-41 只断言两文件存在，未验证 rpc-driver2 独有能力，但保留偏差合理；Minor - tsconfig.json include 不含 vitest.config.ts/vitest.bench.config.ts，typecheck 不覆盖新配置；Minor/遗留 - .gitignore:10 e2e/reports/ 与 e2e/reports/perf/ 重叠，已跟踪文件不受影响，已列出 5 个报告供控制器决定 git rm --cached。已通过：npm test 已排除 bench；删除脚本确为编译产物/一次性；rpc-driver2 保留理由成立；package-lock.json 存在且 CI 写法正确；vitest include 正确；scripts 符合 brief；typecheck 通过。清理确认：git status --porcelain 为空。
+
+--- V10 (intent 29 + outcome 576 = 605 字) ---
+intent: 对审查报告做摘要，保留结论和关键要点，供后续读者只看摘要。
+outcome: 判定：Needs Fix。新增 CI 在干净 runner 上会稳定失败；其余审查点通过，偏差合理。要点：Important（.github/workflows/ci.yml:18 + tests/extension.test.ts:845）：npm test 用例依赖开发机全局 settings.json，干净环境无该文件导致断言失败，建议让用例自包含；Minor（tests/tooling.test.ts:38-41）：测试名声称验证 rpc-driver2 能力，但断言仅检查文件存在，建议断言实际能力字符串或改名；Minor（tsconfig.json）：typecheck 未覆盖根级 *.config.ts，vitest 配置文件类型错误不会被捕获；Minor（.gitignore:10）：e2e/reports/ 与既有 perf 条目重叠，已跟踪文件不受影响，列出 5 个已跟踪文件供决定是否 git rm --cached。已通过：npm test 不再包含 bench；删除 3 个脚本确为编译产物/一次性脚本；rpc-driver2.mjs 保留理由成立；CI 配置正确（package-lock.json 存在）；vitest include 正确；package.json scripts 与 typecheck 通过。

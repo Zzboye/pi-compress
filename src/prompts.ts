@@ -25,12 +25,20 @@ ${turnText}
 }
 
 export function buildIntentOutcomePrompt(userText: string, replyText: string): string {
-  return `压缩这一轮对话的两端为一行式摘要。
+  return `对下文做摘要。
 
-规则：
-1. userIntent：用户这轮想要什么，≤20 字，动宾短语
-2. outcome：模型最终达成了什么结论/结果，≤30 字，写结论不写过程
-3. 不复述原文，只提炼
+摘要应包含（有则写，无则略）：
+- 核心结论 / 判定（如 Approved、Needs Fix）
+- 关键参数与标识（文件名、commit、测试数、配置值）
+- 限制条件
+- 待办 / 风险 / 遗留问题
+
+剔除：重复描述、背景科普、举例、客套话、过程叙述。
+模型回复若是列表/分条目结构，摘要保留这些条目（每条压成一句），不要合并成一段总述。
+用 "；" 分隔各要点，不要写成长段落。
+
+userIntent：用户这轮想要什么（一句话，动宾表述）
+outcome：上述摘要
 
 用户消息原文：
 <user>
