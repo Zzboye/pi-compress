@@ -356,6 +356,30 @@ describe("DegradeEngine L5 逐条压缩", () => {
     expect(call).toBeGreaterThanOrEqual(2);
   });
 
+  it("双跳级联：L4 compressEnds 失败回滚后，同 turn 不再被 L5 提升（保持 L3）", async () => {
+    // t1 起点 L3（大 finalReply）在瀑布中双跳 toLevel=4+5；t2 起点 L4 → 仅 toLevel=5。
+    // compressEnds 失败回滚 t1 为 L3 → L5 批只含 t2，t1 不得以空 intent/outcome 生成描述
+    const ls = [
+      { turnStartEntryId: "t1", turnEndEntryId: "t1", level: 3 as const, summary: { entries: [], userIntent: "意图1", outcome: "结果".repeat(300) }, finalReply: { text: "x".repeat(120000), entryId: "t1" } },
+      { turnStartEntryId: "t2", turnEndEntryId: "t2", level: 4 as const, summary: { entries: [], userIntent: "意图2", outcome: "x".repeat(120000) } },
+    ] as unknown as LedgerData[];
+    let call = 0;
+    const backend = { complete: async (p: string) => {
+      call++;
+      if (p.includes("对下文做摘要")) return "不是JSON"; // compressEnds 失败
+      const n = (p.match(/\[#\d+\]/g) ?? []).length;
+      return JSON.stringify({ items: Array.from({ length: n }, (_, i) => ({ index: i + 1, description: "描述" + i })) });
+    } } as any;
+    const { out, warns, onLedger, onWarning } = collect();
+    const eng = new DegradeEngine(backend, cfgOf(), onLedger, onWarning);
+    await eng.run(ls, undefined);
+    expect(ls[0].level).toBe(3);   // L4 失败 → 保持 L3，未被 L5 覆盖
+    expect(ls[0].merged).toBeUndefined();
+    expect(ls[1].level).toBe(5);   // 其他条不受影响
+    expect(ls[1].merged?.description).toBe("描述0");
+    expect(warns.some((w) => w.includes("L4"))).toBe(true);
+  });
+
   it("单条重跑仍失败 → 保持 L4 + warning，其他条不受影响", async () => {
     const ledgers = Array.from({ length: 2 }, (_, i) => mk("t" + i, i));
     let call = 0;

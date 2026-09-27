@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderActionLedger, renderTurnText, normalizeLedgerData, type LedgerData } from "../src/ledger.js";
+import { renderActionLedger, renderTurnText, normalizeLedgerData, RECALL_HINT, type LedgerData } from "../src/ledger.js";
 
 function textOf(msg: any): string {
   return msg.content.map((c: any) => c.text ?? "").join("");
@@ -342,5 +342,32 @@ describe("L5 渲染：单条 + 锚点", () => {
     const text = ((msg as any).content as any[])[0].text as string;
     expect(text).toContain("旧格式描述（3 条已合并）"); // 存量原样保留
     expect(text).not.toContain("（3 条已合并）（3 条已合并）"); // 不重复追加
+  });
+});
+
+describe("缺省路径：不含 L5 的会话装配渲染逐字节不变（验收标准 7 回归防护）", () => {
+  it("L1+L4 混合会话：renderActionLedger 完整输出逐字节锁定", () => {
+    // 需求验收 7：不含 L5 的会话渲染必须与改动前逐字节相同。
+    // 锁全量文本（含空行与 RECALL_HINT 位置）作为回归防护——任何对通用路径的改动都会破坏该断言。
+    const l4: LedgerData = { ...full, level: 4, summary: { ...full.summary, userIntent: "了解ledger结构", outcome: "确认LedgerData含level字段" } };
+    const msg = renderActionLedger([full, l4]);
+    const text = ((msg as any).content as any[]).map((c: any) => c.text ?? "").join("");
+    const expected = [
+      "<action-ledger>",
+      "## 会话历史（动作日志，细节已压缩）",
+      "",
+      RECALL_HINT,
+      "### T1 · 用户：「帮我了解 ledger 的结构」",
+      "- 调查：cat src/ledger.ts → 阅读核心数据结构 ↩e003",
+      "最终回复（原文）：",
+      "我已经看完当前代码……",
+      "",
+      "### T2 · 意图：了解ledger结构 ↩e001",
+      "- 最终回复（摘要）：确认LedgerData含level字段 ↩e018",
+      "",
+      RECALL_HINT,
+      "</action-ledger>",
+    ].join("\n");
+    expect(text).toBe(expected);
   });
 });

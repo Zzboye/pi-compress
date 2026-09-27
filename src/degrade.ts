@@ -125,9 +125,15 @@ export class DegradeEngine {
     // L4→L5：逐条二次压缩（不再有合并组）。按 L5_BATCH_SIZE 分片，一次调用产出 N 条描述；
     // 某条缺失 → 该条单独重跑；仍失败 → 保持 L4 + warning（不整批重试）。
     // 时序约束：必须在写 level=5 之前取描述（输入读 summary.userIntent/outcome）。
+    // 双跳级联守卫：同 turn 在一次计划中可有 toLevel=4+5 两步，L4 的 compressEnds 失败已回滚为 L3
+    // （L5 输入依赖其产出的 userIntent/outcome）→ 该 turn 不再入 L5 批，保持 L3 待下轮重试。
     const l5Steps = plan.steps.filter((s) => s.toLevel === 5);
     for (let i = 0; i < l5Steps.length; i += L5_BATCH_SIZE) {
-      const slice = l5Steps.slice(i, i + L5_BATCH_SIZE).map((s) => byId.get(s.turnStartEntryId)!);
+      const slice = l5Steps
+        .slice(i, i + L5_BATCH_SIZE)
+        .map((s) => byId.get(s.turnStartEntryId)!)
+        .filter((m) => m.level === 4);
+      if (slice.length === 0) continue;
       const descs = await recompressBatched(this.backend, slice);
       for (let j = 0; j < slice.length; j++) {
         const m = slice[j];
