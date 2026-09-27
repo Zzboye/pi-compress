@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { executeRecall, executeRecallDual, searchLedger } from "../src/recall.js";
 import { serializeTurn, splitIntoTurns } from "../src/util.js";
 import { NoteStore } from "../src/notes.js";
-import type { MessageEntry } from "../src/util.js";
+import type { MessageEntry, Turn } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
 import type { LedgerData } from "../src/ledger.js";
 
@@ -291,7 +291,7 @@ describe("recall 返回图片", () => {
   });
 });
 
-describe("三档召回语义（L3/L4 turn 级、L5 拒绝）", () => {
+describe("三档召回语义（L3/L4/L5 turn 级整段原文）", () => {
   // branch：u1 用户原话 → a1 工具调用 → r1 工具结果 → a2 最终回复
   const branch: MessageEntry[] = [
     { id: "u1", message: { role: "user", content: [{ type: "text", text: "修一下排序" }] }, timestamp: 1 } as any,
@@ -318,15 +318,6 @@ describe("三档召回语义（L3/L4 turn 级、L5 拒绝）", () => {
     const r = executeRecallDual(["u1"], branch, null, 4000, mkCtx(4));
     expect(r.text).toContain("整段原文");
     expect(r.text).toContain("3 passed");
-  });
-
-  it("L5 的 ID 拒绝召回：返回终态说明，不返回原文，且 rejected 单独计数（M9）", () => {
-    const r = executeRecallDual(["u1"], branch, null, 4000, mkCtx(5));
-    expect(r.text).toContain("已合并为终态摘要");
-    expect(r.text).not.toContain("npm test");
-    expect(r.text).not.toContain("修一下排序");
-    expect(r.rejected).toBe(1);       // 拒绝计入 rejected，不落入 missing
-    expect(r.missing).toEqual([]);
   });
 
   it("无 degradeCtx 时行为不变（entry 级），L1/L2 同样 entry 级", () => {
@@ -359,8 +350,10 @@ describe("三档召回语义（L3/L4 turn 级、L5 拒绝）", () => {
       turns: splitIntoTurns(branch2),
     };
     const r = executeRecallDual(["r1", "u2"], branch2, null, 4000, ctx);
-    expect(r.text).toContain("整段原文");              // r1 → turn 级
-    expect(r.text).toContain("已合并为终态摘要");       // u2 → 拒绝
+    expect(r.text).toContain("整段原文");              // r1 → L3 turn 级
+    expect(r.text).toContain("下一个任务");            // u2 → L5 同样整段原文（与 L3/L4 同构）
+    expect(r.text).toContain("完成");
+    expect(r.text).not.toContain("已合并为终态摘要");
   });
 
   it("F1 去重：同 turn 多 ID 只有首个返回整段原文，后续 ID 输出一行提示", () => {
@@ -434,7 +427,7 @@ describe("searchLedger", () => {
     expect(h.snippet).toContain("forceRatio");
   });
 
-  it("命中 L5 merged.description → turnLabel 显示组内 turn 范围", () => {
+  it("命中 L5 merged.description → turnLabel 单 turn（T3）、level=5", () => {
     const r = searchLedger("forceRatio", ledgers, 15);
     const h = r.hits.find((x) => x.field === "合并描述")!;
     expect(h.turnLabel).toBe("T3");
@@ -453,39 +446,16 @@ describe("searchLedger", () => {
     expect(r.truncated).toBe(true);
   });
 
-  it("L5 连续组 turnLabel 显示范围（多 ledger L5 相邻且同描述时合并为 T3-T4）", () => {
+  it("L5 相邻且同描述：逐条独立成组（T3/T4 各自成行，不再聚合为 T3-T4）", () => {
     const t4 = mkLedger({
       turnStartEntryId: "t4", level: 5,
       merged: { description: "调整 forceRatio 并验证窗口行为" }, // 同批同描述
       summary: { entries: [] },
     });
     const r = searchLedger("forceRatio", [...ledgers, t4], 15);
-    const h = r.hits.find((x) => x.field === "合并描述")!;
-    expect(h.turnLabel).toBe("T3-T4");
-    // 组内每条 merged.description 均可命中，且都标同一组范围
     const mergedHits = r.hits.filter((x) => x.field === "合并描述");
-    expect(mergedHits.length).toBe(2);
-    expect(mergedHits.every((x) => x.turnLabel === "T3-T4")).toBe(true);
-  });
-
-  it("L5 相邻但描述不同 → 聚合按组分断，各组标各自范围（M4）", () => {
-    // t3(描述X) + t4(描述Y) + t5(描述Y)：同描述的 t4/t5 一组，t3 独立
-    const t4 = mkLedger({
-      turnStartEntryId: "t4", level: 5,
-      merged: { description: "另一批任务也涉及 forceRatio" },
-      summary: { entries: [] },
-    });
-    const t5 = mkLedger({
-      turnStartEntryId: "t5", level: 5,
-      merged: { description: "另一批任务也涉及 forceRatio" },
-      summary: { entries: [] },
-    });
-    const r = searchLedger("forceRatio", [...ledgers, t4, t5], 15);
-    const hits = r.hits.filter((x) => x.field === "合并描述");
-    const t3hit = hits.find((x) => x.turnLabel === "T3");
-    const t45hit = hits.find((x) => x.turnLabel === "T4-T5");
-    expect(t3hit).toBeDefined();
-    expect(t45hit).toBeDefined();
+    expect(mergedHits.map((x) => x.turnLabel)).toEqual(["T3", "T4"]);
+    expect(mergedHits.every((x) => !x.turnLabel.includes("-"))).toBe(true); // 一 turn 一行
   });
 
   it("无命中返回空 hits 且不 truncated", () => {
@@ -609,5 +579,49 @@ describe("recall 截断口径与 offset 分页", () => {
     const r = executeRecallDual(["big"], b, null, 500, undefined, 5013);
     expect(r.text).toContain("B");
     expect(r.text).not.toContain("A");
+  });
+});
+
+describe("L5 召回：与 L3/L4 同构", () => {
+  const entry = (id: string, role: string, text: string): MessageEntry => ({
+    id, message: { role, content: [{ type: "text", text }] },
+  } as unknown as MessageEntry);
+
+  it("L5 turn 返回整段原文（含工具过程），不再拒绝", () => {
+    const entries = [entry("u1", "user", "用户原话内容"), entry("a1", "assistant", "回复正文内容")];
+    const ctx = {
+      ledgers: [{ turnStartEntryId: "u1", level: 5, summary: { entries: [] } } as unknown as LedgerData],
+      turns: [{ startEntryId: "u1", endEntryId: "a1", entries }] as unknown as Turn[],
+    };
+    const r = executeRecall(["u1"], entries, 4_000, ctx);
+    expect(r.text).toContain("用户原话内容");
+    expect(r.text).not.toContain("不可恢复");
+    expect((r as any).rejected).toBeUndefined();
+  });
+
+  it("L5 截断时给出 offset 续取提示（与 L3/L4 同款）", () => {
+    const long = "很长内容".repeat(5_000);
+    const entries = [entry("u1", "user", long)];
+    const ctx = {
+      ledgers: [{ turnStartEntryId: "u1", level: 5, summary: { entries: [] } } as unknown as LedgerData],
+      turns: [{ startEntryId: "u1", endEntryId: "u1", entries }] as unknown as Turn[],
+    };
+    const r = executeRecall(["u1"], entries, 100, ctx);
+    expect(r.text).toContain("已截断");
+    expect(r.text).toContain("offset=");
+  });
+
+  it("searchLedger 命中 L5 时逐条返回，不再聚合成组范围标签", () => {
+    const l5 = (id: string, desc: string): LedgerData => ({
+      turnStartEntryId: id, turnEndEntryId: id + "-e", level: 5,
+      merged: { description: desc },
+      userMessage: { entryId: id + "-u", text: "用户消息" + id },
+      summary: { entries: [] },
+    } as unknown as LedgerData);
+    const r = searchLedger("同一关键词", [l5("a", "同一关键词甲"), l5("b", "同一关键词乙")], 10);
+    const labels = r.hits.map((h) => h.turnLabel);
+    expect(labels).toContain("T1");
+    expect(labels).toContain("T2");
+    expect(labels.some((x) => x.includes("-"))).toBe(false); // 无组范围标签
   });
 });

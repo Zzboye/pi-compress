@@ -4,7 +4,7 @@ import type { NoteStore } from "./notes.js";
 
 /** recall 召回的图片块：block 可直接作为 pi 工具结果的 image content，sourceId 标注来源 entry */
 export interface RecallImage { block: { type: "image"; data: string; mimeType: string }; sourceId: string }
-export interface RecallResult { text: string; missing: string[]; notesHits: number; images: RecallImage[]; rejected?: number; skipped?: number }
+export interface RecallResult { text: string; missing: string[]; notesHits: number; images: RecallImage[]; skipped?: number }
 
 /** recall 层级路由上下文：ledgers 按 branch 序（index.ts 的 ledgersInBranchOrder 产出） */
 export interface RecallDegradeCtx { ledgers: LedgerData[]; turns: Turn[] }
@@ -36,13 +36,12 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   const missing: string[] = [];
   const parts: string[] = [];
   const images: RecallImage[] = [];
-  let rejected = 0;
   // offset 分页仅支持单 ID（多 ID 各有一段文本，offset 语义歧义）：多 ID 直接给用法提示。
   // skipped 标记「全部传入 ID 均未执行」：调用方据此不计入 calls/hits（spec §7 不召回、不计数）。
   if (offset > 0 && ids.length !== 1) {
-    return { text: "offset 分页仅支持单 ID：请一次只传一个 ID（如 recall({ ids: [\"↩id\"], offset: 12345 })）。", missing: [], notesHits: 0, images: [], rejected: 0, skipped: ids.length };
+    return { text: "offset 分页仅支持单 ID：请一次只传一个 ID（如 recall({ ids: [\"↩id\"], offset: 12345 })）。", missing: [], notesHits: 0, images: [], skipped: ids.length };
   }
-  // F1 去重：turnStartEntryId → 首个返回整段原文的 ID。多 ID 命中同一 L3/L4 turn 时，
+  // F1 去重：turnStartEntryId → 首个返回整段原文的 ID。多 ID 命中同一 turn（L3/L4/L5）时，
   // 后续 ID 只给一行提示，不重复整段原文、不重复 push 图片。
   const seenTurns = new Map<string, string>();
   // entryId → 所属 turn；turnStartEntryId → ledger 层级（spec §7 三档路由）
@@ -55,7 +54,7 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
     if (!e) { missing.push(id); continue; }
     const turn = degradeCtx ? turnOfEntry.get(id) : undefined;
     const lvl = turn ? levelOfTurn.get(turn.startEntryId) ?? 1 : 1;
-    if (turn && lvl >= 3 && lvl <= 4) {
+    if (turn && lvl >= 3) {
       const firstId = seenTurns.get(turn.startEntryId);
       if (firstId !== undefined) {
         // 同 turn 已随前一个 ID 返回过整段原文：不重复全文/图片（F1）
@@ -81,13 +80,6 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
       for (const te of turn.entries) collectImages(te.message, id, imgs, seen);
       if (imgs.length > 0) { text += `\n[含图片 ×${imgs.length}，已附在结果中]`; images.push(...imgs); }
       parts.push(`【${id} 所在 turn（L${lvl}）的整段原文】\n${text}`);
-      continue;
-    }
-    if (turn && lvl === 5) {
-      // L5 终态：拒绝召回（防连环巨条挤爆上下文，spec §7）。
-      // rejected 单独计数（M9）：不计入 hits/missing，统计口径区分「拒发」与「未中」。
-      rejected += 1;
-      parts.push(`【${id}】该 turn 已合并为终态摘要（L5），仅保留合并描述，细节不可恢复。`);
       continue;
     }
     const msgs = [e.message];
@@ -127,7 +119,7 @@ export function executeRecall(ids: string[], branch: MessageEntry[], maxTokensPe
   if (missing.length > 0) {
     parts.push(`以下 ID 不在当前分支中（可能因 /tree 回退）：${missing.join(", ")}。可尝试 recall 相邻 turn 的 ID。`);
   }
-  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits: 0, images, rejected };
+  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits: 0, images };
 }
 
 // ---------- 双源 recall（notes 优先，branch 兜底）----------
@@ -143,7 +135,7 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
   // 单 ID 守卫按**原始 ids 数量**判定（不能用过滤掉 notes ID 后的 entryIds.length：
   // notes ID 与 branch ID 混传时也会静默生效，spec §7「仅单 ID 时有效」）。
   if (offset > 0 && ids.length !== 1) {
-    return { text: "offset 分页仅支持单 ID：请一次只传一个 ID（如 recall({ ids: [\"↩id\"], offset: 12345 })）。", missing: [], notesHits: 0, images: [], rejected: 0, skipped: ids.length };
+    return { text: "offset 分页仅支持单 ID：请一次只传一个 ID（如 recall({ ids: [\"↩id\"], offset: 12345 })）。", missing: [], notesHits: 0, images: [], skipped: ids.length };
   }
   const entryIds: string[] = [];
   const parts: string[] = [];
@@ -161,24 +153,22 @@ export function executeRecallDual(ids: string[], branch: MessageEntry[], notes: 
     }
     entryIds.push(raw);
   }
-  let rejected = 0;
   let skipped = 0;
   if (entryIds.length > 0) {
     const r = executeRecall(entryIds, branch, maxTokensPerEntry, degradeCtx, offset);
     parts.unshift(r.text);
     missing.unshift(...r.missing);
     allImages.push(...r.images);
-    rejected = r.rejected ?? 0;
     skipped = r.skipped ?? 0;
   }
-  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits, images: allImages, rejected, skipped };
+  return { text: parts.join("\n\n") || "（无内容）", missing, notesHits, images: allImages, skipped };
 }
 
 // ---------- 关键词检索（searchLedger）----------
 
 export interface SearchHit {
-  turnLabel: string;   // "T12" 或 "T29-T33"（L5 已聚合组显示组范围，与 renderActionLedger 的 T 序号同口径：数组下标+1）
-  level: LedgerLevel; // 随 LedgerLevel 放宽至 1-5；L5 拒绝召回由 executeRecall 防御（Task 3）
+  turnLabel: string;   // "T12"（一 turn 一行；与 renderActionLedger 的 T 序号同口径：数组下标+1）
+  level: LedgerLevel; // 随 LedgerLevel 放宽至 1-5
   field: string;       // "用户消息" | "最终回复" | "动作" | "合并描述"
   snippet: string;     // 命中行片段（截断到 ~200 chars）
   entryIds: string[];  // 该字段关联、可直接 recall 的 ID（有序去重，与 executeRecall 同一命名空间）
@@ -220,8 +210,7 @@ function allRecallIdsOf(l: LedgerData, includeAllQuotes: boolean): string[] {
  * 关键词检索：在 LedgerData 全量字段（userMessage.text / finalReply.text / target+detail / merged.description，
  * 不受渲染层级影响）做大小写不敏感子串匹配。每个命中的「字段」产出一个 hit，entryIds 指向该字段的来源条目，
  * 召回必中（/tree 回退除外）。
- * turnLabel 按数组下标生成（renderActionLedger 同款 T 序号）；连续 level=4 聚合为一组，组内每条
- * merged.description 均可命中且共用组范围标签（如 "T3-T4"），与渲染时的聚合行对齐。
+ * turnLabel 按数组下标生成（renderActionLedger 同款 T 序号）：每 turn 独立成组（一 turn 一行，与渲染层同口径）。
  */
 export function searchLedger(query: string, ledgers: LedgerData[], maxHits: number): SearchResult {
   const q = query.trim();
@@ -236,25 +225,12 @@ export function searchLedger(query: string, ledgers: LedgerData[], maxHits: numb
   for (let i = 0; i < ledgers.length; i++) {
     const l = ledgers[i];
     const lvl = (l.level ?? 1) as LedgerLevel;
+    const label = `T${i + 1}`;
     if (lvl === 5) {
-      // L5 组范围：向后聚合连续 level=5（renderActionLedger 同款边界）。
-      // Task 2 阶梯右移：合并组从 L4 变为 L5，聚合边界随之改为 5。
-      // M4 修复：与渲染层同款——描述不同 = 不同降级批次，按组分断。
-      let end = i;
-      while (
-        end + 1 < ledgers.length &&
-        (ledgers[end + 1].level ?? 1) === 5 &&
-        ledgers[end + 1].merged?.description === l.merged?.description
-      ) end++;
-      const label = end > i ? `T${i + 1}-T${end + 1}` : `T${i + 1}`;
-      for (let j = i; j <= end; j++) {
-        const m = ledgers[j];
-        if (m.merged?.description) push(label, 5, "合并描述", m.merged.description, allRecallIdsOf(m, true));
-      }
-      i = end;
+      // L5 终态：只保留合并描述（一 turn 一行，描述逐条互异，聚合无意义）
+      if (l.merged?.description) push(label, 5, "合并描述", l.merged.description, allRecallIdsOf(l, true));
       continue;
     }
-    const label = `T${i + 1}`;
     if (l.userMessage) push(label, lvl, "用户消息", l.userMessage.text, [l.userMessage.entryId]);
     if (l.finalReply) push(label, lvl, "最终回复", l.finalReply.text, [l.finalReply.entryId]);
     for (const e of l.summary.entries ?? legacyGroups(l)) {
