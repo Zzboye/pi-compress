@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nextId": 11,
+  "nextId": 12,
   "prefs": [],
   "feedback": [],
   "tasks": [
@@ -111,11 +111,22 @@
       "updatedAt": "2026-09-27T04:19:03.622Z",
       "source": "会话诊断；commit 9e0b40a；src/util.ts isThinkingLeak",
       "locked": false
+    },
+    {
+      "id": "task-011",
+      "table": "tasks",
+      "text": "L5 逐条二次压缩实施完成（8 任务 SDD 全绿，final review Ready to merge），待用户选合并方式",
+      "detail": "分支 feat/l5-per-turn-recompress（15 commits，c9183d8..91c8585），367 passed / 1 skipped，tsc 干净。8 任务全部完成：提示词（buildBatchRecompressPrompt，用户给定原文）、LLM 层（recompressBatched/recompressOne，null 不抛错）、删 mergeGroups、批量分片 N=20+单条重跑+保持 L4+warning、渲染 ↩锚点删聚合分支、召回 lvl>=3 同构整段原文+删 rejected、接线清理 rejected 统计、README 两档召回。最终审查发现并修复 1 个 Important：F1 双跳级联越权提升（compressEnds 失败回滚 L3 的 turn 被误升 L5）——修复 filter(level===4)，commit 91c8585，re-review ADDRESSED。逐字节不变式（不含 L5 会话渲染）有 golden 回归测试锁定（ledger.test.ts）。deferred minors：M1 验收#2缺计数断言测试、M2 陈旧注释（recall.ts:47/230、index.ts:348、ledger.ts:31/90、degrade.ts:53）、M3「合并描述」标签、M9 backend.complete 异常穿透（独立加固项）、M10 旧 spec 勘误注记。待用户裁定：合并方式（ff 合并 main / 推远程 / 留分支）。",
+      "status": "已完成",
+      "date": "2026-09-27",
+      "updatedAt": "2026-09-27T11:39:00.704Z",
+      "source": "用户提问；docs/superpowers/specs/2026-09-21-l5-task-aggregation-design.md；task-009",
+      "locked": false
     }
   ],
   "seq": {
     "prefs": 0,
     "feedback": 0,
-    "tasks": 10
+    "tasks": 11
   }
 }
