@@ -168,6 +168,54 @@ describe("extractFinalReply", () => {
     const q = extractFinalReply(turnOf(userEntry("u1", "问题"), assistantEntry("a2", [{ type: "text", text: long }])))!;
     expect(q?.text).toBe(long);
   });
+
+  // 实测故障：pi 偶发把思考写进 text 块（该消息内 thinking 与 text 逐字相同），
+  // 60080 字符的思考过程被当成「最终回复」落盘（会话 2026-09-12 的 T150，entryId=5faaaf41）。
+  it("思考泄漏：thinking 与 text 逐字相同 → 跳过该消息，向前找更早的 text", () => {
+    const leaked = "Let me think carefully about this. ".repeat(50);
+    const t = turnOf(
+      userEntry("u1", "问题"),
+      assistantEntry("a1", [{ type: "text", text: "真正的回复" }]),
+      assistantEntry("a2", [{ type: "thinking", thinking: leaked }, { type: "text", text: leaked }]),
+    );
+    expect(extractFinalReply(t)).toEqual({ text: "真正的回复", entryId: "a1" });
+  });
+
+  it("思考泄漏：turn 内无其他 text → undefined（不把思考当回复）", () => {
+    const leaked = "reasoning text".repeat(100);
+    const t = turnOf(
+      userEntry("u1", "问题"),
+      assistantEntry("a1", [{ type: "thinking", thinking: leaked }, { type: "text", text: leaked }]),
+    );
+    expect(extractFinalReply(t)).toBeUndefined();
+  });
+
+  it("零误伤：thinking 与 text 仅部分相似（前缀相同）→ 取 text", () => {
+    const t = turnOf(
+      userEntry("u1", "问题"),
+      assistantEntry("a1", [{ type: "thinking", thinking: "共同前缀" }, { type: "text", text: "共同前缀但回复更长" }]),
+    );
+    expect(extractFinalReply(t)!.text).toBe("共同前缀但回复更长");
+  });
+
+  it("零误伤：多个 thinking 块与多段 text 拼接后相同才判泄漏", () => {
+    const t = turnOf(
+      userEntry("u1", "问题"),
+      assistantEntry("a1", [
+        { type: "thinking", thinking: "段一" },
+        { type: "thinking", thinking: "段二" },
+        { type: "text", text: "段一段二" },
+      ]),
+    );
+    // 拼接后 "段一段二" === "段一段二" → 判为泄漏，但 turn 内无更早 text → undefined
+    expect(extractFinalReply(t)).toBeUndefined();
+  });
+
+  it("零误伤：无 thinking 块时不受影响（正常长回复照常取）", () => {
+    const long = "正文".repeat(5000);
+    const t = turnOf(userEntry("u1", "问题"), assistantEntry("a1", [{ type: "text", text: long }]));
+    expect(extractFinalReply(t)!.text).toBe(long);
+  });
 });
 
 describe("serializeForRecall（recall 全量序列化，绕开 pi 的 toolResult 2000 截断）", () => {

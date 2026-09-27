@@ -292,11 +292,24 @@ export function extractUserMessage(turn: Turn): LedgerQuote | undefined {
   return { text, entryId: first.id, ...(images.length > 0 ? { images } : {}) };
 }
 
-/** turn 内最后一条含 text 的 assistant 消息全量保留（跳过纯 thinking）；不截断 */
+/** 判定一条 assistant 消息是否为「思考泄漏」：消息内 thinking 块拼接与 text 块拼接逐字相同。
+ *  实测故障（会话 2026-09-12 的 T150，entryId=5faaaf41）：模型思考超长后未产出正式回复，
+ *  pi 把 60080 字符的思考同时写进 thinking 和 text 两个块——若不过滤，整段思考会被当作
+ *  「最终回复」落盘进 ledger，并经装配进入后续所有请求。正常回复中该形态不会出现，零误伤。 */
+export function isThinkingLeak(content: unknown): boolean {
+  if (!Array.isArray(content)) return false;
+  const th = content.filter((b: any) => b?.type === "thinking").map((b: any) => b.thinking ?? "").join("");
+  if (th === "") return false;
+  const tx = content.filter((b: any) => b?.type === "text").map((b: any) => b.text ?? "").join("");
+  return tx !== "" && tx === th;
+}
+
+/** turn 内最后一条含 text 的 assistant 消息全量保留（跳过纯 thinking 与思考泄漏）；不截断 */
 export function extractFinalReply(turn: Turn): LedgerQuote | undefined {
   for (let i = turn.entries.length - 1; i >= 0; i--) {
     const e = turn.entries[i];
     if (e.message.role !== "assistant") continue;
+    if (isThinkingLeak((e.message as any).content)) continue; // 思考泄漏：不是真回复，继续向前找
     const text = joinedText((e.message as any).content); // 只取 text 块，thinking 天然排除
     if (text === "") continue; // 纯思考消息：继续向前找
     return { text, entryId: e.id };
