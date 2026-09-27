@@ -41,7 +41,7 @@ L5 是当前唯一的「合并终态」层：`planDegrade` 把本轮升 L5 的�
 | 2 | **批量调用，逐条对应**。一次调用提交 N=20 条 L4，要求输出 N 条，index 一一对应 | `l5-promptC-batch.txt`：N=20 的 2 批 10s/52s，20/20 正确、零空值 |
 | 3 | **失败兜底 = 单条重跑**。某条返回 null/空 → 该条单独调一次 | 用户裁定。避免整批重试的放大成本 |
 | 4 | **步长 2 分组取消**。原 T158「固定步长 2」不再需要——逐条即天然粒度为 1 | 裁定 1 的下推结论 |
-| 5 | **L5 可召回 = 返回该 turn 的 L3 视图**（用户原文 + 回复原文，不含工具过程） | 承接 `2026-09-21` 裁定 6，粒度从「任务级」改为「turn 级」 |
+| 5 | **L5 可召回 = 与 L3/L4 完全一致，返回该 turn 的整段原文** | 用户裁定（2026-09-27）。取消合并后 L5 与 L3/L4 同为「单 turn 降级形态」，无理由区别对待；「L3 视图」是合并形态下的折中（一组含多 turn 时整段原文会爆），取消合并后该折中失去依据 |
 | 6 | **L5 行渲染锚点 ↩ID**（复用 `turnStartEntryId`），使召回有入口 | 当前 L5 行无任何 ID，用户无从召回 |
 | 7 | **不做 L6+**，L5 不限制大小 | T159 原裁定，维持 |
 | 8 | **只管 L4→L5**，不改 L1→L4 选择粒度 | `2026-09-21` 裁定 8，维持 |
@@ -161,25 +161,22 @@ lines.push(`T${n} · ${desc} ↩${l.turnStartEntryId}`);
 
 ### 3.7 召回（`recall.ts`）
 
-**删除 L5 拒绝分支**（86–91 行），改为返回 **turn 级 L3 视图**：
-
-```
-lvl === 5 时：
-  1. 取该 turn 的 entries（同 L3/L4 路径的 turnOfEntry）
-  2. 渲染 = renderTurnText({ ...ledger, level: 3 }, 0)  // 用户原文 + 回复原文，无工具过程
-  3. 按 maxTokensPerEntry 截断 + offset 续取（复用现有 L3/L4 分支的同一套逻辑）
-```
-
-**实现要点**：L5 走与 L3/L4 **完全相同的 turn 级路径**，唯一差别是渲染时把 level 覆写为 3。因此可以**合并分支**：
+**删除 L5 拒绝分支**（86–91 行），并把上界打开——L5 与 L3/L4 走**同一条 turn 级路径**：
 
 ```ts
-if (turn && lvl >= 3) {          // 3 / 4 / 5 同一路径
-  const renderLevel = lvl === 5 ? 3 : lvl;   // L5 用 L3 视图
-  ...  // 其余同现有代码
-}
+// 旧：if (turn && lvl >= 3 && lvl <= 4)
+// 新：if (turn && lvl >= 3)
 ```
 
+**改动只有一个边界条件**。分支内部逻辑零改动：`serializeForRecall(turn.entries)` 本来就取该 turn 的全部原始 entries（含工具过程与两端原文），与 level 无关——L3/L4 是这样，L5 也必然是这样。
+
+- 无渲染层介入（不需要 renderTurnText，不需要覆写 level）——这是相对上一版「L3 视图」方案的简化
+- `seenTurns` 去重（F1）自动生效：多 ID 命中同一 L5 turn 只返回一次
+- 截断 / `offset` 续取 / 图片收集全部复用
+
 `rejected` 计数随之**失去意义**（不再有拒发）→ 删除该字段及 `index.ts` 中的相关统计（M9 引入的机制回退）。
+
+**为什么不是 L3 视图**：2026-09-21 裁定 6 选 L3 视图，理由是「一组含多 turn，整段原文会爆上下文」。取消合并后一条 L5 = 一个 turn，与 L3/L4 同构，该理由消失。
 
 ### 3.8 配置
 
@@ -195,7 +192,7 @@ if (turn && lvl >= 3) {          // 3 / 4 / 5 同一路径
 | `src/degrade-llm.ts` | `mergeDescribe` → `compressMany` + `compressOne` |
 | `src/prompts.ts` | `buildMergeDescriptionPrompt` → `buildBatchRecompressPrompt` |
 | `src/ledger.ts` | L5 渲染加锚点 ID（1 行） |
-| `src/recall.ts` | L5 拒绝分支删除，并入 L3/L4 turn 级路径；`rejected` 字段删除 |
+| `src/recall.ts` | L5 拒绝分支删除，分支条件 `lvl >= 3 && lvl <= 4` → `lvl >= 3`（1 处）；`rejected` 字段删除 |
 | `src/index.ts` | recall 统计去掉 rejected |
 | `README.md` | L5 描述、召回行为、已知限制 |
 | `docs/superpowers/specs/2026-09-21-*.md` | 加勘误：裁定 6 由本文档取代 |
@@ -213,9 +210,9 @@ if (turn && lvl >= 3) {          // 3 / 4 / 5 同一路径
 | 片长 < 20（余数片） | 正常处理（1..20 均可） |
 | 只有 1 条待降级 | 走 `compressMany` 长度=1（即退化单条），无需分支 |
 | 该 turn 无 `userMessage`/`finalReply` | 输入为空串；模型可能返回空 → 单条重跑 → 仍空则保持 L4 |
-| L5 turn 被 recall | 返回 L3 视图（用户原文 + 回复原文） |
-| L5 turn 无 `userMessage`（纯图片 turn） | 渲染 L3 视图时回退 `summary.userIntent`（现有 L3 分支已有此逻辑） |
-| 存量旧 L5（一组多条共享描述） | 渲染仍按「相邻+描述相同」聚合成一行；召回按 turn 级（各自返回自己的 L3 视图） |
+| L5 turn 被 recall | 返回该 turn 整段原文（同 L3/L4） |
+| L5 turn 无 userMessage（纯图片 turn） | 整段原文路径不依赖 userMessage，正常返回 |
+| 存量旧 L5（一组多条共享描述） | 渲染仍按「相邻+描述相同」聚合成一行；召回按 turn 级，各自返回自己的整段原文 |
 
 ---
 
@@ -245,9 +242,9 @@ if (turn && lvl >= 3) {          // 3 / 4 / 5 同一路径
 | 10 | 渲染：L5 单条行含 `↩{turnStartEntryId}` | 单元（新） |
 | 11 | 渲染：存量旧 L5（描述相同）仍聚合成一行 | 单元（改既有） |
 | 12 | 渲染：新 L5（描述各不相同）各占一行 | 单元（新） |
-| 13 | 召回：L5 的 ID → 返回该 turn 的 L3 视图（用户原文 + 回复原文，无工具过程） | 单元（新） |
+| 13 | 召回：L5 的 ID → 返回该 turn 整段原文（含工具过程，与 L3/L4 一致） | 单元（新） |
 | 14 | 召回：L5 的 ID → 不再返回「不可恢复」文案 | 单元（改既有） |
-| 15 | 召回：L5 turn 的 L3 视图超预算 → 截断 + offset 续取 | 单元（新） |
+| 15 | 召回：L5 turn 整段原文超预算 → 截断 + offset 续取 | 单元（新） |
 | 16 | 召回：多 ID 命中同一 L5 turn → 去重提示（F1 行为） | 单元（新） |
 | 17 | 统计：`rejected` 字段移除后 calls/hits 计数正确 | 单元（改既有） |
 | 18 | 提示词：`buildBatchRecompressPrompt` 含逐条对应契约与条数声明 | 单元（新） |
