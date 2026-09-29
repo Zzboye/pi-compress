@@ -235,6 +235,61 @@ describe("planInflightTrim", () => {
     expect(fragment!.startEntryId).toBe("a3");
   });
 
+  it("并行 toolCall：片段必须闭合同一 assistant 消息里的全部 toolCall（不留孤儿 toolResult）", () => {
+    // 一条 assistant 消息里同时发两个 toolCall（c1、c2），两条 toolResult 分别回应；
+    // 后面再跟一对（c3/r3）保证“末尾还有内容”，旧实现会停在 r1 上留下 c2 悬空
+    const entries: MessageEntry[] = [
+      { id: "u", message: { role: "user", content: [{ type: "text", text: "任务" }] } as any },
+      { id: "a1", message: { role: "assistant", content: [
+        { type: "toolCall", id: "c1", name: "bash", arguments: { command: "cmd1" } },
+        { type: "toolCall", id: "c2", name: "bash", arguments: { command: "cmd2" } },
+      ] } as any },
+      { id: "r1", message: { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "y".repeat(200) }] } as any },
+      { id: "r2", message: { role: "toolResult", toolCallId: "c2", content: [{ type: "text", text: "z".repeat(200) }] } as any },
+      { id: "a2", message: { role: "assistant", content: [{ type: "toolCall", id: "c3", name: "bash", arguments: { command: "cmd3" } }] } as any },
+      { id: "r3", message: { role: "toolResult", toolCallId: "c3", content: [{ type: "text", text: "w".repeat(8000) }] } as any },
+    ];
+    // 预算 2100 tok：溢出量极小，(旧实现)边界停在 r1 上，c2 变成孤儿
+    const { fragment } = planInflightTrim(entries, new Map(), 2100);
+    expect(fragment).not.toBeNull();
+    const open = new Set<string>();
+    for (const e of fragment!.entries) {
+      const m = e.message as any;
+      if (m.role === "assistant") { for (const b of m.content as any[]) if (b?.type === "toolCall") open.add(b.id); }
+      else if (m.role === "toolResult") { open.delete(m.toolCallId); }
+    }
+    expect([...open]).toEqual([]);
+  });
+
+  it("并行 toolCall：装配后不产生孤儿 toolResult", () => {
+    const entries: MessageEntry[] = [
+      { id: "u", message: { role: "user", content: [{ type: "text", text: "任务" }] } as any },
+      { id: "a1", message: { role: "assistant", content: [
+        { type: "toolCall", id: "c1", name: "bash", arguments: { command: "cmd1" } },
+        { type: "toolCall", id: "c2", name: "bash", arguments: { command: "cmd2" } },
+      ] } as any },
+      { id: "r1", message: { role: "toolResult", toolCallId: "c1", content: [{ type: "text", text: "y".repeat(200) }] } as any },
+      { id: "r2", message: { role: "toolResult", toolCallId: "c2", content: [{ type: "text", text: "z".repeat(200) }] } as any },
+      { id: "a2", message: { role: "assistant", content: [{ type: "toolCall", id: "c3", name: "bash", arguments: { command: "cmd3" } }] } as any },
+      { id: "r3", message: { role: "toolResult", toolCallId: "c3", content: [{ type: "text", text: "w".repeat(8000) }] } as any },
+    ];
+    const { fragment } = planInflightTrim(entries, new Map(), 2100);
+    expect(fragment).not.toBeNull();
+    const fragLedger: LedgerData = {
+      turnStartEntryId: fragment!.startEntryId, turnEndEntryId: fragment!.endEntryId,
+      summary: { entries: [] },
+    };
+    const cache = new Map([[fragment!.startEntryId, fragLedger]]);
+    const { trimmedBranch } = planInflightTrim(entries, cache, 2100);
+    // 裁剪视图里每个 toolResult 都必须有对应 toolCall 在它之前（不得有孤儿）
+    const seen = new Set<string>();
+    for (const e of trimmedBranch) {
+      const m = e.message as any;
+      if (m.role === "assistant") { for (const b of m.content as any[]) if (b?.type === "toolCall") seen.add(b.id); }
+      else if (m.role === "toolResult") expect(seen.has(m.toolCallId)).toBe(true);
+    }
+  });
+
   it("turn 结束后的普通多 turn 会话：最后 turn 是已完成的短 turn，零变化", () => {
     const branch = [...mkInflight(), { id: "u2", message: { role: "user", content: [{ type: "text", text: "下一问" }] } as any }];
     const out = planInflightTrim(branch, new Map(), 1_000_000);

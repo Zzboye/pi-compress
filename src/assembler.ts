@@ -80,15 +80,25 @@ export function planInflightTrim(
   }
   if (i === i0) return { trimmedBranch, extraLedgers: frags, fragment: null }; // 仅剩 user：无可切条目
 
-  // 对边界修正：不结束在带 toolCall 的 assistant 上——继续向后吃直到吃进一条 toolResult；
-  // 已到末尾则吃到最后一条为止
-  const endsOnToolCall = (e: MessageEntry) =>
-    e.message.role === "assistant" && (e.message.content as any[]).some((b) => b?.type === "toolCall");
-  while (i < remaining.length && endsOnToolCall(remaining[i - 1])) {
-    const role = remaining[i].message.role;
+  // 对边界修正：不得把同一 assistant 消息发出的 toolCall 组切开——若片段末尾仍有
+  // 未闭合的 toolCall（无论停在该组的哪个位置），继续向后吃直到全部闭合；已到末尾则吃到最后一条。
+  // 仅看“末尾是否为 assistant(toolCall)”不够：并行调用组被从中间切开时，末尾是
+  // toolResult 但仍留下未闭合的 toolCall（Codex P1）。
+  const toolCallIdsOf = (e: MessageEntry): string[] =>
+    e.message.role === "assistant"
+      ? (e.message.content as any[]).filter((b) => b?.type === "toolCall").map((b) => b.id as string)
+      : [];
+  const openToolCallIds = (from: number, to: number): Set<string> => {
+    const open = new Set<string>();
+    for (let k = from; k < to; k++) {
+      for (const id of toolCallIdsOf(remaining[k])) open.add(id);
+      if (remaining[k].message.role === "toolResult") open.delete((remaining[k].message as any).toolCallId);
+    }
+    return open;
+  };
+  while (i < remaining.length && openToolCallIds(i0, i).size > 0) {
     acc += countTokens(remaining[i].message, { skipThinking: true });
     i++;
-    if (role === "toolResult") break;
   }
 
   const fragment: Turn = {
