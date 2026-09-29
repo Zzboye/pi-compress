@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nextId": 12,
+  "nextId": 14,
   "prefs": [],
   "feedback": [],
   "tasks": [
@@ -122,11 +122,33 @@
       "updatedAt": "2026-09-27T11:39:00.704Z",
       "source": "用户提问；docs/superpowers/specs/2026-09-21-l5-task-aggregation-design.md；task-009",
       "locked": false
+    },
+    {
+      "id": "task-012",
+      "table": "tasks",
+      "text": "L5 逐条二次压缩已合并推送（f95e9fa），存疑仅剩描述质量（成本论据已撤回）——裁定「维持现状观察」",
+      "detail": "状态：feat/l5-per-turn-recompress 已 ff 合并 main 并推送（f95e9fa，本地=远程，367 passed/1 skipped）。实现内容：取消合并分组（mergeGroups 删除）、L5 = 每条 L4 独立一条描述、N=20 批量分片（recompressBatched，缺失单条重跑 recompressOne，仍失败保持 L4）、渲染加 ↩锚点 `T{n} · {desc} ↩{id}`、召回并入 lvl>=3 整段原文（两档：L1/L2 entry 级、L3/L4/L5 turn 级）、rejected 统计删除。\n\n【核心存疑（修正后）】同日探针（docs/evidence/l5-merge-describe-4ways.txt，6 组真实 L4）显示没有一套方案能兼得「主题 + 定位」：A(≤25字) 标识 0%；B(不限+保标识) 69.6% 但平均 138 字退化成两轮拼接；C(用户给的通用二次浓缩=已实现的 prompt) 26.1% 且输出是 `Txxx：... Txxx：...` 逐轮复述而非合并主题；D(流程主线型) 0%。结构原因：逐条粒度下两条 L4 常常没有共同主题，硬造主题只能丢信息或复述。\n\n【⚠️ 已撤回的两条错误论据（用户纠正）】①「短 L4 纯亏本、每条花一次调用」——错。N=20 批量下 20 条共用一次调用，短条摊薄到 1/20；且 148 条中 56 条短条（约 40 字符）合计仅占总量的 10%，长条（38 条 × 约 500 字符）才是体积大头（>400 字符档压缩率 0.53）。②「900 次调用、44 分钟」——错。那是逐条探针的数据；N=20 批量实为 900/20=45 批，实测 31s/69s 每批 → 约 25–50 分钟后台。批量方案的成本可接受。\n\n【仍成立的存疑】只有「描述质量」一条：C 方案输出是逐轮复述而非主题合并，26.1% 标识保留。但此条也被削弱——新实现里 L5 已并入 lvl>=3 整段原文召回，描述不精确的代价由 recall 兜住（定位信息丢了可以召回原文）。\n\n【处置裁定】维持现状观察，不立即废 L5。理由：①存疑仅剩描述质量且被 recall 兜底；②L5 是极低频路径（本项目至今 0 次触发，需 L4 层超 40k ≈ 900 条 turn），无实证数据支撑决策。下次真实触发时应拿 /compress-dump 直接看 L5 描述质量，用实证取代推断。\n\n【三个候选处置】①维持现状（当前）②废掉 L5、L4 终态（删 recompressBatched/渲染分支/merged 字段，约 -100 行，顺带消失 M4/M5/P3 三个 bug 与数据坟墓问题）③L5 不生成描述、直接显示组内 L4 内容。\n\n【证据索引】docs/evidence/l5-merge-describe-4ways.{txt,json}（四方案 6 组全文 + A/B 同组对照重跑）；docs/evidence/l5-promptC-{batch,cases,per-turn}.{txt,json}（批量为 0.492 压缩率、逐条 0.625、合并 0.43）；docs/superpowers/specs/2026-09-27-l5-per-turn-recompress-design.md + l5-requirements.md。",
+      "status": "进行中",
+      "date": "2026-09-27",
+      "updatedAt": "2026-09-28T03:29:34.365Z",
+      "source": "用户裁定「维持现状观察」+ 探针结果",
+      "locked": false
+    },
+    {
+      "id": "task-013",
+      "table": "tasks",
+      "text": "Codex P1 修复：片段切分拆散并行工具调用组（孤儿 toolResult）——a2c4b97 待合并",
+      "detail": "Codex 外部审查在 fix/inflight-parallel-toolcall 之前提出的 P1，已复现并修复（commit a2c4b97，分支 fix/inflight-parallel-toolcall，未合并 main）。\n\n【问题】planInflightTrim（src/assembler.ts）片段切分边界修正会拆散并行工具调用组。\n根因：旧代码只检查「末尾是否为带 toolCall 的 assistant」，且吃到第一条 toolResult 就 break。\n两条触发路径：①停在 assistant(A,B) 上 → 吃 result(A) → break → B 悬空；②累加循环直接停在 result(A) 上 → endsOnToolCall 为 false → 修正循环一次都不进 → B 悬空。\n第 ② 条更隐蔽：只要并行调用组被从中间切开就必然断链，与末尾消息类型无关。Codex 描述的是路径 ①，实际影响面更宽。\n\n【后果】片段落盘后 coveredIdx 覆盖前缀被裁，裁剪视图剩「无对应 toolCall 的 toolResult」——孤儿结果，破坏 OpenAI/Anthropic 消息配对契约，模型接口可能直接拒绝请求（400）。\n\n【修复】从「检查末尾消息类型」改为「检查未闭合 toolCall ID 集合」：openToolCallIds(from,to) 扫片段内 toolCall（add b.id）与 toolResult（delete toolCallId）精确配对，集合非空则继续向后吃直到全闭。比依赖消息顺序假设更精确。\n\n【复现 fixture】user + assistant(toolCall c1,c2) + result(c1) + result(c2) + assistant(c3) + result(c3)，预算 2100 tok（溢出量极小，只需切 20 tok）→ 旧实现片段 = [a1,r1]，c2 悬空。\n\n【验证】新增 2 测试（片段闭合全部 toolCall / 装配后无孤儿 toolResult）；全量 369 passed / 1 skipped（367→369），tsc 干净；变异测试去掉闭合修正 → 2 failed，还原 → 全绿。工作区除 .pi-compress 外干净。",
+      "status": "进行中",
+      "date": "2026-09-29",
+      "updatedAt": "2026-09-29T03:36:59.645Z",
+      "source": "Codex P1 审查 + 用户裁定「按建议」开分支修",
+      "locked": false
     }
   ],
   "seq": {
     "prefs": 0,
     "feedback": 0,
-    "tasks": 11
+    "tasks": 13
   }
 }
