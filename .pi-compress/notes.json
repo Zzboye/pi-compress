@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nextId": 16,
+  "nextId": 18,
   "prefs": [
     {
       "id": "pref-001",
@@ -165,11 +165,33 @@
       "updatedAt": "2026-09-30T03:26:52.443Z",
       "source": "Codex P1 审查 + 用户裁定「按建议」开分支修",
       "locked": false
+    },
+    {
+      "id": "task-014",
+      "table": "tasks",
+      "text": "Codex P2 属实并修复：L5 批量调用异常隔离（d619261），推送待网络",
+      "detail": "根因：L4→L5 执行段（src/degrade.ts）里 recompressBatched 裸调用无 try/catch。backend.complete 抛错（HTTP 503 / 网络中断 / 超时）时异常冒泡出整个 run()，循环中断 → 本轮所有后续批次连同之后的降级都不执行。\n\n异常隔离此前只覆盖两处：compressEnds（L3→L4，index.ts/degrade.ts 早有 try/catch）与 recompressOne（单条重跑）。唯独承载主要调用量的批量路径漏了 —— 又一次「接管职责但没接全」的同型失效（参见 fb-001）。\n\n后果精确口径：不是崩进程（run() 的调用方 index.ts degradeAfterSettleSafe 有 .catch，显示「降级失败」warning），而是本轮 L5 及后续层级全部跳过，需等下一轮 session 事件重试；数据保留 L4 不丢。\n\n修复（commit d619261，分支 fix/l5-batch-error-isolation 已 ff 合并 main）：\n- 批调用包 try/catch，异常时本批全部保持 L4 + warning（提示批次条数），continue 处理下一批\n- 失败语义与既有单条失败一致：保持 L4、下轮重试、不整批重试\n\n测试 +1（构造 21 条 L4 → L5_BATCH_SIZE=20 分两批；第一批抛 HTTP 503，断言第二批照常升 L5 并写描述、首批 20 条保持 L4 且无 merged、产生 L5 warning）。变异验证有效（去掉 try/catch → HTTP 503 冒泡，1 failed）。374 passed / 1 skipped，tsc exit 0。\n\n推送状态：网络不通（connection reset / port 443 连不上），本地 main=d619261 领先 origin=c67d2da 1 个 commit，恢复后 git push origin main。",
+      "status": "进行中",
+      "date": "2026-09-30",
+      "updatedAt": "2026-09-30T07:42:16.287Z",
+      "source": "Codex P2 审查 + commit d619261",
+      "locked": false
+    },
+    {
+      "id": "task-015",
+      "table": "tasks",
+      "text": "Codex P1 属实并修复：覆盖守卫补强（校验 ledger 终点 + 区间内 extras），364a72f；推送待网络",
+      "detail": "根因：07797b3 加的覆盖率守卫只判断「turn 是否存在 ledger」（按 turnStartEntryId 建 Set），未校验覆盖终点，也未纳入非 message 条目。两个缺口均复现：\n\n(1) 覆盖终点：SummarizerEngine.enqueue 按 turnStartEntryId 去重（src/summarizer.ts:35），同 turn 不再重新摘要，ledger.turnEndEntryId 停在入队时刻的末尾。其后同 turn 追加的新条目（新回复）未被摘要覆盖。守卫只看起点 → 通过 → 新回复被压缩区间吞掉。\n(2) 区间内 extras：custom_message / branch_summary 不是 message 条目、不在 ledgers 中，但 pi 会转成 user 消息参与上下文（即 bba4d6a 修的 P2）。守卫完全没检查 → 普通 turn 都有 ledger 时插件接管压缩 → 扩展消息被遗漏并随区间裁掉。\n\n真实数据评估（120 个会话）：\n- 缺口 (1) 终点落后：0 次发生（理论场景，防御性修复，零成本）\n- 缺口 (2) 含 extras 的会话：**5 个**（当前会话 37 条 extras，首个下标 79，其前 67 条 message）→ 确有落入压缩区间的现实可能\n\n修复（commit 364a72f，分支 fix/compact-coverage-guard-v2 已 ff 合并 main）：\n守卫改为三段校验，任一不满足即 return undefined 让位原生压缩：\n- (1) 区间内每个 turn 必须有 ledger（原逻辑）\n- (2) ledger.turnEndEntryId 须抵达该 turn 在区间内的最后一条 entry（取 < cutIdx 成员的最大索引比对）\n- (3) 用 branch 全量顺序定位 extras（不在 entries 中，不能用 idxById），以 firstKeptEntryId 在全量 branch 的下标为界\n\n关键实现细节：extras 的位置判定必须用 getBranch() 全量顺序，因为 toMessageEntries 会过滤掉它们 —— 第一次实现漏了这点，测试 P1(b) 仍红，改用 branch.findIndex 后转绿。\n\n测试 +2（376 passed / 1 skipped），两个变异（分别注掉终点检查/ extras 检查）各自 1 failed，还原全绿。\n\n推送状态：网络不通（上一 commit d619261 同批待推），本地领先 origin 2 个 commit（d619261 + 364a72f）。",
+      "status": "进行中",
+      "date": "2026-09-30",
+      "updatedAt": "2026-09-30T08:07:10.125Z",
+      "source": "Codex P1 审查 + commit 364a72f",
+      "locked": false
     }
   ],
   "seq": {
     "prefs": 1,
     "feedback": 1,
-    "tasks": 13
+    "tasks": 15
   }
 }
