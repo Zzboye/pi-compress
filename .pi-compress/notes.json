@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "nextId": 18,
+  "nextId": 19,
   "prefs": [
     {
       "id": "pref-001",
@@ -187,11 +187,22 @@
       "updatedAt": "2026-09-30T08:07:10.125Z",
       "source": "Codex P1 审查 + commit 364a72f",
       "locked": false
+    },
+    {
+      "id": "task-016",
+      "table": "tasks",
+      "text": "Codex P2 属实并修复：dump 与真实上下文对齐（抽 buildLeadingMessages 共享），28b94a4 已推送",
+      "detail": "根因：bba4d6a 修 P2 时给 context 事件恢复了 custom_message / branch_summary（装配路径），但 /compress-dump 未同步：\n  const { entries: branch, compaction } = compactionAwareEntries(...)   // 漏了 contextExtras\n  dumpContext(branch, cache, config, new Date(), notesStore, compaction) // 未传\n结果：实际请求含扩展消息、dump 不含 → 审计与排查失真。\n\n结构性根因：dumpContext 复制了 context 事件的装配逻辑而非复用，compaction 文案甚至是双份内联实现（dump.ts 的 COMPACTION_WRAP 与 index.ts 的模板字面量）。这是第二次同型偏差（第一次 T106 compaction）；dump.ts 里「单一真相：dump 与 context 事件调用完全相同的...」注释与事实不符。\n\n修复（采纳 Codex 建议「复用同一套完整装配逻辑」，治本）commit 28b94a4，分支 fix/dump-extras-parity 已 ff 合并 main：\n- util.ts 新增 buildLeadingMessages(compaction, contextExtras, now)：单一真相，顺序 compaction 摘要 → custom_message（原样）→ branch_summary（包裹）；包裹文案内联为 COMPACTION_SUMMARY_WRAP / BRANCH_SUMMARY_WRAP\n- index.ts context 事件：删内联 leading 构建，改调 buildLeadingMessages\n- dump.ts：删自己的 COMPACTION_WRAP 与内联 unshift，改调 buildLeadingMessages；dumpContext 加 contextExtras 参数（缺省 []，无 extras 时逐字节不变）\n- index.ts /compress-dump：解构并透传 contextExtras\n\n验证：377 passed / 1 skipped，tsc 干净；新增单测（extras 随 dump 带出 + 变异验证有效）；真实数据端到端 5 个含 extras 会话（extras 共 35 条），dump 与 context 事件前导装配逐条一致、消息总数一致。\n\n推送状态：已推送（28b94a4 上远程），本地=远程。",
+      "status": "已完成",
+      "date": "2026-09-30",
+      "updatedAt": "2026-09-30T08:20:24.446Z",
+      "source": "Codex P2 审查 + commit 28b94a4",
+      "locked": false
     }
   ],
   "seq": {
     "prefs": 1,
     "feedback": 1,
-    "tasks": 15
+    "tasks": 16
   }
 }
