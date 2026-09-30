@@ -1,8 +1,29 @@
 {
   "schema": 1,
-  "nextId": 14,
-  "prefs": [],
-  "feedback": [],
+  "nextId": 16,
+  "prefs": [
+    {
+      "id": "pref-001",
+      "table": "prefs",
+      "text": "用户授权：认为有价值的信息直接写入项目记忆，不必逐次询问",
+      "detail": "用户原话：「记住我的选择：你认为有用的可以直接记，不用询问我」。含义：notes 的写入决策由我自行判断（记什么、何时记、是否合并），不再每次追加前征求同意。仍然遵守既有约束：不记可从代码库推导的内容（架构、文件路径）、语义重复用 update 合并而非 append。",
+      "updatedAt": "2026-09-30T03:26:41.296Z",
+      "source": "用户原话「记住我的选择：你认为有用的可以直接记，不用询问我」",
+      "locked": false
+    }
+  ],
+  "feedback": [
+    {
+      "id": "fb-001",
+      "table": "feedback",
+      "text": "外部审查（Codex）P1/P2 的失效模式高度一致：「接管了 pi 的职责但没接全」——修复时应沿同一函数的全部分支路径核对",
+      "detail": "本轮两次 Codex 审查（P1 覆盖率、P2 context extras）+ 早前 T108 的 P1（compaction 摘要被丢）三者同源：\n1. T108：插件接管消息装配，但只手工恢复了 sessionEntryToContextMessages 四个分支中的 compaction 一类 → custom_message / branch_summary 一直丢失（P2 直到本次才被发现）。\n2. P1：插件接管 session_before_compact 摘要提交，但只检查「队列空 + 有日志」，未校验待压缩区间是否全被 ledger 覆盖 → 未覆盖区间内容两头落空。\n3. P2：同 T108，同一函数分支覆盖不全。\n\n有效做法：修复「接管 pi 职责」类 bug 时，先把被接管函数（如 sessionEntryToContextMessages、buildContextEntries）的源码全文读完，逐分支列清单对照，而不是只排查报告症状点。P2 的定性证据来自 pi 源码里 CustomMessageEntry 的注释「Unlike CustomEntry, this DOES participate in LLM context」——读源码注释比读文档更可靠。\n\n另：变异测试在本轮两次修复中都有效（去掉修复即红），是验证测试非恒真的低成本手段，继续用。",
+      "date": "2026-09-30",
+      "updatedAt": "2026-09-30T03:26:41.297Z",
+      "source": "Codex P1/P2 审查与本轮修复过程（commit 07797b3、bba4d6a）",
+      "locked": false
+    }
+  ],
   "tasks": [
     {
       "id": "task-001",
@@ -137,18 +158,18 @@
     {
       "id": "task-013",
       "table": "tasks",
-      "text": "Codex P1 修复：片段切分拆散并行工具调用组（孤儿 toolResult）——a2c4b97 待合并",
-      "detail": "Codex 外部审查在 fix/inflight-parallel-toolcall 之前提出的 P1，已复现并修复（commit a2c4b97，分支 fix/inflight-parallel-toolcall，未合并 main）。\n\n【问题】planInflightTrim（src/assembler.ts）片段切分边界修正会拆散并行工具调用组。\n根因：旧代码只检查「末尾是否为带 toolCall 的 assistant」，且吃到第一条 toolResult 就 break。\n两条触发路径：①停在 assistant(A,B) 上 → 吃 result(A) → break → B 悬空；②累加循环直接停在 result(A) 上 → endsOnToolCall 为 false → 修正循环一次都不进 → B 悬空。\n第 ② 条更隐蔽：只要并行调用组被从中间切开就必然断链，与末尾消息类型无关。Codex 描述的是路径 ①，实际影响面更宽。\n\n【后果】片段落盘后 coveredIdx 覆盖前缀被裁，裁剪视图剩「无对应 toolCall 的 toolResult」——孤儿结果，破坏 OpenAI/Anthropic 消息配对契约，模型接口可能直接拒绝请求（400）。\n\n【修复】从「检查末尾消息类型」改为「检查未闭合 toolCall ID 集合」：openToolCallIds(from,to) 扫片段内 toolCall（add b.id）与 toolResult（delete toolCallId）精确配对，集合非空则继续向后吃直到全闭。比依赖消息顺序假设更精确。\n\n【复现 fixture】user + assistant(toolCall c1,c2) + result(c1) + result(c2) + assistant(c3) + result(c3)，预算 2100 tok（溢出量极小，只需切 20 tok）→ 旧实现片段 = [a1,r1]，c2 悬空。\n\n【验证】新增 2 测试（片段闭合全部 toolCall / 装配后无孤儿 toolResult）；全量 369 passed / 1 skipped（367→369），tsc 干净；变异测试去掉闭合修正 → 2 failed，还原 → 全绿。工作区除 .pi-compress 外干净。",
-      "status": "进行中",
+      "text": "Codex P1+P2 均确认属实并修复推送（07797b3 覆盖不全让位原生压缩 / bba4d6a 保留 custom_message 与 branch_summary）",
+      "detail": "两次 Codex 审查修复均已推送 main（bba4d6a）。\n\n**P1（07797b3）上下文重建覆盖不全仍接管原生压缩**\n根因：session_before_compact 提交摘要前只检查「队列空 + ledgers 非空」，未校验 firstKeptEntryId 之前的 turn 是否全被 ledger 覆盖。ledgersInBranchOrder 只收 store 里有 ledger 的 turn，无 ledger 的旧 turn（摘要失败/补摘受限/未落盘片段）内容既不在提交的摘要、也不在保留区 → 静默丢失。\n修复：提交前加覆盖率守卫——firstKeptEntryId 之前的所有 turn 必须在 covered 集合中，否则 return undefined 让位 pi 原生压缩。用 idxById 建一次索引避免 O(n²)；firstKeptEntryId 不在 branch 时保守让位。\n真实语料评估：2026-09-12 会话 230 turn，无 ledger 仅 2 个（0.9%），其中一个在 55% 处会真实触发。\n测试 +2（P1 复现断言必须 undefined；覆盖完整时仍接管）。\n\n**P2（bba4d6a）丢失 custom_message / branch_summary**\n根因：compactionAwareEntries 调 pi 的 buildContextEntries 做压缩感知裁剪后只保留 type === \"message\"，丢弃 custom_message 与 branch_summary。但 pi 的 sessionEntryToContextMessages 有四个分支（message/custom_message/branch_summary/compaction），本插件 messages 由 assembleContext 自建、不经 pi 转换 → 两类消失。T108 修 compaction 被丢时只恢复了四分支之一，另两类一直缺失。\n决策依据：pi 源码 CustomMessageEntry 类型注释「Unlike CustomEntry, this DOES participate in LLM context」。\n修复：CompactionAwareResult 新增 contextExtras 字段按 branch 顺序带出两类；index.ts 装配时重建为 user 消息，顺序 compaction 摘要 → custom_message（内容原样）→ branch_summary（BRANCH_SUMMARY_PREFIX/SUFFIX 包裹，文案从 pi core/messages.js 逐字取、内联）。三者合并后一次 unshift。选择插在最前：装配后消息列表已重组，原始相对位置无法对应。\n影响面：query/recall 与 dump 只用 .entries，语义不变；无 extras 时 leading 为空，装配输出逐字节不变。\n测试 +2（端到端断言两类文本出现含 pi 包裹前缀；单测 contextExtras 按序）。\n\n验证：373 passed / 1 skipped，tsc exit 0，两次变异测试均有效（去掉修复即红）。本地=远程=bba4d6a，工作区干净。",
+      "status": "已完成",
       "date": "2026-09-29",
-      "updatedAt": "2026-09-29T03:36:59.645Z",
+      "updatedAt": "2026-09-30T03:26:52.443Z",
       "source": "Codex P1 审查 + 用户裁定「按建议」开分支修",
       "locked": false
     }
   ],
   "seq": {
-    "prefs": 0,
-    "feedback": 0,
+    "prefs": 1,
+    "feedback": 1,
     "tasks": 13
   }
 }
