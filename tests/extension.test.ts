@@ -1470,6 +1470,79 @@ describe("extension entry wiring", () => {
     }
   });
 
+  it("P1 复现：部分区间无 ledger 时，提交的摘要不得声称代表未覆盖内容", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-compactgap-"));
+    try {
+      fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, ".pi", "settings.json"),
+        JSON.stringify({ contextCompress: { summarizer: { kind: "registry", provider: "FakeBig", model: "big" }, backfillLimit: 0 } }),
+      );
+      const { handlers } = harness();
+      // T1（u0/b0）无 ledger（摘要失败/未补摘）；T2（u1/b1）有 ledger
+      const t2Ledger = mkLedger({ turnStartEntryId: "u1", turnEndEntryId: "b1", level: 1 });
+      const branch: any[] = [
+        { id: "u0", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "关键需求：保留 Redis 兼容层" }] } },
+        { id: "b0", parentId: "u0", type: "message", message: { role: "assistant", content: [{ type: "text", text: "好的" }] } },
+        { id: "u1", parentId: "b0", type: "message", message: { role: "user", content: [{ type: "text", text: "继续" }] } },
+        { id: "b1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "完成" }] } },
+        { id: "lg1", parentId: "b1", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: t2Ledger },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: () => {}, setStatus: () => {} },
+        sessionManager: { getBranch: () => branch },
+      };
+      await handlers.session_start({}, fakeCtx);
+      // pi 要压掉 u0/b0/u1/b1（firstKeptEntryId = u1 → T2 在保留区）
+      const result = await handlers.session_before_compact(
+        { preparation: { firstKeptEntryId: "u1", tokensBefore: 1000 } },
+        fakeCtx,
+      );
+      // T1（u0/b0）无 ledger → 区间未被完整覆盖 → 必须让位 pi 原生压缩（undefined）。
+      // 若返回摘要，则它声称代表 u1 之前的一切，而 T1（「保留 Redis 兼容层」）既不在
+      // 摘要也不在保留区 → 静默丢失。
+      expect(result).toBeUndefined();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("覆盖完整时仍接管：firstKeptEntryId 之前的 turn 全有 ledger → 提交摘要", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-compactfull-"));
+    try {
+      fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, ".pi", "settings.json"),
+        JSON.stringify({ contextCompress: { summarizer: { kind: "registry", provider: "FakeBig", model: "big" }, backfillLimit: 0 } }),
+      );
+      const { handlers } = harness();
+      const t1Ledger = mkLedger({ turnStartEntryId: "u0", turnEndEntryId: "b0", level: 1 });
+      const branch: any[] = [
+        { id: "u0", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+        { id: "b0", parentId: "u0", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+        { id: "lg0", parentId: "b0", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: t1Ledger },
+        { id: "u1", parentId: "lg0", type: "message", message: { role: "user", content: [{ type: "text", text: "继续" }] } },
+        { id: "b1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "完成" }] } },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: () => {}, setStatus: () => {} },
+        sessionManager: { getBranch: () => branch },
+      };
+      await handlers.session_start({}, fakeCtx);
+      const result = await handlers.session_before_compact(
+        { preparation: { firstKeptEntryId: "u1", tokensBefore: 1000 } },
+        fakeCtx,
+      );
+      expect(result).toBeTruthy(); // 覆盖完整 → 照常接管
+      expect(result!.compaction!.summary).toContain("<action-ledger>");
+      expect(result!.compaction!.firstKeptEntryId).toBe("u1");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
     it("context：无超大 turn → 行为逐字节不变", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-noinflight-"));
     try {

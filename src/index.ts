@@ -297,6 +297,18 @@ export default function (pi: ExtensionAPI): void {
     const lastTurn = turns[turns.length - 1];
     if (lastTurn) ledgers.push(...collectFragmentEntries(lastTurn, store).map((f) => f.ledger));
     if (ledgers.length === 0) return undefined;
+    // 覆盖完整性守卫（Codex P1）：本钩子提交的 summary 将代表 firstKeptEntryId 之前的全部历史。
+    // 若该区间内存在无 ledger 的 turn（摘要失败 / 补摘受限 / 未落盘的片段），其内容既不在
+    // 提交的摘要里、也不在保留区（被 firstKeptEntryId 裁掉）→ 静默丢失。此时交还 pi 原生压缩
+    // （质量可能差但不丢内容），与"pending>0 让位"同一安全取向。
+    const covered = new Set(ledgers.map((l) => l.turnStartEntryId));
+    const firstKeptId = event.preparation.firstKeptEntryId;
+    const cutIdx = entries.findIndex((e) => e.id === firstKeptId);
+    // 索引一次建表（entries 可达上千条，避免逐 turn 线性查找成 O(n²)）；
+    // firstKeptEntryId 不在 branch 中（理论不发生）→ 无法判定区间，保守让位。
+    const idxById = new Map(entries.map((e, i) => [e.id, i] as const));
+    const beforeCut = cutIdx < 0 ? null : turns.filter((t) => (idxById.get(t.startEntryId) ?? Number.MAX_SAFE_INTEGER) < cutIdx);
+    if (beforeCut === null || beforeCut.some((t) => !covered.has(t.startEntryId))) return undefined;
     const ledgerMsg = renderActionLedger(ledgers);
     const text = ((ledgerMsg as any).content as any[]).map((c: any) => c.text ?? "").join("");
     return {
