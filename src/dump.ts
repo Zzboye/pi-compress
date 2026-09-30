@@ -5,13 +5,14 @@
  */
 import fs from "node:fs";
 import { join } from "node:path";
-import { countTokens, splitIntoTurns, type MessageEntry, type Turn } from "./util.js";
+import { countTokens, splitIntoTurns, buildLeadingMessages, type MessageEntry, type Turn } from "./util.js";
 import type { ContextCompressConfig } from "./config.js";
 import { assembleContext, findWindowTurns, planInflightTrim, turnTokens, type AssembleStats } from "./assembler.js";
 import type { LedgerData } from "./ledger.js";
 import { applyNotesInjection } from "./index.js";
 import type { NoteStore } from "./notes.js";
 import type { AgentMessage } from "./types.js";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export interface DumpMessage {
   index: number;
@@ -112,11 +113,7 @@ function dumpTurns(turns: Turn[], window: Turn[], cache: Map<string, LedgerData>
   });
 }
 
-/** pi compactionSummary→user 的包裹文案（core/messages.js 未从主包导出，内联同款；漂移只影响观感） */
-const COMPACTION_WRAP = (summary: string) =>
-  `The conversation history before this point was compacted into the following summary:\n\n<summary>\n${summary}\n</summary>`;
-
-/** 单一真相：dump 与 context 事件调用完全相同的 assembleContext + findWindowTurns + applyNotesInjection + compaction 摘要恢复 */
+/** 单一真相：dump 与 context 事件调用完全相同的 assembleContext + findWindowTurns + applyNotesInjection + buildLeadingMessages */
 export function dumpContext(
   branch: MessageEntry[],
   cache: Map<string, LedgerData>,
@@ -124,18 +121,15 @@ export function dumpContext(
   now: Date = new Date(),
   notesStore?: NoteStore | null,
   compaction?: { summary: string; tokensBefore: number } | null,
+  contextExtras: SessionEntry[] = [],
 ): ContextDump {
   const plan = planInflightTrim(branch, cache, config.keepRecentTokens);
   // dump 是只读视图：不 enqueue fragment（那是 context 事件的副作用），只做同口径裁剪与渲染
   const { messages, stats } = assembleContext(plan.trimmedBranch, cache, config.keepRecentTokens, plan.extraLedgers);
-  if (compaction) {
-    // compaction 口径与 context 事件一致（缺此步 dump 会缺首条压缩摘要消息）
-    messages.unshift({
-      role: "user",
-      content: [{ type: "text", text: COMPACTION_WRAP(compaction.summary) }],
-      timestamp: now.getTime(),
-    } as any);
-  }
+  // 前置上下文条目（compaction 摘要 + custom_message + branch_summary）与 context 事件共用
+  // buildLeadingMessages（单一真相）；缺此步 dump 会缺首条压缩摘要/扩展消息，消息数比真实请求少
+  const leading = buildLeadingMessages(compaction ?? null, contextExtras, now.getTime());
+  if (leading.length > 0) messages.unshift(...leading);
   // 注入口径与 context 事件一致（applyNotesInjection 内部判定 enabled/notesStore/空表）：
   // 缺此步会导致 dump 缺首条项目记忆块、消息数比真实请求少 1（17.md 实测暴露）
   applyNotesInjection(messages, notesStore ?? null, config);

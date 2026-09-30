@@ -275,6 +275,21 @@ describe("dumpContext 与 context 事件口径一致（notes 注入）", () => {
     }
   });
 
+  it("dump 与 context 事件口径一致：contextExtras（custom_message / branch_summary）随 dump 带出（Codex P2）", () => {
+    const branch = [msg("a", "user", "q"), msg("b", "assistant", "a")];
+    const extras: any[] = [
+      { id: "cm1", type: "custom_message", customType: "my-ext", content: [{ type: "text", text: "扩展注入的指令ABC" }] },
+      { id: "bs1", type: "branch_summary", summary: "上一个分支摘要内容XYZ", fromId: "x" },
+    ];
+    const dump = dumpContext(branch, new Map(), DEFAULT_CONFIG, new Date(), null, null, extras);
+    // 两条 extras 各重建为一条 user 消息，插在最前（顺序同入参）
+    expect(dump.messages.length).toBe(4); // 2 extras + 窗口原文×2
+    expect(dump.messages[0].text).toContain("扩展注入的指令ABC");
+    expect(dump.messages[1].text).toContain("上一个分支摘要内容XYZ");
+    expect(dump.messages[1].text).toContain("<summary>"); // branch_summary 带 pi 同款包裹
+    expect(dump.messages[2].text).toContain("q"); // 窗口原文跟在前置条目之后
+  });
+
   it("不传 notesStore（缺省参数）行为不变", () => {
     const branch = [msg("a", "user", "q"), msg("b", "assistant", "a")];
     const dump = dumpContext(branch, new Map(), { ...DEFAULT_CONFIG, projectNotes: { enabled: true, path: "x.json", maxTokens: 0 } });

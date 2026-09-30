@@ -22,7 +22,7 @@ import {
 import { executeRecallDual, searchLedger, formatSearchResult, type RecallImage } from "./recall.js";
 import { dumpContext, writeContextDump, defaultDumpBase } from "./dump.js";
 import { enforceForcePoint } from "./forcepoint.js";
-import { compactionAwareEntries, countTokens, splitIntoTurns, type MessageEntry } from "./util.js";
+import { compactionAwareEntries, countTokens, splitIntoTurns, buildLeadingMessages, type MessageEntry } from "./util.js";
 import { computeBackfillTurns } from "./backfill.js";
 import { DegradeEngine } from "./degrade.js";
 import { renderActionLedger, LEDGER_CUSTOM_TYPE, type LedgerData } from "./ledger.js";
@@ -228,33 +228,9 @@ export default function (pi: ExtensionAPI): void {
       engine.enqueue(plan.fragment);
     }
     const { messages, stats } = assembleContext(plan.trimmedBranch, cache, config.keepRecentTokens, plan.extraLedgers);
-    // 前置上下文条目按 pi 顺序恢复在最前：compaction 摘要 → custom_message → branch_summary
-    // （Codex P2：pi 的 sessionEntryToContextMessages 会把这三类都转成 user 消息参与
-    //  LLM 上下文；本插件自建 messages 不经它，故必须显式重建，否则静默丢失。）
-    const leading: AgentMessage[] = [];
-    if (compaction) {
-      // pi 原生压缩摘要恢复：包裹文案与 pi 的 compactionSummary→user 转换同款
-      // （core/messages.js COMPACTION_SUMMARY_PREFIX/SUFFIX，未从主包导出故内联；漂移只影响观感）
-      leading.push({
-        role: "user",
-        content: [{ type: "text", text: `The conversation history before this point was compacted into the following summary:\n\n<summary>\n${compaction.summary}\n</summary>` }],
-        timestamp: Date.now(),
-      } as AgentMessage);
-    }
-    for (const e of contextExtras) {
-      if (e.type === "custom_message") {
-        const c = e as Extract<typeof e, { type: "custom_message" }>;
-        const content = typeof c.content === "string" ? [{ type: "text", text: c.content }] : (c.content ?? []);
-        leading.push({ role: "user", content, timestamp: Date.now() } as AgentMessage);
-      } else if (e.type === "branch_summary" && e.summary) {
-        // 包裹文案与 pi 的 branchSummary→user 转换同款（core/messages.js BRANCH_SUMMARY_*）
-        leading.push({
-          role: "user",
-          content: [{ type: "text", text: `The following is a summary of a branch that this conversation came back from:\n\n<summary>\n${e.summary}</summary>` }],
-          timestamp: Date.now(),
-        } as AgentMessage);
-      }
-    }
+    // 前置上下文条目按 pi 顺序恢复在最前（compaction 摘要 → custom_message → branch_summary）。
+    // 装配逻辑与 /compress-dump 共用 buildLeadingMessages（单一真相，避免同型漏改第三次）。
+    const leading = buildLeadingMessages(compaction, contextExtras);
     if (leading.length > 0) messages.unshift(...leading);
     applyNotesInjection(messages, notesStore, config); // 项目记忆块插在 ledger 头之前
     lastStats = stats;
@@ -536,15 +512,15 @@ export default function (pi: ExtensionAPI): void {
         ctx.ui.notify("context-compress: 未配置（无 contextCompress.summarizer），无从转储装配口径", "warning");
         return;
       }
-      // 与 context 事件同口径：compaction 感知裁剪 + 摘要恢复
-      const { entries: branch, compaction } = compactionAwareEntries(ctx.sessionManager.getBranch());
+      // 与 context 事件同口径：compaction 感知裁剪 + 前置条目（摘要 / 扩展消息）恢复
+      const { entries: branch, compaction, contextExtras } = compactionAwareEntries(ctx.sessionManager.getBranch());
       if (branch.length === 0) {
         ctx.ui.notify("context-compress: 会话为空，无上下文可转储", "warning");
         return;
       }
       const cache = new Map<string, LedgerData>();
       for (const k of store.keys()) { const v = store.get(k); if (v) cache.set(k, v); }
-      const dump = dumpContext(branch, cache, config, new Date(), notesStore, compaction);
+      const dump = dumpContext(branch, cache, config, new Date(), notesStore, compaction, contextExtras);
       const base = args.trim() ? args.trim() : defaultDumpBase(ctx.cwd);
       const [mdPath, jsonPath] = writeContextDump(dump, base);
       const d = dump.stats;

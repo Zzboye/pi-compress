@@ -6,6 +6,56 @@ import type { LedgerQuote } from "./ledger.js";
 
 export interface MessageEntry { id: string; message: AgentMessage }
 
+/** pi compactionSummary→user 的包裹文案（core/messages.js 未从主包导出，内联同款；漂移只影响观感） */
+const COMPACTION_SUMMARY_WRAP = (summary: string): string =>
+  `The conversation history before this point was compacted into the following summary:\n\n<summary>\n${summary}\n</summary>`;
+
+/**
+ * pi branchSummary→user 的包裹文案（core/messages.js 未从主包导出，内联同款）。
+ * 注意 pi 原实现此处 </summary> 前无换行，逐字保持一致。
+ */
+const BRANCH_SUMMARY_WRAP = (summary: string): string =>
+  `The following is a summary of a branch that this conversation came back from:\n\n<summary>\n${summary}</summary>`;
+
+/**
+ * 前置上下文消息装配（单一真相，Codex P2 修复）：context 事件与 /compress-dump 共用。
+ * pi 的 sessionEntryToContextMessages 会把 compaction 摘要、custom_message、branch_summary
+ * 都转成 user 消息参与 LLM 上下文，顺序同 branch。本插件 messages 由 assembleContext 自建、
+ * 不经 pi 转换，故必须显式重建；否则静默丢失（816a95b 修装配路径，364a86a 修压缩提交路径，
+ * 本次统一为单点避免第三次）。
+ *
+ * 顺序：compaction 摘要 → custom_message（内容原样）→ branch_summary（包裹）。
+ * 返回空数组表示无前置条目（绝大多数会话）——调用方应保持「不 unshift」以逐字节不变。
+ */
+export function buildLeadingMessages(
+  compaction: CompactionAwareResult["compaction"],
+  contextExtras: SessionEntry[],
+  now: number = Date.now(),
+): AgentMessage[] {
+  const leading: AgentMessage[] = [];
+  if (compaction) {
+    leading.push({
+      role: "user",
+      content: [{ type: "text", text: COMPACTION_SUMMARY_WRAP(compaction.summary) }],
+      timestamp: now,
+    } as AgentMessage);
+  }
+  for (const e of contextExtras) {
+    if (e.type === "custom_message") {
+      const c = e as Extract<typeof e, { type: "custom_message" }>;
+      const content = typeof c.content === "string" ? [{ type: "text", text: c.content }] : (c.content ?? []);
+      leading.push({ role: "user", content, timestamp: now } as AgentMessage);
+    } else if (e.type === "branch_summary" && e.summary) {
+      leading.push({
+        role: "user",
+        content: [{ type: "text", text: BRANCH_SUMMARY_WRAP(e.summary) }],
+        timestamp: now,
+      } as AgentMessage);
+    }
+  }
+  return leading;
+}
+
 export interface Turn { startEntryId: string; endEntryId: string; entries: MessageEntry[]; /** 溢出片段伪 turn：无 userMessage/finalReply 语义 */ isFragment?: boolean }
 
 /**
