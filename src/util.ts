@@ -20,6 +20,14 @@ export interface CompactionAwareResult {
   entries: MessageEntry[];
   /** pi 原生压缩摘要（含插件经 session_before_compact 提交的文本）；无 compaction 时为 null */
   compaction: { summary: string; tokensBefore: number } | null;
+  /**
+   * 其余参与 LLM 上下文的非 message 条目（Codex P2 修复）：`custom_message` 与
+   * `branch_summary`。pi 的 `sessionEntryToContextMessages` 把它们分别转成 user 消息
+   * （扩展指令原样、分支摘要加 BRANCH_SUMMARY 包裹），但在本插件里 messages 由
+   * `assembleContext` 自建、不经 pi 的转换，故必须显式带出，否则静默丢失。
+   * 顺序与 branch 一致，供上层按序插入。
+   */
+  contextExtras: SessionEntry[];
 }
 
 export function compactionAwareEntries(branch: SessionEntry[]): CompactionAwareResult {
@@ -34,7 +42,10 @@ export function compactionAwareEntries(branch: SessionEntry[]): CompactionAwareR
   const messages = entries
     .filter((e): e is Extract<SessionEntry, { type: "message" }> => e.type === "message")
     .map((e) => ({ id: e.id, message: e.message }));
-  return { entries: messages, compaction };
+  // custom_message / branch_summary 参与 LLM 上下文（pi 会转成 user 消息），但我们自建
+  // messages，不走 pi 的转换，必须单独带出。compaction 已在上面提取，不重复带入。
+  const contextExtras = entries.filter((e) => e.type === "custom_message" || e.type === "branch_summary");
+  return { entries: messages, compaction, contextExtras };
 }
 
 // ============================================================================

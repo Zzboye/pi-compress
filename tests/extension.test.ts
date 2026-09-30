@@ -1083,6 +1083,48 @@ describe("extension entry wiring", () => {
       expect(joined).toContain("压缩后的新提问");
     });
 
+    it("context 事件：custom_message 与 branch_summary 不丢（Codex P2）", async () => {
+      const { handlers } = harness();
+      // 分支：分支摘要入口 → 扩展指令 → 普通消息
+      const branch = [
+        { id: "bs1", parentId: null, type: "branch_summary", fromId: "root-abc", summary: "上一个分支摘要内容XYZ" },
+        { id: "cm1", parentId: "bs1", type: "custom_message", customType: "my-ext", content: "扩展注入的指令ABC", display: true },
+        { id: "u1", parentId: "cm1", type: "message", message: { role: "user", content: [{ type: "text", text: "普通提问" }] } },
+        { id: "a1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "普通回答" }] } },
+      ] as any[];
+      const fakeCtx: any = {
+        cwd: "/nonexistent-pi-compress-test",
+        ui: { notify: () => {}, setStatus: () => {} },
+        getContextUsage: () => ({ tokens: 1000, contextWindow: 200_000 }),
+        sessionManager: { getBranch: () => branch },
+      };
+      await handlers.session_start({}, fakeCtx);
+      const result = await handlers.context({}, fakeCtx);
+      const texts = (result!.messages ?? []).map((m: any) =>
+        (m.content ?? []).map((c: any) => c.text ?? "").join(""),
+      );
+      const joined = texts.join("\n---\n");
+      // 扩展指令必须进上下文（pi 的 sessionEntryToContextMessages 会把它转成 user 消息）
+      expect(joined).toContain("扩展注入的指令ABC");
+      // 分支摘要必须进上下文（pi 加 BRANCH_SUMMARY_PREFIX/SUFFIX 包裹）
+      expect(joined).toContain("上一个分支摘要内容XYZ");
+      expect(joined).toContain("summary of a branch that this conversation came back from");
+    });
+
+    it("compactionAwareEntries 保留 custom_message/branch_summary 条目类型", () => {
+      const branch = [
+        { id: "bs1", parentId: null, type: "branch_summary", fromId: "root-abc", summary: "分支摘要XYZ" },
+        { id: "cm1", parentId: "bs1", type: "custom_message", customType: "my-ext", content: "扩展指令ABC", display: true },
+        { id: "u1", parentId: "cm1", type: "message", message: { role: "user", content: [{ type: "text", text: "提问" }] } },
+      ] as any[];
+      const helpers = compactionAwareEntries(branch);
+      // 消息侧仍只含 type==="message"（供装配/拆分 turn 使用）
+      expect(helpers.entries.map((e) => e.id)).toEqual(["u1"]);
+      // 但非消息上下文条目必须被单独带出，不得静默丢弃
+      const extras = helpers.contextExtras;
+      expect(extras.map((e) => e.type)).toEqual(["branch_summary", "custom_message"]);
+    });
+
     it("compress-dump 与 context 事件同口径（含 compaction）", async () => {
       const { handlers, commands } = harness();
       const notifyCalls: string[] = [];

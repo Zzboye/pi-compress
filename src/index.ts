@@ -199,7 +199,7 @@ export default function (pi: ExtensionAPI): void {
     // 装配数据源：compaction 感知（见 util.compactionAwareEntries）——pi 原生压缩后的
     // firstKeptEntryId 之前旧历史不回归，摘要以 user 消息恢复在最前（统一规则：
     // pi 生成的摘要恢复信息；插件提交的 ledger 文本本身带 ↩ID，pre-compaction 内容照常可 recall）
-    const { entries, compaction } = compactionAwareEntries(ctx.sessionManager.getBranch());
+    const { entries, compaction, contextExtras } = compactionAwareEntries(ctx.sessionManager.getBranch());
     if (entries.length === 0) return;
 
     const usage = ctx.getContextUsage();
@@ -228,15 +228,34 @@ export default function (pi: ExtensionAPI): void {
       engine.enqueue(plan.fragment);
     }
     const { messages, stats } = assembleContext(plan.trimmedBranch, cache, config.keepRecentTokens, plan.extraLedgers);
+    // 前置上下文条目按 pi 顺序恢复在最前：compaction 摘要 → custom_message → branch_summary
+    // （Codex P2：pi 的 sessionEntryToContextMessages 会把这三类都转成 user 消息参与
+    //  LLM 上下文；本插件自建 messages 不经它，故必须显式重建，否则静默丢失。）
+    const leading: AgentMessage[] = [];
     if (compaction) {
       // pi 原生压缩摘要恢复：包裹文案与 pi 的 compactionSummary→user 转换同款
       // （core/messages.js COMPACTION_SUMMARY_PREFIX/SUFFIX，未从主包导出故内联；漂移只影响观感）
-      messages.unshift({
+      leading.push({
         role: "user",
         content: [{ type: "text", text: `The conversation history before this point was compacted into the following summary:\n\n<summary>\n${compaction.summary}\n</summary>` }],
         timestamp: Date.now(),
       } as AgentMessage);
     }
+    for (const e of contextExtras) {
+      if (e.type === "custom_message") {
+        const c = e as Extract<typeof e, { type: "custom_message" }>;
+        const content = typeof c.content === "string" ? [{ type: "text", text: c.content }] : (c.content ?? []);
+        leading.push({ role: "user", content, timestamp: Date.now() } as AgentMessage);
+      } else if (e.type === "branch_summary" && e.summary) {
+        // 包裹文案与 pi 的 branchSummary→user 转换同款（core/messages.js BRANCH_SUMMARY_*）
+        leading.push({
+          role: "user",
+          content: [{ type: "text", text: `The following is a summary of a branch that this conversation came back from:\n\n<summary>\n${e.summary}</summary>` }],
+          timestamp: Date.now(),
+        } as AgentMessage);
+      }
+    }
+    if (leading.length > 0) messages.unshift(...leading);
     applyNotesInjection(messages, notesStore, config); // 项目记忆块插在 ledger 头之前
     lastStats = stats;
     const estimated = messages.reduce((s, m) => s + countTokens(m as any, { skipThinking: true }), 0);
