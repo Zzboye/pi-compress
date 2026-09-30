@@ -23,12 +23,14 @@ export class SummarizerEngine {
   // 构造签名按测试与 index.ts/integration.test.ts 的调用约定（4 个位置参数），
   // 而非计划原稿的 `constructor(private deps: EngineDeps)`（单对象）——后者与所有调用方不匹配。
   // fallback（第 5 参，可选）：主后端溢出或重试耗尽时接管的备用后端。
+  // lastResort（第 6 参，可选）：主 + 备用都重试耗尽后的最终兜底（通常为当前会话模型）。
   constructor(
     private backend: SummarizerBackend,
     private config: ContextCompressConfig,
     private onLedger: (d: LedgerData) => void,
     private onWarning: (m: string) => void,
     private fallback?: SummarizerBackend,
+    private lastResort?: SummarizerBackend,
   ) {}
 
   enqueue(turn: Turn): void {
@@ -88,45 +90,40 @@ export class SummarizerEngine {
       this.enqueued.delete(turn.startEntryId); // 完成，允许后续新 turn 同名场景入队（防御）
     };
 
-    // 主后端：溢出类错误（prompt 超出主模型上下文）且配有备用时立即切换，不烧完退避重试；
-    // 其他错误按既有策略重试，耗尽后转备用（若有）。
-    let primaryErr: unknown;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await summarize(this.backend);
-        return;
-      } catch (err) {
-        primaryErr = err;
-        if (this.fallback && isContextOverflow(err)) break; // 太大 → 直接换大模型
-        if (attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, backoffMs * 2 ** (attempt - 1)));
+    // 三级链路（配置的主后端 → 配置的备用后端 → 当前会话模型最终兜底）：
+    // 主后端溢出类错误（prompt 超出主模型上下文）时跳过剩余重试立即下一级；
+    // 其他错误按既有策略重试，耗尽后转下一级。
+    const stages: Array<{ backend: SummarizerBackend; label: string }> = [{ backend: this.backend, label: "主后端" }];
+    if (this.fallback) stages.push({ backend: this.fallback, label: "备用后端" });
+    if (this.lastResort) stages.push({ backend: this.lastResort, label: "最终兜底模型" });
+
+    const errors: Array<{ label: string; raw: string }> = [];
+    for (let s = 0; s < stages.length; s++) {
+      const { backend, label } = stages[s];
+      const isLast = s === stages.length - 1;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          await summarize(backend);
+          return;
+        } catch (err) {
+          errors.push({ label, raw: String(err) });
+          // 溢出类错误且有下一级：立即切换（不烧完退避重试）
+          if (!isLast && isContextOverflow(err)) break;
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, backoffMs * 2 ** (attempt - 1)));
+          }
         }
       }
     }
 
-    if (!this.fallback) {
-      this.enqueued.delete(turn.startEntryId); // 失败出队：后续 session_start 补摘可重试
-      this.failedTurns.add(turn.startEntryId);
-      this.onWarning(`context-compress: turn ${turn.startEntryId} 摘要失败（${String(primaryErr)}），保留原文`);
-      return;
-    }
-
-    // 备用后端：同一 retry 策略；备用也失败才标记 unsummarized
-    let fallbackErr: unknown;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        await summarize(this.fallback);
-        return;
-      } catch (err) {
-        fallbackErr = err;
-        if (attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, backoffMs * 2 ** (attempt - 1)));
-        }
-      }
-    }
     this.enqueued.delete(turn.startEntryId); // 失败出队：后续 session_start 补摘可重试
     this.failedTurns.add(turn.startEntryId);
-    this.onWarning(`context-compress: turn ${turn.startEntryId} 摘要失败（主后端 ${String(primaryErr)}；备用后端也失败 ${String(fallbackErr)}），保留原文`);
+    // 警告文案：仅主后端（无备用/无兜底）时报原始错误（与旧契约逐字一致）；
+    // 多级时逐级列出（含“备用”字样，兼容旧断言）
+    const detail = stages.length === 1
+      ? (errors[0]?.raw ?? "")
+      : errors.map((e) => `${e.label} ${e.raw}`).join("；");
+    this.onWarning(`context-compress: turn ${turn.startEntryId} 摘要失败（${detail}），保留原文`);
   }
 }
 
@@ -135,15 +132,31 @@ export function createRegistryBackend(ctx: { modelRegistry: any }, ref: { provid
     async complete(prompt, signal) {
       const model = ctx.modelRegistry.find(ref.provider, ref.model);
       if (!model) throw new Error(`model ${ref.provider}/${ref.model} not found`);
-      const response = await ctx.modelRegistry.complete(
-        model,
-        { messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }] },
-        // maxTokens 16384：大 turn 的详尽 ledger 实测 ~7.4k tok；4096 会在 finish_reason=length 处截断 JSON
-        { maxTokens: 16384, signal, cacheRetention: "none" },
-      );
-      return response.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
+      return completeWithModel(ctx, model, prompt, signal);
     },
   };
+}
+
+/**
+ * 直接用已解析的 Model 对象调后端（最终兜底：当前会话模型由 pi 以 ctx.model 注入，
+ * 已是 Model 对象，无需再经 modelRegistry.find(provider, id) 回查）。
+ */
+export function createRegistryModelBackend(ctx: { modelRegistry: any }, model: any): SummarizerBackend {
+  return {
+    async complete(prompt, signal) {
+      return completeWithModel(ctx, model, prompt, signal);
+    },
+  };
+}
+
+async function completeWithModel(ctx: { modelRegistry: any }, model: any, prompt: string, signal?: AbortSignal): Promise<string> {
+  const response = await ctx.modelRegistry.complete(
+    model,
+    { messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }] },
+    // maxTokens 16384：大 turn 的详尽 ledger 实测 ~7.4k tok；4096 会在 finish_reason=length 处截断 JSON
+    { maxTokens: 16384, signal, cacheRetention: "none" },
+  );
+  return response.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n");
 }
 
 export function createOpenAICompatBackend(ref: { baseUrl: string; model: string; apiKey?: string }): SummarizerBackend {

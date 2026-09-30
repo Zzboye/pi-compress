@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { SummarizerEngine } from "../src/summarizer.js";
+import { SummarizerEngine, createRegistryBackend, createRegistryModelBackend } from "../src/summarizer.js";
 import { extractToolActions, serializeTurn, type Turn, type MessageEntry } from "../src/util.js";
 import type { AgentMessage } from "../src/types.js";
 
@@ -216,5 +216,121 @@ describe("SummarizerEngine", () => {
       expect(warnText).toContain("摘要失败");
       expect(warnText).toContain("备用");
     });
+  });
+
+  describe("last-resort backend（最终兜底：当前会话模型）", () => {
+    it("主 + 备用都重试耗尽后，兜底接管并成功", async () => {
+      const { turn, validOutput } = turnFixture();
+      const onLedger = vi.fn(); const onWarning = vi.fn();
+      const primary = { complete: vi.fn().mockRejectedValue(new Error("primary down")) };
+      const fallback = { complete: vi.fn().mockRejectedValue(new Error("fallback down")) };
+      const lastResort = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const engine = new SummarizerEngine(
+        primary, { retry: { maxAttempts: 2, backoffMs: 1 }, verbatimCheck: true } as any,
+        onLedger, onWarning, fallback, lastResort,
+      );
+      engine.enqueue(turn);
+      await engine.waitIdle(5000);
+      expect(primary.complete.mock.calls.length).toBe(2);
+      expect(fallback.complete.mock.calls.length).toBe(2);
+      expect(lastResort.complete.mock.calls.length).toBe(1); // 兜底接管
+      expect(onLedger).toHaveBeenCalledTimes(1);
+      expect(engine.failed().size).toBe(0);
+    });
+
+    it("三级全失败：标记 failed 并列出全部失败原因", async () => {
+      const { turn } = turnFixture();
+      const onLedger = vi.fn(); const onWarning = vi.fn();
+      const primary = { complete: vi.fn().mockRejectedValue(new Error("primary down")) };
+      const fallback = { complete: vi.fn().mockRejectedValue(new Error("fallback down")) };
+      const lastResort = { complete: vi.fn().mockRejectedValue(new Error("lastresort down")) };
+      const engine = new SummarizerEngine(
+        primary, { retry: { maxAttempts: 1, backoffMs: 1 }, verbatimCheck: true } as any,
+        onLedger, onWarning, fallback, lastResort,
+      );
+      engine.enqueue(turn);
+      await engine.waitIdle(5000);
+      expect(lastResort.complete.mock.calls.length).toBe(1);
+      expect(onLedger).not.toHaveBeenCalled();
+      expect(engine.failed().has("u1")).toBe(true);
+      const warnText = onWarning.mock.calls.map((c: any[]) => c[0]).join("\n");
+      expect(warnText).toContain("摘要失败");
+      expect(warnText).toContain("主后端");
+      expect(warnText).toContain("备用后端");
+      expect(warnText).toContain("最终兜底模型");
+    });
+
+    it("未配备用后端时，主后端耗尽后直接转兜底", async () => {
+      const { turn, validOutput } = turnFixture();
+      const onLedger = vi.fn();
+      const primary = { complete: vi.fn().mockRejectedValue(new Error("primary down")) };
+      const lastResort = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const engine = new SummarizerEngine(
+        primary, { retry: { maxAttempts: 1, backoffMs: 1 }, verbatimCheck: true } as any,
+        onLedger, vi.fn(), undefined, lastResort,
+      );
+      engine.enqueue(turn);
+      await engine.waitIdle(5000);
+      expect(primary.complete.mock.calls.length).toBe(1);
+      expect(lastResort.complete.mock.calls.length).toBe(1);
+      expect(onLedger).toHaveBeenCalledTimes(1);
+      expect(engine.failed().size).toBe(0);
+    });
+
+    it("主后端成功时不触碰备用与兜底", async () => {
+      const { turn, validOutput } = turnFixture();
+      const primary = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const fallback = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const lastResort = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const engine = new SummarizerEngine(
+        primary, { retry: { maxAttempts: 3, backoffMs: 1 }, verbatimCheck: true } as any,
+        vi.fn(), vi.fn(), fallback, lastResort,
+      );
+      engine.enqueue(turn);
+      await engine.waitIdle(5000);
+      expect(primary.complete.mock.calls.length).toBe(1);
+      expect(fallback.complete).not.toHaveBeenCalled();
+      expect(lastResort.complete).not.toHaveBeenCalled();
+    });
+
+    it("溢出类错误在主后端即跳过重试，逐级下探到兜底", async () => {
+      const { turn, validOutput } = turnFixture();
+      const primary = { complete: vi.fn().mockRejectedValue(new Error("prompt too long, exceeds context window")) };
+      const fallback = { complete: vi.fn().mockRejectedValue(new Error("HTTP 400")) };
+      const lastResort = { complete: vi.fn().mockResolvedValue(validOutput) };
+      const engine = new SummarizerEngine(
+        primary, { retry: { maxAttempts: 3, backoffMs: 1 }, verbatimCheck: true } as any,
+        vi.fn(), vi.fn(), fallback, lastResort,
+      );
+      engine.enqueue(turn);
+      await engine.waitIdle(5000);
+      expect(primary.complete.mock.calls.length).toBe(1); // 溢出不烧完重试
+      expect(fallback.complete.mock.calls.length).toBe(1);
+      expect(lastResort.complete.mock.calls.length).toBe(1);
+    });
+  });
+});
+
+describe("createRegistryModelBackend（最终兜底后端：直接用 Model 对象）", () => {
+  it("用传入的 Model 对象调 complete，不经 modelRegistry.find 回查", async () => {
+    const model = { provider: "HSFZ", id: "glm-5.3-flash" };
+    const complete = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "ok" }] });
+    const find = vi.fn(() => { throw new Error("不应调用 find"); });
+    const backend = createRegistryModelBackend({ modelRegistry: { find, complete } as any }, model);
+    const out = await backend.complete("hi");
+    expect(out).toBe("ok");
+    expect(find).not.toHaveBeenCalled();
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(complete.mock.calls[0][0]).toBe(model); // 原样传 Model 对象
+  });
+
+  it("createRegistryBackend 仍按 provider/model 回查（旧路径不变）", async () => {
+    const model = { provider: "HSFZ", id: "deepseek-v4-flash" };
+    const complete = vi.fn().mockResolvedValue({ content: [{ type: "text", text: "ok" }] });
+    const find = vi.fn().mockReturnValue(model);
+    const backend = createRegistryBackend({ modelRegistry: { find, complete } as any }, { provider: "HSFZ", model: "deepseek-v4-flash" });
+    await backend.complete("hi");
+    expect(find).toHaveBeenCalledWith("HSFZ", "deepseek-v4-flash");
+    expect(complete).toHaveBeenCalledTimes(1);
   });
 });

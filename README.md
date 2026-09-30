@@ -21,7 +21,7 @@
                   │ agent_settled 事件
                   ▼
         本地模型后台摘要（异步）  ── 失败 → 重试队列（指数退避）
-                  │ onLedger              │ 溢出/重试耗尽 → 备用大模型接管（若配置）
+                  │ onLedger              │ 溢出/重试耗尽 → 备用后端 → 当前会话模型兜底
                   │ 持续失败 → 保留原文（passthrough）
                   ▼
         动作日志落盘（CustomEntry，不进 LLM 上下文，↩entryId 标记可召回）
@@ -75,7 +75,9 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 
     // 备用后端（可选）：主后端装不下（prompt 超出主模型上下文）或重试耗尽时接管。
     // 典型配置：主用本地小模型，备用配大上下文模型（本地大模型或云端 API）。
+    // 未配置备用时，失败后直接进最终兜底。
     // "summarizerFallback": { "provider": "HSFZ", "model": "glm-5.3-flash" },
+    // 最终兜底（无需配置）：主后端 + 备用后端都失败后，用当前会话模型（ctx.model）再试一次。
 
     "verbatimCheck": true,
     "keepRecentTokens": 20000,
@@ -104,7 +106,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 | 字段 | 默认值 | 范围 | 说明 |
 |---|---|---|---|
 | `summarizer` | `undefined` | — | 摘要后端。`undefined` = 插件只观察不压缩。`{provider,model}` 用 pi 注册表；`{baseUrl,model[,apiKey]}` 用 OpenAI 兼容直连 |
-| `summarizerFallback` | `undefined` | — | 备用摘要后端，形态与 `summarizer` 相同。主后端报**上下文溢出类错误**（HTTP 400/413、exceeds context 等，即 turn 太大主模型装不下）时**立即切换**（不烧退避重试）；其他错误重试耗尽后也转备用。备用也失败才标记 unsummarized（原文照发）。**选型注意：必须选大窗口且可关闭思考的模型**——强制思考型模型（如 ark 上的 glm-5.3-flash）的思考会吃满 `maxTokens` 输出预算导致 JSON 恒定截断；deepseek 系需在 `models.json` 给模型加 `"compat": {"thinkingFormat": "deepseek"}` 才会随请求发送 `thinking: {type:"disabled"}` |
+| `summarizerFallback` | `undefined` | — | 备用摘要后端，形态与 `summarizer` 相同。主后端报**上下文溢出类错误**（HTTP 400/413、exceeds context 等，即 turn 太大主模型装不下）时**立即切换**（不烧退避重试）；其他错误重试耗尽后也转备用。备用也失败后由**最终兜底**（当前会话模型，`ctx.model`）再试一次；三级全失败才标记 unsummarized（原文照发）。**选型注意：必须选大窗口且可关闭思考的模型**——强制思考型模型（如 ark 上的 glm-5.3-flash）的思考会吃满 `maxTokens` 输出预算导致 JSON 恒定截断；deepseek 系需在 `models.json` 给模型加 `"compat": {"thinkingFormat": "deepseek"}` 才会随请求发送 `thinking: {type:"disabled"}` |
 | `verbatimCheck` | `true` | bool | 逐字校验：摘要条目里的路径/命令必须在对话原文中出现，否则剔除（防小模型编造） |
 | `keepRecentTokens` | `20000` | 1000–1000000 | 近期窗口大小（tokens），窗口内 turn 原文保留。**计量口径**：CJK 感知估算（中文/日文/韩文字符 ≈ 1 tok/字，其余 ≈ 1 tok/4 字符，见 `util.countTokens`）；assistant 消息剥离 thinking 块后计（窗口发给 LLM 时同样剥离，纯 thinking 消息整条丢弃）——思考是过程噪声，不挤占有效输出预算。**也是进行中 turn 的溢出切分阈值**：单个 turn 原文超过该值时，溢出部分切成 ledger 条目提前摘要与降级（见已知限制） |
 | `forceRatio` | `0.76` | 0.1–0.99 | 上下文用量超过此比例触发强制点（等待队列清空后重组） |
@@ -180,6 +182,7 @@ mklink /J "C:\Users\You\.pi\agent\extensions\context-compress" "D:\Pi\pi-compres
 计量校准：估算 ~15340 tok · 真实 18920 tok（差值含 system prompt/工具定义/模板开销）
 摘要后端：{"kind":"registry","provider":"ollama","model":"qwen3:8b"}
 备用后端：{"kind":"registry","provider":"HSFZ","model":"glm-5.3-flash"}（主后端溢出/重试耗尽时接管）
+最终兜底：HSFZ/glm-5.3-flash（当前会话模型；主 + 备用都失败后接管）
 ```
 
 - **已摘要 turn 数** / **队列积压** / **失败未摘**：摘要进度与健康度。
@@ -210,7 +213,7 @@ recall({ query: "forceRatio" })             → 命中索引（不返回原文�
 
 `query` 与 `ids` 可同传（先搜索再取回，两段结果拼接）。搜索在 LedgerData 全量字段（用户原话/最终回复逐字全文、动作 target+detail、L5 二次压缩描述 merged.description）上做大小写不敏感子串匹配，零模型调用。检索范围 = 日志头实际渲染的 ledger（窗外已替换 turn + 进行中片段），因此命中行的 `T` 编号与日志头严格一致；窗口内 turn 的内容原文在场，模型无需检索其陈旧 ledger 副本。
 - **计量校准**：最近一次装配的「估算（CJK 感知）vs 真实 usage」并排对比。差值 = system prompt + 工具定义 + 模板开销 + 估算误差；长期稳定偏差即可推出校准系数，供后续自动校准参考。
-- **摘要后端** / **备用后端**：当前生效的后端配置；未配置时显示 `未配置`。
+- **摘要后端** / **备用后端** / **最终兜底**：当前生效的后端配置；备用未配置时显示 `未配置`，最终兜底显示当前会话模型（`provider/id`），模型未知时显示 `无（当前模型未知）`。
 
 ## 项目记忆
 
@@ -282,7 +285,7 @@ src/
 ├── index.ts        扩展入口：事件接线、recall 工具注册、/compress-status 与 /compress-dump 命令
 ├── dump.ts         /compress-dump 转储：Markdown+JSON 渲染与写盘（复用 assembleContext）
 ├── config.ts       配置解析（全局 + 项目级合并，字段校验与默认值）
-├── summarizer.ts   摘要后端调用（registry / OpenAI 兼容直连）、重试、备用切换、thinking 剥离
+├── summarizer.ts   摘要后端调用（registry / OpenAI 兼容直连）、重试、备用与最终兜底切换、thinking 剥离
 ├── prompts.ts      摘要 prompt 与 JSON schema（扁平 entries：每条带 id 序号——同 target 不同动作靠 id 区分，无 id 旧格式按 target 轮转兼容；模型只标注 phase，顺序由系统按机械清单时间序归位；意图/结果由系统机械保存）
 ├── ledger.ts       动作日志渲染（用户原话/最终回复逐字引用 + 工具动作摘要）
 ├── assembler.ts    上下文重组：近期窗口 + 动作日志头

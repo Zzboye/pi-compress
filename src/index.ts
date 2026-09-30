@@ -16,6 +16,7 @@ import { LedgerStore, collectFragmentEntries, collectFragmentKeys, type SessionE
 import {
   SummarizerEngine,
   createRegistryBackend,
+  createRegistryModelBackend,
   createOpenAICompatBackend,
   type SummarizerBackend,
 } from "./summarizer.js";
@@ -115,6 +116,11 @@ export default function (pi: ExtensionAPI): void {
     // 备用后端：主后端溢出（prompt 超出主模型上下文）或重试耗尽时接管（典型：主用本地小模型，备用配大上下文模型）
     const fallback: SummarizerBackend | undefined =
       config.summarizerFallback ? makeBackend(ctx, config.summarizerFallback) : undefined;
+    // 最终兜底：配置的主 + 备用都失效后，用当前会话模型再试（ctx.model 由 pi 注入；
+    // 缺失时不给兜底，保持旧行为）。直接传 Model 对象，不经 find 回查。
+    const lastResort: SummarizerBackend | undefined = ctx.model
+      ? createRegistryModelBackend(ctx, ctx.model)
+      : undefined;
     const onLedger = (d: LedgerData) => {
       store.set(d);
       try { (ctx.sessionManager as unknown as { appendCustomEntry(t: string, d: unknown): void }).appendCustomEntry(LEDGER_CUSTOM_TYPE, d); } catch { /* 持久化失败不影响内存缓存 */ }
@@ -127,6 +133,7 @@ export default function (pi: ExtensionAPI): void {
       onLedger,
       (m) => ctx.ui.notify(m, "warning"),
       fallback,
+      lastResort,
     );
   };
 
@@ -554,6 +561,7 @@ export default function (pi: ExtensionAPI): void {
       `计量校准：${lastCalibration ? `估算 ~${lastCalibration.estimated} tok · 真实 ${lastCalibration.actual} tok（差值含 system prompt/工具定义/模板开销）` : "无记录"}`,
         `摘要后端：${config?.summarizer ? JSON.stringify(config.summarizer) : "未配置（插件未接管）"}`,
         `备用后端：${config?.summarizerFallback ? `${JSON.stringify(config.summarizerFallback)}（主后端溢出/重试耗尽时接管）` : "未配置"}`,
+        `最终兜底：${ctx.model ? `${(ctx.model as any).provider}/${(ctx.model as any).id}（当前会话模型；主 + 备用都失败后接管）` : "无（当前模型未知）"}`,
       ];
       ctx.ui.notify(lines.join("\n"), "info");
     },

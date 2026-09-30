@@ -101,6 +101,31 @@ describe("extension entry wiring", () => {
     expect(out).toContain("降级状态");
   });
 
+  it("compress-status 显示最终兜底为当前会话模型（ctx.model）", async () => {
+    const { commands } = harness();
+    const notifyCalls: string[] = [];
+    const fakeCtx: any = {
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+      model: { provider: "HSFZ", id: "glm-5.3-flash" },
+    };
+    await commands["compress-status"].handler("", fakeCtx);
+    const out = notifyCalls.join("\n");
+    expect(out).toContain("最终兜底");
+    expect(out).toContain("HSFZ/glm-5.3-flash");
+  });
+
+  it("compress-status 在 ctx.model 缺失时显示兜底不可用", async () => {
+    const { commands } = harness();
+    const notifyCalls: string[] = [];
+    const fakeCtx: any = {
+      ui: { notify: (m: string) => notifyCalls.push(m), setStatus: () => {} },
+    };
+    await commands["compress-status"].handler("", fakeCtx);
+    const out = notifyCalls.join("\n");
+    expect(out).toContain("最终兜底");
+    expect(out).toContain("当前模型未知");
+  });
+
   it("runDegrade: 按 branch 时间序降级，硬下界保留区覆盖最新 turn，窗口内不参与降级", async () => {
     // 回归背景：entry ID 非时间递增，旧实现按 localeCompare 字典序取 ledgers，
     // 导致保留区落在随机位置、最新 turn 反被降级。此处 entry ID 字典序与时间序完全相反，
