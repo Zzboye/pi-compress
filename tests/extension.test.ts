@@ -1550,6 +1550,82 @@ describe("extension entry wiring", () => {
     }
   });
 
+  it("P1(a) 复现：ledger 只覆盖 turn 起点不够——终点之后的新条目未被摘要覆盖时须让位", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-compactend-"));
+    try {
+      fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, ".pi", "settings.json"),
+        JSON.stringify({ contextCompress: { summarizer: { kind: "registry", provider: "FakeBig", model: "big" }, backfillLimit: 0 } }),
+      );
+      const { handlers } = harness();
+      // T1 的 ledger 记录 turnEndEntryId = b0（摘要入队时刻的末尾）
+      const t1Ledger = mkLedger({ turnStartEntryId: "u0", turnEndEntryId: "b0", level: 1 });
+      // 但该 turn 后来长出了新条目 b0b（同 turn 内追加回复）——ledger 未覆盖它
+      const branch: any[] = [
+        { id: "u0", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+        { id: "b0", parentId: "u0", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+        { id: "b0b", parentId: "b0", type: "message", message: { role: "assistant", content: [{ type: "text", text: "追加的关键回复：接口密钥为 X" }] } },
+        { id: "lg0", parentId: "b0b", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: t1Ledger },
+        { id: "u1", parentId: "lg0", type: "message", message: { role: "user", content: [{ type: "text", text: "继续" }] } },
+        { id: "b1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "完成" }] } },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: () => {}, setStatus: () => {} },
+        sessionManager: { getBranch: () => branch },
+      };
+      await handlers.session_start({}, fakeCtx);
+      // pi 要压掉 u0/b0/b0b（firstKeptEntryId = u1 → 上述全部在压缩区间）
+      const result = await handlers.session_before_compact(
+        { preparation: { firstKeptEntryId: "u1", tokensBefore: 1000 } },
+        fakeCtx,
+      );
+      // ledger 只覆盖到 b0，b0b（含「接口密钥为 X」）未被覆盖 → 必须让位原生压缩。
+      expect(result).toBeUndefined();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("P1(b) 复现：区间内含 custom_message 时，插件不得接管压缩（extras 会丢失）", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-compactextra-"));
+    try {
+      fs.mkdirSync(path.join(dir, ".pi"), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, ".pi", "settings.json"),
+        JSON.stringify({ contextCompress: { summarizer: { kind: "registry", provider: "FakeBig", model: "big" }, backfillLimit: 0 } }),
+      );
+      const { handlers } = harness();
+      const t1Ledger = mkLedger({ turnStartEntryId: "u0", turnEndEntryId: "b0", level: 1 });
+      const branch: any[] = [
+        { id: "u0", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "第一问" }] } },
+        { id: "b0", parentId: "u0", type: "message", message: { role: "assistant", content: [{ type: "text", text: "第一答" }] } },
+        { id: "lg0", parentId: "b0", type: "custom", customType: LEDGER_CUSTOM_TYPE, data: t1Ledger },
+        // 扩展注入的上下文消息（pi 会转成 user 消息参与 LLM 上下文）
+        { id: "cm1", parentId: "lg0", type: "custom_message", customType: "my-ext", content: [{ type: "text", text: "扩展注入的指令ABC" }] },
+        { id: "u1", parentId: "cm1", type: "message", message: { role: "user", content: [{ type: "text", text: "继续" }] } },
+        { id: "b1", parentId: "u1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "完成" }] } },
+      ];
+      const fakeCtx: any = {
+        cwd: dir,
+        ui: { notify: () => {}, setStatus: () => {} },
+        sessionManager: { getBranch: () => branch },
+      };
+      await handlers.session_start({}, fakeCtx);
+      // pi 要压掉 u0/b0/cm1（firstKeptEntryId = u1）→ cm1 落在压缩区间内
+      const result = await handlers.session_before_compact(
+        { preparation: { firstKeptEntryId: "u1", tokensBefore: 1000 } },
+        fakeCtx,
+      );
+      // 所有普通 turn 都有 ledger（守卫会通过），但 cm1 既不在 ledgers 渲染的摘要里、
+      // 也不在保留区 → 若接管就会静默丢失扩展消息。必须让位。
+      expect(result).toBeUndefined();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("覆盖完整时仍接管：firstKeptEntryId 之前的 turn 全有 ledger → 提交摘要", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-compress-compactfull-"));
     try {

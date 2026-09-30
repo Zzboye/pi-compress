@@ -320,14 +320,47 @@ export default function (pi: ExtensionAPI): void {
     // 若该区间内存在无 ledger 的 turn（摘要失败 / 补摘受限 / 未落盘的片段），其内容既不在
     // 提交的摘要里、也不在保留区（被 firstKeptEntryId 裁掉）→ 静默丢失。此时交还 pi 原生压缩
     // （质量可能差但不丢内容），与"pending>0 让位"同一安全取向。
-    const covered = new Set(ledgers.map((l) => l.turnStartEntryId));
+    // 覆盖完整性守卫（Codex P1，含 2026-09-30 补强 a/b）：本钩子提交的 summary 将代表
+    // firstKeptEntryId 之前的全部历史。三种情形会让区间内容既不在提交的摘要里、也不在保留区
+    // （被 firstKeptEntryId 裁掉）→ 静默丢失，此时交还 pi 原生压缩（质量可能差但不丢内容），
+    // 与"pending>0 让位"同一安全取向：
+    //   (1) 区间内存在无 ledger 的 turn（摘要失败 / 补摘受限 / 未落盘的片段）；
+    //   (2) 有 ledger 但只覆盖了 turn 起点——ledger 的 turnEndEntryId 之后该 turn 又长了新条目
+    //       （摘要入队后追加的回复），新条目未被摘要覆盖；
+    //   (3) 区间内含 custom_message / branch_summary——这些不是 message 条目、不在 ledgers 里，
+    //       但 pi 会把它们转成 user 消息参与上下文，被裁掉即丢失。
     const firstKeptId = event.preparation.firstKeptEntryId;
     const cutIdx = entries.findIndex((e) => e.id === firstKeptId);
     // 索引一次建表（entries 可达上千条，避免逐 turn 线性查找成 O(n²)）；
     // firstKeptEntryId 不在 branch 中（理论不发生）→ 无法判定区间，保守让位。
     const idxById = new Map(entries.map((e, i) => [e.id, i] as const));
-    const beforeCut = cutIdx < 0 ? null : turns.filter((t) => (idxById.get(t.startEntryId) ?? Number.MAX_SAFE_INTEGER) < cutIdx);
-    if (beforeCut === null || beforeCut.some((t) => !covered.has(t.startEntryId))) return undefined;
+    let incomplete = cutIdx < 0;
+    if (!incomplete) {
+      // (1)(2)：按 turnStartEntryId 取 ledger，并校验其覆盖终点是否抵达该 turn 在区间内的末尾
+      const byStart = new Map(ledgers.map((l) => [l.turnStartEntryId, l] as const));
+      for (const t of turns) {
+        const sIdx = idxById.get(t.startEntryId);
+        if (sIdx === undefined || sIdx >= cutIdx) continue; // 仅在压缩区间内校验
+        const l = byStart.get(t.startEntryId);
+        if (!l) { incomplete = true; break; }                                   // (1)
+        // 该 turn 在区间内的末尾：取所有 < cutIdx 的成员里最后一条
+        let lastIdx = sIdx;
+        for (const e of t.entries) { const i = idxById.get(e.id); if (i !== undefined && i < cutIdx) lastIdx = i; }
+        if ((idxById.get(l.turnEndEntryId) ?? -1) < lastIdx) { incomplete = true; break; } // (2)
+      }
+      // (3)：区间内的 extras（pi 会转为 user 消息，不在 ledgers 中）。
+      // 注意：extras 不是 message 条目、不在 entries（=toMessageEntries 过滤结果）里，
+      // 故需用 branch 全量顺序定位其相对位置。以 firstKeptEntryId 在全量 branch 的下标为界。
+      if (!incomplete) {
+        const branch = ctx.sessionManager.getBranch();
+        const cutIdxAll = branch.findIndex((e) => e.id === firstKeptId);
+        incomplete = branch.some((e, i) => {
+          if (e.type !== "custom_message" && e.type !== "branch_summary") return false;
+          return cutIdxAll < 0 ? true : i < cutIdxAll;
+        });
+      }
+    }
+    if (incomplete) return undefined;
     const ledgerMsg = renderActionLedger(ledgers);
     const text = ((ledgerMsg as any).content as any[]).map((c: any) => c.text ?? "").join("");
     return {
