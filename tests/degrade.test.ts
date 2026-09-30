@@ -220,6 +220,33 @@ describe("DegradeEngine", () => {
     expect(warnings.some((w) => w.includes("L5"))).toBe(true);
   });
 
+  it("L5 批量调用异常被隔离：首批抛错不阻断后续批次（Codex P2）", async () => {
+    const warnings: string[] = [];
+    let call = 0;
+    const backend: Backend = {
+      complete: async () => {
+        call++;
+        if (call === 1) throw new Error("HTTP 503"); // 第一批抛错
+        return JSON.stringify({ items: [{ index: 1, description: "后续批次描述" }] });
+      },
+    };
+    const engine = new DegradeEngine(
+      backend,
+      { ledgerDegradeThresholdTokens: 100, ledgerReserveTokens: 0 } as any,
+      (d) => {}, (m) => warnings.push(m),
+    );
+    // 21 条 L4 → 第一批 20 条，第二批 1 条
+    const ls = Array.from({ length: 21 }, (_, k) => ledger("t" + k, 4, 50));
+    await engine.run(ls);
+    // 关键：首批异常不得冒泡中断循环——第二批必须被真实发起并完成
+    expect(ls[20].level).toBe(5);
+    expect(ls[20].merged?.description).toBe("后续批次描述");
+    // 首批因异常保持 L4（数据不丢、下次重试）
+    expect(ls.slice(0, 20).every((l) => l.level === 4 && !l.merged)).toBe(true);
+    // 异常产生 warning 而非静默
+    expect(warnings.some((w) => w.includes("L5"))).toBe(true);
+  });
+
   it("片段上限 L3：holdAt3 中的片段停在 L3，同层普通条目照常升 L4", async () => {
     const log: string[] = [];
     // 只有 old 走到 L3→L4 的 compressEnds，故一条响应足够

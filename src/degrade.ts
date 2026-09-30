@@ -134,7 +134,16 @@ export class DegradeEngine {
         .map((s) => byId.get(s.turnStartEntryId)!)
         .filter((m) => m.level === 4);
       if (slice.length === 0) continue;
-      const descs = await recompressBatched(this.backend, slice);
+      // 批次异常隔离（Codex P2）：backend.complete 可能抛错（网络/HTTP 错误、超时）。
+      // 不隔离时一次临时故障会冒泡出整个 run()，阻断本轮所有后续降级（含 L3→L4 之后的批次与
+      // 后续层级）。此处捕获：本批全部保持 L4 + warning，继续处理下一批（数据不丢，下轮重试）。
+      let descs: Array<string | null>;
+      try {
+        descs = await recompressBatched(this.backend, slice);
+      } catch (err) {
+        this.onWarning(`context-compress: L5 批次压缩失败（${String(err)}），本批 ${slice.length} 条保持 L4`);
+        continue;
+      }
       for (let j = 0; j < slice.length; j++) {
         const m = slice[j];
         let desc = descs[j];
